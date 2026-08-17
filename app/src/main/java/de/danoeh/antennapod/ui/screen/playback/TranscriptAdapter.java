@@ -24,7 +24,7 @@ import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
 import org.jsoup.internal.StringUtil;
-
+import android.util.TypedValue;
 public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder> {
     private final SegmentClickListener segmentClickListener;
     private final Context context;
@@ -119,15 +119,28 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
 
     private void highlightViewHolder(TranscriptViewholder holder, boolean highlight) {
         if (highlight) {
-            float density = context.getResources().getDisplayMetrics().density;
-            holder.viewContent.setBackgroundColor(SurfaceColors.getColorForElevation(context, 32 * density));
+            // 当前行：稍大、高亮、加粗、主色调
+            holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
             holder.viewContent.setAlpha(1.0f);
-            holder.viewTimecode.setAlpha(1.0f);
-            holder.viewContent.setAlpha(1.0f);
+            holder.viewContent.setTypeface(null, android.graphics.Typeface.BOLD);
+
+            TypedValue typedValue = new TypedValue();
+            context.getTheme().resolveAttribute(androidx.appcompat.R.attr.colorAccent, typedValue, true);
+            holder.viewContent.setTextColor(typedValue.data);
+
+            holder.viewTimecode.setAlpha(0.8f);
+
         } else {
-            holder.viewContent.setBackgroundColor(ContextCompat.getColor(context, android.R.color.transparent));
-            holder.viewContent.setAlpha(0.5f);
-            holder.viewTimecode.setAlpha(0.5f);
+            // 非当前行：标准字号、淡化、常规字重
+            holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+            holder.viewContent.setAlpha(0.45f);
+            holder.viewContent.setTypeface(null, android.graphics.Typeface.NORMAL);
+
+            TypedValue typedValue = new TypedValue();
+            context.getTheme().resolveAttribute(android.R.attr.textColorPrimary, typedValue, true);
+            holder.viewContent.setTextColor(typedValue.data);
+
+            holder.viewTimecode.setAlpha(0.3f);
         }
     }
 
