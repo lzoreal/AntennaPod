@@ -41,6 +41,7 @@ import de.danoeh.antennapod.ui.screen.playback.PlayButton;
 import de.danoeh.antennapod.ui.screen.playback.SleepTimerDialog;
 import de.danoeh.antennapod.ui.screen.playback.TranscriptDialogFragment;
 import de.danoeh.antennapod.ui.screen.playback.VariableSpeedDialog;
+
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
@@ -74,6 +75,7 @@ import io.reactivex.rxjava3.core.Maybe;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
+import de.danoeh.antennapod.ui.screen.playback.TranscriptPageFragment;
 
 /**
  * Shows the audio player.
@@ -83,7 +85,8 @@ public class AudioPlayerFragment extends Fragment implements
     public static final String TAG = "AudioPlayerFragment";
     public static final int POS_COVER = 0;
     public static final int POS_DESCRIPTION = 1;
-    private static final int NUM_CONTENT_FRAGMENTS = 2;
+    public static final int POS_TRANSCRIPT = 2;   // 新增
+    private static final int NUM_CONTENT_FRAGMENTS = 3;  // 由 2 改为 3
 
     private TextView txtvPlaybackSpeed;
     private ViewPager2 pager;
@@ -286,25 +289,25 @@ public class AudioPlayerFragment extends Fragment implements
             disposable.dispose();
         }
         disposable = Maybe.<FeedMedia>create(emitter -> {
-            FeedMedia media = DBReader.getFeedMedia(PlaybackPreferences.getCurrentlyPlayingFeedMediaId());
-            if (media != null) {
-                if (includingChapters) {
-                    ChapterUtils.loadChapters(media, getContext(), false);
-                }
-                emitter.onSuccess(media);
-            } else {
-                emitter.onComplete();
-            }
-        })
-        .subscribeOn(Schedulers.computation())
-        .observeOn(AndroidSchedulers.mainThread())
-        .subscribe(media -> {
-            currentMedia = media;
-            updateUi();
-            if (media.getChapters() == null && !includingChapters) {
-                loadMediaInfo(true);
-            }
-        }, error -> Log.e(TAG, Log.getStackTraceString(error)));
+                    FeedMedia media = DBReader.getFeedMedia(PlaybackPreferences.getCurrentlyPlayingFeedMediaId());
+                    if (media != null) {
+                        if (includingChapters) {
+                            ChapterUtils.loadChapters(media, getContext(), false);
+                        }
+                        emitter.onSuccess(media);
+                    } else {
+                        emitter.onComplete();
+                    }
+                })
+                .subscribeOn(Schedulers.computation())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(media -> {
+                    currentMedia = media;
+                    updateUi();
+                    if (media.getChapters() == null && !includingChapters) {
+                        loadMediaInfo(true);
+                    }
+                }, error -> Log.e(TAG, Log.getStackTraceString(error)));
     }
 
     private void updateUi() {
@@ -442,7 +445,7 @@ public class AudioPlayerFragment extends Fragment implements
                     sbPosition.highlightCurrentChapter();
                 }
                 txtvSeek.setText(currentMedia.getChapters().get(newChapterIndex).getTitle()
-                                + "\n" + Converter.getDurationStringLong(position));
+                        + "\n" + Converter.getDurationStringLong(position));
             } else {
                 txtvSeek.setText(Converter.getDurationStringLong(position));
             }
@@ -507,8 +510,7 @@ public class AudioPlayerFragment extends Fragment implements
             new SleepTimerDialog().show(getChildFragmentManager(), "SleepTimerDialog");
             return true;
         } else if (itemId == R.id.transcript_item) {
-            new TranscriptDialogFragment().show(
-                    getActivity().getSupportFragmentManager(), TranscriptDialogFragment.TAG);
+            scrollToPage(POS_TRANSCRIPT, true);
             return true;
         } else if (itemId == R.id.open_feed_item) {
             if (feedItem != null) {
@@ -555,8 +557,11 @@ public class AudioPlayerFragment extends Fragment implements
             switch (position) {
                 case POS_COVER:
                     return new CoverFragment();
-                default:
                 case POS_DESCRIPTION:
+                    return new ItemDescriptionFragment();
+                case POS_TRANSCRIPT:
+                    return new TranscriptPageFragment();
+                default:
                     return new ItemDescriptionFragment();
             }
         }
