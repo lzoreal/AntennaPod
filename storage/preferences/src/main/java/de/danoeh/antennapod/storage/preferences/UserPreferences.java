@@ -125,6 +125,7 @@ public abstract class UserPreferences {
     private static final String PREF_FAST_FORWARD_SECS = "prefFastForwardSecs";
     private static final String PREF_REWIND_SECS = "prefRewindSecs";
     private static final String PREF_QUEUE_LOCKED = "prefQueueLocked";
+    public static final String PREF_FLOATING_TRANSCRIPT = "prefFloatingTranscript";
 
     // Experimental
     public static final int EPISODE_CLEANUP_QUEUE = -1;
@@ -912,5 +913,12 @@ public abstract class UserPreferences {
 
     public static void setPrefFilterAllEpisodes(String filter) {
         prefs.edit().putString(PREF_FILTER_ALL_EPISODES, filter).apply();
+    }
+    public static boolean isFloatingTranscriptEnabled() {
+        return prefs.getBoolean(PREF_FLOATING_TRANSCRIPT, false);
+    }
+
+    public static void setFloatingTranscriptEnabled(boolean enabled) {
+        prefs.edit().putBoolean(PREF_FLOATING_TRANSCRIPT, enabled).apply();
     }
 }

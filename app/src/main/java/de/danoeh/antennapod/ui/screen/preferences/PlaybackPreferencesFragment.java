@@ -15,6 +15,10 @@ import de.danoeh.antennapod.ui.screen.feed.preferences.SkipPreferenceDialog;
 import de.danoeh.antennapod.ui.screen.playback.VariableSpeedDialog;
 
 import java.util.Map;
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.Settings;
+import androidx.preference.SwitchPreferenceCompat;
 
 public class PlaybackPreferencesFragment extends AnimatedPreferenceFragment {
     private static final String PREF_PLAYBACK_SPEED_LAUNCHER = "prefPlaybackSpeedLauncher";
@@ -56,8 +60,47 @@ public class PlaybackPreferencesFragment extends AnimatedPreferenceFragment {
         }
 
         buildEnqueueLocationPreference();
+        SwitchPreferenceCompat prefFloatingTranscript = findPreference(UserPreferences.PREF_FLOATING_TRANSCRIPT);
+        if (prefFloatingTranscript != null) {
+            prefFloatingTranscript.setOnPreferenceChangeListener((preference, newValue) -> {
+                boolean enabled = Boolean.TRUE.equals(newValue);
+                if (enabled) {
+                    if (!Settings.canDrawOverlays(requireContext())) {
+                        Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:" + requireContext().getPackageName()));
+                        startActivity(intent);
+                        return false;
+                    }
+                } else {
+                    // ★ 关闭开关时立即停止悬浮窗
+                    Intent stopIntent = new Intent();
+                    stopIntent.setClassName(requireContext().getPackageName(),
+                            "de.danoeh.antennapod.ui.transcript.TranscriptFloatingWindowService");
+                    stopIntent.setAction("de.danoeh.antennapod.action.HIDE_FLOATING_TRANSCRIPT");
+                    requireContext().startService(stopIntent);
+                }
+                UserPreferences.setFloatingTranscriptEnabled(enabled);
+                return true;
+            });
+        }
     }
-
+    @Override
+    public void onResume() {
+        super.onResume();
+        SwitchPreferenceCompat prefFloatingTranscript = findPreference(UserPreferences.PREF_FLOATING_TRANSCRIPT);
+        if (prefFloatingTranscript != null) {
+            if (!Settings.canDrawOverlays(requireContext()) && prefFloatingTranscript.isChecked()) {
+                prefFloatingTranscript.setChecked(false);
+                UserPreferences.setFloatingTranscriptEnabled(false);
+                // ★ 权限被撤销时也要停止
+                Intent stopIntent = new Intent();
+                stopIntent.setClassName(requireContext().getPackageName(),
+                        "de.danoeh.antennapod.ui.transcript.TranscriptFloatingWindowService");
+                stopIntent.setAction("de.danoeh.antennapod.action.HIDE_FLOATING_TRANSCRIPT");
+                requireContext().startService(stopIntent);
+            }
+        }
+    }
     private void buildEnqueueLocationPreference() {
         final Resources res = requireActivity().getResources();
         final Map<String, String> options = new ArrayMap<>();

@@ -848,6 +848,9 @@
     <plurals name="num_subscriptions">
         <item quantity="other">%d 个订阅</item>
     </plurals>
+    <string name="pref_floating_transcript_title">悬浮窗transcript</string>
+    <string name="pref_floating_transcript_summary">当播放时在屏幕最上层显示transcript</string>
+    <string name="pref_floating_transcript_permission">Please grant \"Display over other apps\" permission to use floating transcript</string>
     <string name="archive_feed_label_verb">归档</string>
     <string name="archive_feed_label_noun">归档</string>
     <string name="restore_archive_label">恢复</string>

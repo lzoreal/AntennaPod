@@ -25,6 +25,12 @@
                 android:summary="@string/pref_unpauseOnBluetoothReconnect_sum"
                 android:title="@string/pref_unpauseOnBluetoothReconnect_title"
                 search:ignore="true" />
+
+        <SwitchPreferenceCompat
+            android:key="prefFloatingTranscript"
+            android:title="@string/pref_floating_transcript_title"
+            android:summary="@string/pref_floating_transcript_summary"
+            android:defaultValue="false" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/playback_control">
