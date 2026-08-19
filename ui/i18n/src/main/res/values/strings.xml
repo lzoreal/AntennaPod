@@ -615,6 +615,10 @@
     <string name="pref_global_default_episode_list_sort_order_title">Default sort order</string>
     <string name="pref_global_default_episode_list_sort_order_sum">Choose the default order for episodes on the podcast screen</string>
 
+    <string name="pref_floating_transcript_title">Floating transcript</string>
+    <string name="pref_floating_transcript_summary">Show transcript overlay on top of screen while playing</string>
+    <string name="pref_floating_transcript_permission">Please grant \"Display over other apps\" permission to use floating transcript</string>
+
     <!-- Report bug -->
     <string name="report_bug_title">Report bug</string>
     <string name="report_bug_message">Sorry to hear something isn’t working. We’d love your help to improve AntennaPod. Please check our forum or GitHub to see if the issue has already been reported. If not, let us know and we’ll investigate.</string>
