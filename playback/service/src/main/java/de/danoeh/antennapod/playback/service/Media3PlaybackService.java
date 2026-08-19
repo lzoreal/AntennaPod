@@ -1,8 +1,12 @@
 package de.danoeh.antennapod.playback.service;
 
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.media.audiofx.LoudnessEnhancer;
+import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.util.Log;
 import android.webkit.URLUtil;
 import androidx.annotation.NonNull;
@@ -190,6 +194,10 @@ public class Media3PlaybackService extends MediaLibraryService {
             }
         };
         player.addListener(playerListener);
+        // ★ 添加：恢复时如果已经在播放，启动悬浮窗
+        if (player != null && player.isPlaying() && currentPlayable != null) {
+            startFloatingTranscript(currentPlayable.getId());
+        }
         mediaSession = new MediaLibraryService.MediaLibrarySession.Builder(this, player, sessionCallback)
                 .setSessionActivity(new MainActivityStarter(this).withOpenPlayer().getPendingIntent())
                 .build();
@@ -197,6 +205,8 @@ public class Media3PlaybackService extends MediaLibraryService {
             keepServiceRunningWhileCasting();
             loadCurrentMediaWhileCasting();
         }
+        getSharedPreferences("UserPreferences", Context.MODE_PRIVATE)
+                .registerOnSharedPreferenceChangeListener(transcriptPrefListener);
     }
 
     private void loadCurrentMediaWhileCasting() {
@@ -227,7 +237,31 @@ public class Media3PlaybackService extends MediaLibraryService {
             Log.e(TAG, "Unable to keep service running while casting", e);
         }
     }
+    private void startFloatingTranscript(long mediaId) {
+        Log.d("FloatingTranscript", "startFloatingTranscript: enabled="
+                + UserPreferences.isFloatingTranscriptEnabled() + ", mediaId=" + mediaId);
+        if (!UserPreferences.isFloatingTranscriptEnabled()) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                && !Settings.canDrawOverlays(this)) {
+            Log.d("FloatingTranscript", "missing overlay permission");
+            return;
+        }
+        Intent intent = new Intent();
+        intent.setClassName(getPackageName(), "de.danoeh.antennapod.ui.transcript.TranscriptFloatingWindowService");
+        intent.setAction("de.danoeh.antennapod.action.SHOW_FLOATING_TRANSCRIPT");
+        intent.putExtra("extra_media_id", mediaId);
+        startService(intent);
+        Log.d("FloatingTranscript", "startService sent");
+    }
 
+    private void stopFloatingTranscript() {
+        Intent intent = new Intent();
+        intent.setClassName(getPackageName(), "de.danoeh.antennapod.ui.transcript.TranscriptFloatingWindowService");
+        intent.setAction("de.danoeh.antennapod.action.HIDE_FLOATING_TRANSCRIPT");
+        startService(intent);
+    }
     MediaLibrarySessionCallback sessionCallback = new MediaLibrarySessionCallback(this) {
         @Override
         @NonNull
@@ -308,12 +342,18 @@ public class Media3PlaybackService extends MediaLibraryService {
             if (PlaybackService.isRunning) {
                 lastPositionSaveTime = System.currentTimeMillis();
                 setupPositionObserver();
+                // ★ 启动悬浮窗 Transcript
+                if (currentPlayable != null) {
+                    startFloatingTranscript(currentPlayable.getId());
+                }
             } else {
                 cancelPositionObserver();
                 saveCurrentPosition();
                 if (currentPlayable != null) {
                     SynchronizationQueue.getInstance().enqueueEpisodePlayed(currentPlayable, false);
                 }
+                // ★ 停止悬浮窗 Transcript
+                stopFloatingTranscript();
             }
             WidgetUpdater.WidgetState widgetState = new WidgetUpdater.WidgetState(currentPlayable,
                     PlaybackService.isRunning ? PlayerStatus.PLAYING : PlayerStatus.PAUSED,
@@ -403,6 +443,10 @@ public class Media3PlaybackService extends MediaLibraryService {
         if (mediaSession != null) {
             mediaSession.release();
         }
+        // ★ 停止悬浮窗
+        stopFloatingTranscript();
+        getSharedPreferences("UserPreferences", Context.MODE_PRIVATE)
+                .unregisterOnSharedPreferenceChangeListener(transcriptPrefListener);
         super.onDestroy();
     }
 
@@ -504,7 +548,17 @@ public class Media3PlaybackService extends MediaLibraryService {
         allowStreamingThisTime = false;
         return false;
     }
-
+    private final SharedPreferences.OnSharedPreferenceChangeListener transcriptPrefListener =
+            (sharedPreferences, key) -> {
+                if (UserPreferences.PREF_FLOATING_TRANSCRIPT.equals(key)) {
+                    boolean enabled = sharedPreferences.getBoolean(key, false);
+                    if (enabled && player != null && player.isPlaying() && currentPlayable != null) {
+                        startFloatingTranscript(currentPlayable.getId());
+                    } else if (!enabled) {
+                        stopFloatingTranscript();
+                    }
+                }
+            };
     @OptIn(markerClass = UnstableApi.class)
     private void switchToPlayable(FeedMedia media) {
         currentPlayable = media;
@@ -522,6 +576,10 @@ public class Media3PlaybackService extends MediaLibraryService {
             applyVolumeAdaption(1.0f);
         }
         updatePlaybackPreferences();
+        // ★ 添加：切歌时如果正在播放，启动悬浮窗
+        if (player != null && player.isPlaying()) {
+            startFloatingTranscript(media.getId());
+        }
     }
 
     private void updatePlaybackPreferences() {

@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <supports-screens
         android:anyDensity="true"
@@ -293,6 +294,11 @@
             tools:ignore="Deprecated"
             android:name="com.google.android.actions"
             android:resource="@xml/actions" />
+
+        <service
+            android:name="de.danoeh.antennapod.ui.transcript.TranscriptFloatingWindowService"
+            android:enabled="true"
+            android:exported="false" />
     </application>
 
 </manifest>
