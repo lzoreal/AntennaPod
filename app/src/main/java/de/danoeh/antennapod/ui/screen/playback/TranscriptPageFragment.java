@@ -6,6 +6,7 @@ import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -44,6 +45,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private long lastUserScrollTime = 0;
     private int lastScrolledPosition = -1;
     private static final long SCROLL_COOLDOWN_MS = 3000;
+    private TextView btnToggleTranslation;
 
     @Nullable
     @Override
@@ -66,6 +68,15 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 }
             }
         });
+
+        btnToggleTranslation = viewBinding.getRoot().findViewById(R.id.btnToggleTranslation);
+        if (btnToggleTranslation != null) {
+            btnToggleTranslation.setOnClickListener(v -> {
+                boolean newState = !adapter.isHideSecondLanguage();
+                adapter.setHideSecondLanguage(newState);
+                btnToggleTranslation.setAlpha(newState ? 0.5f : 1.0f);
+            });
+        }
 
         return viewBinding.getRoot();
     }
@@ -122,7 +133,6 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                         Log.d(TAG, "hasTranscript before = " + currentMedia.hasTranscript()
                                 + ", getTranscript = " + (currentMedia.getTranscript() == null ? "null" : "not null"));
 
-                        // ★ 修复：双重检查，确保 transcript 对象真的存在
                         if (!currentMedia.hasTranscript() || currentMedia.getTranscript() == null) {
                             try {
                                 currentMedia.setTranscript(TranscriptUtils.loadTranscript(currentMedia, false));
@@ -161,7 +171,6 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         currentMedia = media;
         viewBinding.progLoading.setVisibility(View.GONE);
 
-        // ★ 关键修复
         if (currentMedia.getTranscript() == null) {
             Log.d(TAG, "onMediaLoaded: transcript is NULL!");
             showEmptyState();
@@ -182,11 +191,18 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         adapter.setMedia(currentMedia);
         doInitialScroll = true;
         lastScrolledPosition = -1;
+
+        if (btnToggleTranslation != null) {
+            boolean isBilingual = currentMedia.getTranscript().isBilingual();
+            btnToggleTranslation.setVisibility(isBilingual ? View.VISIBLE : View.GONE);
+            btnToggleTranslation.setAlpha(adapter.isHideSecondLanguage() ? 0.5f : 1.0f);
+        }
+
         Log.d(TAG, "=== DONE, list should appear ===");
     }
 
     private void showEmptyState() {
-        Log.d(TAG, "showEmptyState() called");  // ← 日志18
+        Log.d(TAG, "showEmptyState() called");
         if (viewBinding == null) {
             Log.d(TAG, "showEmptyState: viewBinding is NULL");
             return;

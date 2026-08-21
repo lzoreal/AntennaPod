@@ -33,10 +33,20 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     private int highlightPosition = -1;
     private boolean inMultiselectMode = false;
     private final HashSet<Integer> selectedPositions = new HashSet<>();
+    private boolean hideSecondLanguage = false;
 
     public TranscriptAdapter(Context context, SegmentClickListener segmentClickListener) {
         this.context = context;
         this.segmentClickListener = segmentClickListener;
+    }
+
+    public void setHideSecondLanguage(boolean hide) {
+        this.hideSecondLanguage = hide;
+        notifyDataSetChanged();
+    }
+
+    public boolean isHideSecondLanguage() {
+        return hideSecondLanguage;
     }
 
     @NonNull
@@ -89,15 +99,21 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         });
 
         String timecode = Converter.getDurationStringLong((int) seg.getStartTime());
+
+        String displayText = seg.getWords();
+        if (hideSecondLanguage && displayText.contains("\n")) {
+            displayText = displayText.substring(0, displayText.indexOf('\n'));
+        }
+
         if (!StringUtil.isBlank(seg.getSpeaker())) {
             if (position > 0 && media.getTranscript()
                     .getSegmentAt(position - 1).getSpeaker().equals(seg.getSpeaker())) {
                 holder.viewTimecode.setVisibility(View.GONE);
-                holder.viewContent.setText(seg.getWords());
+                holder.viewContent.setText(displayText);
             } else {
                 holder.viewTimecode.setVisibility(View.VISIBLE);
                 holder.viewTimecode.setText(timecode + " • " + seg.getSpeaker());
-                holder.viewContent.setText(seg.getWords());
+                holder.viewContent.setText(displayText);
             }
         } else {
             Set<String> speakers = media.getTranscript().getSpeakers();
@@ -107,7 +123,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             } else {
                 holder.viewTimecode.setVisibility(View.GONE);
             }
-            holder.viewContent.setText(seg.getWords());
+            holder.viewContent.setText(displayText);
         }
 
         if (inMultiselectMode) {
@@ -119,7 +135,6 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
 
     private void highlightViewHolder(TranscriptViewholder holder, boolean highlight) {
         if (highlight) {
-            // 当前行：稍大、高亮、加粗、主色调
             holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
             holder.viewContent.setAlpha(1.0f);
             holder.viewContent.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -131,7 +146,6 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             holder.viewTimecode.setAlpha(0.8f);
 
         } else {
-            // 非当前行：标准字号、淡化、常规字重
             holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
             holder.viewContent.setAlpha(0.45f);
             holder.viewContent.setTypeface(null, android.graphics.Typeface.NORMAL);

@@ -6,6 +6,7 @@ import androidx.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.jsoup.Jsoup;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -22,20 +23,15 @@ public class VttTranscriptParser {
             Pattern.compile("^(?:([0-9]{1,2}):)?([0-9]{2}):([0-9]{2})\\.([0-9]{3})$");
 
     private static final Pattern VOICE_SPAN =
-            Pattern.compile("<v(?:\\.[^\\t\\n\\r &<>.]+)*[ \\t]([^\\n\\r&>]+)>");
+            Pattern.compile("<v(?:\\.[^\t\n\r &<>.]+)*[ \t]([^\n\r&>]+)>");
 
     private record Timings(long start, long end) {}
 
     public static Transcript parse(String str) {
-        // This is basically a very light WebVTT parser.
-        // It uses WebVTT properties to be both exact and very light.
-        // We will only be parsing the WebVTT cue blocks.
-
         if (StringUtils.isBlank(str)) {
             return null;
         }
 
-        // WebVTT line terminator can be \r\n, \n or \n, let's use only one
         str = str.replaceAll("\r\n?", "\n");
         List<String> lines = Arrays.asList(str.split("\n"));
 
@@ -43,9 +39,7 @@ public class VttTranscriptParser {
         Iterator<String> iterator = lines.iterator();
         Set<String> speakers = new HashSet<>();
         String speaker = "";
-        TranscriptSegment segment = null;
 
-        // Iterate through cue blocks
         while (iterator.hasNext()) {
             String line = iterator.next();
 
@@ -55,38 +49,38 @@ public class VttTranscriptParser {
 
             Timings timings = parseCueTimings(line);
             if (timings == null) {
-                return null; // Input is broken
+                return null;
             }
 
-            String payload = parseCuePayload(iterator);
-
-            Matcher matcher = VOICE_SPAN.matcher(payload);
-            if (matcher.find()) {
-                speaker = matcher.group(1);
-                speakers.add(speaker);
+            List<String> payloadLines = parseCuePayloadLines(iterator);
+            if (payloadLines.isEmpty()) {
+                continue;
             }
 
-            payload = Jsoup.parse(payload).text(); // remove all HTML tags
+            boolean cueHasMultipleLines = payloadLines.size() > 1;
 
-            // should we merge this segment with the previous one?
-            if (segment != null && segment.getSpeaker().equals(speaker)
-                    && timings.end - segment.getStartTime() < TranscriptParser.MAX_SPAN) {
-                segment.append(timings.end, payload);
-            } else {
-                if (segment != null) {
-                    transcript.addSegment(segment);
+            StringBuilder cleanedPayload = new StringBuilder();
+            for (String payloadLine : payloadLines) {
+                Matcher matcher = VOICE_SPAN.matcher(payloadLine);
+                if (matcher.find()) {
+                    speaker = matcher.group(1);
+                    speakers.add(speaker);
                 }
-                segment = new TranscriptSegment(timings.start, timings.end, payload, speaker);
+                String cleaned = Jsoup.parse(payloadLine).text();
+                if (!cleaned.isEmpty()) {
+                    if (cleanedPayload.length() > 0) {
+                        cleanedPayload.append("\n");
+                    }
+                    cleanedPayload.append(cleaned);
+                }
             }
 
-            // do we have a candidate segment long enough to add it without trying to add more
-            if (segment.getEndTime() - segment.getStartTime() >= TranscriptParser.MIN_SPAN) {
-                transcript.addSegment(segment);
-                segment = null;
+            if (cueHasMultipleLines) {
+                transcript.setBilingual(true);
             }
-        }
 
-        if (segment != null) {
+            TranscriptSegment segment = new TranscriptSegment(
+                    timings.start, timings.end, cleanedPayload.toString(), speaker);
             transcript.addSegment(segment);
         }
 
@@ -120,7 +114,7 @@ public class VttTranscriptParser {
             return null;
         }
         long start = parseTimestamp(timestamps[0].trim());
-        long end = parseTimestamp(timestamps[1].trim().split("[ \\t]")[0]);
+        long end = parseTimestamp(timestamps[1].trim().split("[ \t]")[0]);
         if (start == -1 || end == -1) {
             return null;
         }
@@ -128,17 +122,15 @@ public class VttTranscriptParser {
     }
 
     @NonNull
-    private static String parseCuePayload(@NonNull Iterator<String> iterator) {
-        StringBuilder body = new StringBuilder();
+    private static List<String> parseCuePayloadLines(@NonNull Iterator<String> iterator) {
+        List<String> lines = new ArrayList<>();
         while (iterator.hasNext()) {
             String line = iterator.next();
             if (line.isEmpty()) {
                 break;
             }
-            body.append(line.strip());
-            body.append(" ");
+            lines.add(line.strip());
         }
-        return body.toString().strip();
+        return lines;
     }
-
 }

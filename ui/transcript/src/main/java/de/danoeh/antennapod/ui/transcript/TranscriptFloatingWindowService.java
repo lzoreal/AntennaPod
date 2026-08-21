@@ -43,7 +43,7 @@ public class TranscriptFloatingWindowService extends Service {
     private Disposable loadDisposable;
     private WindowManager.LayoutParams params;
     private long currentMediaId = -1;
-    private int windowWidth; // 新增字段
+    private int windowWidth;
 
     public static void start(Context context, long mediaId) {
         if (!UserPreferences.isFloatingTranscriptEnabled()) {
@@ -96,7 +96,6 @@ public class TranscriptFloatingWindowService extends Service {
             android.util.Log.d("FloatingTranscript", "floatingView already exists");
         }
         if (floatingView != null) {
-            // 切歌时确保窗口可见
             tvTranscript.setVisibility(View.VISIBLE);
         }
         return START_NOT_STICKY;
@@ -127,7 +126,6 @@ public class TranscriptFloatingWindowService extends Service {
         params.x = (screenWidth - windowWidth) / 2;
         params.y = getStatusBarHeight();
 
-        // 拖动逻辑（保持不变）
         floatingView.setOnTouchListener(new View.OnTouchListener() {
             private float downX, downY;
             private int startX, startY;
@@ -215,6 +213,9 @@ public class TranscriptFloatingWindowService extends Service {
         TranscriptSegment segment = transcript.getSegmentAtTime(event.getPosition());
         if (segment != null) {
             String text = segment.getWords();
+            if (text.contains("\n")) {
+                text = text.substring(0, text.indexOf('\n'));
+            }
             if (segment.getSpeaker() != null && !segment.getSpeaker().isEmpty()) {
                 text = segment.getSpeaker() + ": " + text;
             }

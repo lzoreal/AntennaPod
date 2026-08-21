@@ -6,6 +6,7 @@ import java.util.Set;
 public class Transcript {
     private Set<String> speakers;
     private final ArrayList<TranscriptSegment> segments = new ArrayList<>();
+    private boolean bilingual = false;
 
     public void addSegment(TranscriptSegment segment) {
         if ((!segments.isEmpty() && segments.get(segments.size() - 1).getStartTime() >= segment.getStartTime())) {
@@ -46,5 +47,13 @@ public class Transcript {
 
     public int getSegmentCount() {
         return segments.size();
+    }
+
+    public boolean isBilingual() {
+        return bilingual;
+    }
+
+    public void setBilingual(boolean bilingual) {
+        this.bilingual = bilingual;
     }
 }
