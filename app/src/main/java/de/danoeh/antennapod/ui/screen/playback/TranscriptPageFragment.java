@@ -6,7 +6,6 @@ import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -15,7 +14,6 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.LinearSmoothScroller;
 import androidx.recyclerview.widget.RecyclerView;
 
-import de.danoeh.antennapod.R;
 import de.danoeh.antennapod.databinding.TranscriptPageFragmentBinding;
 import de.danoeh.antennapod.event.PlayerStatusEvent;
 import de.danoeh.antennapod.event.playback.PlaybackPositionEvent;
@@ -45,7 +43,6 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private long lastUserScrollTime = 0;
     private int lastScrolledPosition = -1;
     private static final long SCROLL_COOLDOWN_MS = 3000;
-    private TextView btnToggleTranslation;
 
     @Nullable
     @Override
@@ -68,15 +65,6 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 }
             }
         });
-
-        btnToggleTranslation = viewBinding.getRoot().findViewById(R.id.btnToggleTranslation);
-        if (btnToggleTranslation != null) {
-            btnToggleTranslation.setOnClickListener(v -> {
-                boolean newState = !adapter.isHideSecondLanguage();
-                adapter.setHideSecondLanguage(newState);
-                btnToggleTranslation.setAlpha(newState ? 0.5f : 1.0f);
-            });
-        }
 
         return viewBinding.getRoot();
     }
@@ -192,12 +180,6 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         doInitialScroll = true;
         lastScrolledPosition = -1;
 
-        if (btnToggleTranslation != null) {
-            boolean isBilingual = currentMedia.getTranscript().isBilingual();
-            btnToggleTranslation.setVisibility(isBilingual ? View.VISIBLE : View.GONE);
-            btnToggleTranslation.setAlpha(adapter.isHideSecondLanguage() ? 0.5f : 1.0f);
-        }
-
         Log.d(TAG, "=== DONE, list should appear ===");
     }
 
@@ -296,5 +278,23 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     @Override
     public void onTranscriptLongClicked(int position, TranscriptSegment segment) {
         // 可扩展长按复制等逻辑
+    }
+
+    // ===== 公共方法：供 AudioPlayerFragment 调用 =====
+
+    public boolean isBilingual() {
+        return currentMedia != null && currentMedia.getTranscript() != null
+                && currentMedia.getTranscript().isBilingual();
+    }
+
+    public boolean isHideSecondLanguage() {
+        return adapter != null && adapter.isHideSecondLanguage();
+    }
+
+    public void toggleHideSecondLanguage() {
+        if (adapter != null) {
+            boolean newState = !adapter.isHideSecondLanguage();
+            adapter.setHideSecondLanguage(newState);
+        }
     }
 }

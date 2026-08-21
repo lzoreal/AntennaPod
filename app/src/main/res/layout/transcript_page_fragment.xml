@@ -29,19 +29,4 @@
         android:text="@string/no_transcript_label"
         android:visibility="gone" />
 
-    <TextView
-        android:id="@+id/btnToggleTranslation"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
-        android:layout_gravity="bottom|end"
-        android:layout_margin="16dp"
-        android:layout_marginBottom="80dp"
-        android:background="@drawable/bg_round_rect"
-        android:gravity="center"
-        android:text="文A"
-        android:textColor="@color/white"
-        android:textSize="13sp"
-        android:textStyle="bold"
-        android:visibility="gone" />
-
 </FrameLayout>
