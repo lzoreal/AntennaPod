@@ -196,7 +196,10 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onPlayerStatusEvent(PlayerStatusEvent event) {
-        loadTranscript();
+        long mediaId = PlaybackPreferences.getCurrentlyPlayingFeedMediaId();
+        if (currentMedia == null || currentMedia.getId() != mediaId) {
+            loadTranscript();
+        }
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
@@ -206,7 +209,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
 
         int pos = currentMedia.getTranscript().findSegmentIndexBefore(event.getPosition());
-        if (pos <= 0 || pos == lastScrolledPosition) {
+        if (pos < 0 || pos == lastScrolledPosition) {
             return;
         }
 
@@ -225,8 +228,21 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
 
+        // 如果高亮行已在中间位置且完全可见，无需滚动
+        View targetView = lm.findViewByPosition(pos);
+        if (targetView != null) {
+            int top = targetView.getTop();
+            int bottom = targetView.getBottom();
+            int rvHeight = viewBinding.recyclerView.getHeight();
+            int itemHeight = targetView.getHeight();
+            int centerTop = (rvHeight - itemHeight) / 2;
+            if (Math.abs(top - centerTop) < 20 && bottom <= rvHeight) {
+                return;
+            }
+        }
+
         if (!doInitialScroll) {
-            if (lm.findFirstVisibleItemPosition() < pos - 1
+            if (lm.findFirstVisibleItemPosition() < pos
                     && !viewBinding.recyclerView.canScrollVertically(1)) {
                 return;
             }
@@ -235,13 +251,29 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
         boolean quickScroll = Math.abs(lm.findFirstVisibleItemPosition() - pos) > 5;
         if (quickScroll) {
-            viewBinding.recyclerView.scrollToPosition(pos - 1);
+            viewBinding.recyclerView.scrollToPosition(pos);
         }
 
         LinearSmoothScroller smoothScroller = new LinearSmoothScroller(getContext()) {
             @Override
             protected int getVerticalSnapPreference() {
-                return LinearSmoothScroller.SNAP_TO_START;
+                return LinearSmoothScroller.SNAP_TO_ANY;
+            }
+
+            @Override
+            public int calculateDtToFit(int viewStart, int viewEnd, int boxStart, int boxEnd, int snapPreference) {
+                int itemHeight = viewEnd - viewStart;
+                int boxHeight = boxEnd - boxStart;
+
+                // 先尝试将高亮字幕居中
+                int targetTop = boxStart + (boxHeight - itemHeight) / 2;
+
+                // 如果居中后底部超出屏幕，向下滚动直到完全显示（底部对齐）
+                if (targetTop + itemHeight > boxEnd) {
+                    targetTop = boxEnd - itemHeight;
+                }
+
+                return targetTop - viewStart;
             }
 
             @Override
@@ -249,7 +281,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 return (quickScroll ? 200 : 1000) / (float) displayMetrics.densityDpi;
             }
         };
-        smoothScroller.setTargetPosition(pos - 1);
+        smoothScroller.setTargetPosition(pos);
         lm.startSmoothScroll(smoothScroller);
     }
 
