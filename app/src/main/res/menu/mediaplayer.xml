@@ -3,6 +3,22 @@
       xmlns:custom="http://schemas.android.com/apk/res-auto">
 
     <item
+        android:id="@+id/immersive_mode_item"
+        android:icon="@drawable/ic_fullscreen"
+        android:title="@string/immersive_mode"
+        android:visible="false"
+        custom:showAsAction="always">
+    </item>
+
+    <item
+        android:id="@+id/toggle_translation_item"
+        android:title="@string/toggle_translation"
+        android:visible="false"
+        custom:actionLayout="@layout/menu_item_translation"
+        custom:showAsAction="always">
+    </item>
+
+    <item
         android:id="@+id/add_to_favorites_item"
         android:icon="@drawable/ic_star_border"
         android:title="@string/add_to_favorite_label"

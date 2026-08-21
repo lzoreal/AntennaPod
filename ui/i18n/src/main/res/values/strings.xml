@@ -1062,4 +1062,6 @@
     <string name="wearos_play_on_phone" tools:ignore="UnusedResources">Play on phone</string>
     <string name="wearos_browse_phone" tools:ignore="UnusedResources">Browse phone</string>
     <string name="wearos_open_on_phone" tools:ignore="UnusedResources">Open on phone</string>
+    <string name="immersive_mode">沉浸模式</string>
+    <string name="toggle_translation">切换翻译</string>
 </resources>

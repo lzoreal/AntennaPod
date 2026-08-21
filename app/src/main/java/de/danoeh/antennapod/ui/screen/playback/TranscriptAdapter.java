@@ -1,6 +1,7 @@
 package de.danoeh.antennapod.ui.screen.playback;
 
 import android.content.Context;
+import android.content.res.TypedArray;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -33,10 +34,20 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     private int highlightPosition = -1;
     private boolean inMultiselectMode = false;
     private final HashSet<Integer> selectedPositions = new HashSet<>();
+    private boolean hideSecondLanguage = false;
 
     public TranscriptAdapter(Context context, SegmentClickListener segmentClickListener) {
         this.context = context;
         this.segmentClickListener = segmentClickListener;
+    }
+
+    public void setHideSecondLanguage(boolean hide) {
+        this.hideSecondLanguage = hide;
+        notifyDataSetChanged();
+    }
+
+    public boolean isHideSecondLanguage() {
+        return hideSecondLanguage;
     }
 
     @NonNull
@@ -89,15 +100,21 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         });
 
         String timecode = Converter.getDurationStringLong((int) seg.getStartTime());
+
+        String displayText = seg.getWords();
+        if (hideSecondLanguage && displayText.contains("\n")) {
+            displayText = displayText.substring(0, displayText.indexOf('\n'));
+        }
+
         if (!StringUtil.isBlank(seg.getSpeaker())) {
             if (position > 0 && media.getTranscript()
                     .getSegmentAt(position - 1).getSpeaker().equals(seg.getSpeaker())) {
                 holder.viewTimecode.setVisibility(View.GONE);
-                holder.viewContent.setText(seg.getWords());
+                holder.viewContent.setText(displayText);
             } else {
                 holder.viewTimecode.setVisibility(View.VISIBLE);
                 holder.viewTimecode.setText(timecode + " • " + seg.getSpeaker());
-                holder.viewContent.setText(seg.getWords());
+                holder.viewContent.setText(displayText);
             }
         } else {
             Set<String> speakers = media.getTranscript().getSpeakers();
@@ -107,7 +124,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             } else {
                 holder.viewTimecode.setVisibility(View.GONE);
             }
-            holder.viewContent.setText(seg.getWords());
+            holder.viewContent.setText(displayText);
         }
 
         if (inMultiselectMode) {
@@ -119,26 +136,26 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
 
     private void highlightViewHolder(TranscriptViewholder holder, boolean highlight) {
         if (highlight) {
-            // 当前行：稍大、高亮、加粗、主色调
             holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
             holder.viewContent.setAlpha(1.0f);
             holder.viewContent.setTypeface(null, android.graphics.Typeface.BOLD);
 
-            TypedValue typedValue = new TypedValue();
-            context.getTheme().resolveAttribute(androidx.appcompat.R.attr.colorAccent, typedValue, true);
-            holder.viewContent.setTextColor(typedValue.data);
+            TypedArray a = context.obtainStyledAttributes(new int[]{androidx.appcompat.R.attr.colorAccent});
+            int color = a.getColor(0, 0);
+            a.recycle();
+            holder.viewContent.setTextColor(color);
 
             holder.viewTimecode.setAlpha(0.8f);
 
         } else {
-            // 非当前行：标准字号、淡化、常规字重
             holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
             holder.viewContent.setAlpha(0.45f);
             holder.viewContent.setTypeface(null, android.graphics.Typeface.NORMAL);
 
-            TypedValue typedValue = new TypedValue();
-            context.getTheme().resolveAttribute(android.R.attr.textColorPrimary, typedValue, true);
-            holder.viewContent.setTextColor(typedValue.data);
+            TypedArray a = context.obtainStyledAttributes(new int[]{android.R.attr.textColorPrimary});
+            int color = a.getColor(0, 0);
+            a.recycle();
+            holder.viewContent.setTextColor(color);
 
             holder.viewTimecode.setAlpha(0.3f);
         }
