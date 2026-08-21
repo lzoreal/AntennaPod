@@ -11,6 +11,7 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -87,6 +88,15 @@ public class TranscriptDialogFragment extends DialogFragment
         viewBinding.followAudioCheckbox.setChecked(true);
         viewBinding.progLoading.setVisibility(View.VISIBLE);
         doInitialScroll = true;
+
+        TextView btnToggleTranslation = viewBinding.getRoot().findViewById(R.id.btnToggleTranslation);
+        if (btnToggleTranslation != null) {
+            btnToggleTranslation.setOnClickListener(v -> {
+                boolean newState = !adapter.isHideSecondLanguage();
+                adapter.setHideSecondLanguage(newState);
+                btnToggleTranslation.setAlpha(newState ? 0.5f : 1.0f);
+            });
+        }
 
         AlertDialog dialog = new MaterialAlertDialogBuilder(requireContext())
                 .setView(viewBinding.getRoot())
@@ -206,6 +216,12 @@ public class TranscriptDialogFragment extends DialogFragment
 
         viewBinding.progLoading.setVisibility(View.GONE);
         adapter.setMedia(media);
+
+        TextView btnToggleTranslation = viewBinding.getRoot().findViewById(R.id.btnToggleTranslation);
+        if (btnToggleTranslation != null) {
+            boolean isBilingual = ((FeedMedia) media).getTranscript().isBilingual();
+            btnToggleTranslation.setVisibility(isBilingual ? View.VISIBLE : View.GONE);
+        }
     }
 
     public void scrollToPosition(int pos) {
@@ -224,7 +240,6 @@ public class TranscriptDialogFragment extends DialogFragment
         }
         if (quickScroll) {
             viewBinding.transcriptList.scrollToPosition(pos - 1);
-            // Additionally, smooth scroll, so that currently active segment is on top of screen
         }
         LinearSmoothScroller smoothScroller = new LinearSmoothScroller(getContext()) {
             @Override

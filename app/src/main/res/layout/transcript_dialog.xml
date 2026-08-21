@@ -31,11 +31,34 @@
         android:layout_weight="1"
         tools:listitem="@layout/transcript_item" />
 
-    <CheckBox
-        android:id="@+id/followAudioCheckbox"
+    <RelativeLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginHorizontal="16dp"
-        android:text="@string/transcript_follow_audio_label" />
+        android:layout_height="wrap_content">
+
+        <CheckBox
+            android:id="@+id/followAudioCheckbox"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentStart="true"
+            android:layout_centerVertical="true"
+            android:layout_marginHorizontal="16dp"
+            android:text="@string/transcript_follow_audio_label" />
+
+        <TextView
+            android:id="@+id/btnToggleTranslation"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
+            android:layout_marginEnd="16dp"
+            android:background="@drawable/bg_round_rect"
+            android:gravity="center"
+            android:text="文A"
+            android:textColor="@color/white"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+    </RelativeLayout>
 
 </LinearLayout>
