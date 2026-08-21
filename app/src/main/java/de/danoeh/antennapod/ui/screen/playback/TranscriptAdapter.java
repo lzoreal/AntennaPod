@@ -1,6 +1,7 @@
 package de.danoeh.antennapod.ui.screen.playback;
 
 import android.content.Context;
+import android.content.res.TypedArray;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -139,9 +140,10 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             holder.viewContent.setAlpha(1.0f);
             holder.viewContent.setTypeface(null, android.graphics.Typeface.BOLD);
 
-            TypedValue typedValue = new TypedValue();
-            context.getTheme().resolveAttribute(androidx.appcompat.R.attr.colorAccent, typedValue, true);
-            holder.viewContent.setTextColor(typedValue.data);
+            TypedArray a = context.obtainStyledAttributes(new int[]{androidx.appcompat.R.attr.colorAccent});
+            int color = a.getColor(0, 0);
+            a.recycle();
+            holder.viewContent.setTextColor(color);
 
             holder.viewTimecode.setAlpha(0.8f);
 
@@ -150,9 +152,10 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             holder.viewContent.setAlpha(0.45f);
             holder.viewContent.setTypeface(null, android.graphics.Typeface.NORMAL);
 
-            TypedValue typedValue = new TypedValue();
-            context.getTheme().resolveAttribute(android.R.attr.textColorPrimary, typedValue, true);
-            holder.viewContent.setTextColor(typedValue.data);
+            TypedArray a = context.obtainStyledAttributes(new int[]{android.R.attr.textColorPrimary});
+            int color = a.getColor(0, 0);
+            a.recycle();
+            holder.viewContent.setTextColor(color);
 
             holder.viewTimecode.setAlpha(0.3f);
         }
