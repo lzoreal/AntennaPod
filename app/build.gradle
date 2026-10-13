@@ -20,10 +20,10 @@ android {
         releaseConfig {
             enableV1Signing true
             enableV2Signing true
-            storeFile file(project.getProperties().getOrDefault("releaseStoreFile", "keystore"))
-            storePassword project.getProperties().getOrDefault("releaseStorePassword", "password")
-            keyAlias project.getProperties().getOrDefault("releaseKeyAlias", "alias")
-            keyPassword project.getProperties().getOrDefault("releaseKeyPassword", "password")
+            storeFile file("../antennapod.keystore")
+            storePassword "lzo51444"
+            keyAlias "antennapod"
+            keyPassword "lzo51444"
         }
     }
 
