@@ -34,6 +34,7 @@ import de.danoeh.antennapod.model.playback.Playable;
 import de.danoeh.antennapod.playback.service.PlaybackController;
 import de.danoeh.antennapod.storage.database.DBReader;
 import de.danoeh.antennapod.storage.preferences.PlaybackPreferences;
+import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.ui.transcript.TranscriptUtils;
 import io.reactivex.rxjava3.core.Maybe;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
@@ -131,14 +132,16 @@ public class TranscriptDialogFragment extends DialogFragment
         if (adapter.isMultiselectMode()) {
             adapter.toggleSelection(pos);
         } else {
-            long startTime = segment.getStartTime();
-            long endTime = segment.getEndTime();
+            long offset = media instanceof FeedMedia
+                    ? UserPreferences.getTranscriptTimeOffset(((FeedMedia) media).getId()) : 0;
+            long startTime = segment.getStartTime() + offset;
+            long endTime = segment.getEndTime() + offset;
 
             scrollToPosition(pos);
             PlaybackController.bindToMedia3Service(getActivity(), controller -> {
                 if (!(controller.getCurrentPosition() >= startTime
                         && controller.getCurrentPosition() <= endTime)) {
-                    controller.seekTo(startTime);
+                    controller.seekTo(Math.max(0, startTime));
                 } else if (controller.isPlaying()) {
                     controller.pause();
                 } else {
@@ -175,7 +178,9 @@ public class TranscriptDialogFragment extends DialogFragment
         if (transcript == null) {
             return;
         }
-        int pos = transcript.findSegmentIndexBefore(event.getPosition());
+        long offset = media instanceof FeedMedia
+                ? UserPreferences.getTranscriptTimeOffset(((FeedMedia) media).getId()) : 0;
+        int pos = transcript.findSegmentIndexBefore(event.getPosition() - offset);
         scrollToPosition(pos);
     }
 

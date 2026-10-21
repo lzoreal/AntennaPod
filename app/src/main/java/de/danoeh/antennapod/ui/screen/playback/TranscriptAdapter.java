@@ -16,6 +16,7 @@ import de.danoeh.antennapod.model.feed.FeedMedia;
 import de.danoeh.antennapod.model.feed.Transcript;
 import de.danoeh.antennapod.model.feed.TranscriptSegment;
 import de.danoeh.antennapod.model.playback.Playable;
+import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.ui.common.Converter;
 import de.danoeh.antennapod.ui.transcript.TranscriptViewholder;
 import java.util.HashSet;
@@ -35,10 +36,18 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     private boolean inMultiselectMode = false;
     private final HashSet<Integer> selectedPositions = new HashSet<>();
     private boolean hideSecondLanguage = false;
+    private final int highlightTextColor;
+    private final int normalTextColor;
 
     public TranscriptAdapter(Context context, SegmentClickListener segmentClickListener) {
         this.context = context;
         this.segmentClickListener = segmentClickListener;
+        TypedArray typedArray = context.obtainStyledAttributes(new int[]{androidx.appcompat.R.attr.colorAccent});
+        highlightTextColor = typedArray.getColor(0, 0);
+        typedArray.recycle();
+        typedArray = context.obtainStyledAttributes(new int[]{android.R.attr.textColorPrimary});
+        normalTextColor = typedArray.getColor(0, 0);
+        typedArray.recycle();
     }
 
     public void setHideSecondLanguage(boolean hide) {
@@ -140,10 +149,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             holder.viewContent.setAlpha(1.0f);
             holder.viewContent.setTypeface(null, android.graphics.Typeface.BOLD);
 
-            TypedArray a = context.obtainStyledAttributes(new int[]{androidx.appcompat.R.attr.colorAccent});
-            int color = a.getColor(0, 0);
-            a.recycle();
-            holder.viewContent.setTextColor(color);
+            holder.viewContent.setTextColor(highlightTextColor);
 
             holder.viewTimecode.setAlpha(0.8f);
 
@@ -152,10 +158,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             holder.viewContent.setAlpha(0.45f);
             holder.viewContent.setTypeface(null, android.graphics.Typeface.NORMAL);
 
-            TypedArray a = context.obtainStyledAttributes(new int[]{android.R.attr.textColorPrimary});
-            int color = a.getColor(0, 0);
-            a.recycle();
-            holder.viewContent.setTextColor(color);
+            holder.viewContent.setTextColor(normalTextColor);
 
             holder.viewTimecode.setAlpha(0.3f);
         }
@@ -166,7 +169,8 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         if (media == null || media.getTranscript() == null) {
             return;
         }
-        int index = media.getTranscript().findSegmentIndexBefore(event.getPosition());
+        int index = media.getTranscript().findSegmentIndexBefore(
+                event.getPosition() - UserPreferences.getTranscriptTimeOffset(media.getId()));
         if (index < 0 || index > media.getTranscript().getSegmentCount()) {
             return;
         }
@@ -178,6 +182,19 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             notifyItemChanged(prevHighlightPosition);
             notifyItemChanged(highlightPosition);
         }
+    }
+
+    public void setHighlightPosition(int position) {
+        if (position < 0 || position == highlightPosition) {
+            return;
+        }
+        int previous = highlightPosition;
+        highlightPosition = position;
+        prevHighlightPosition = position;
+        if (previous >= 0) {
+            notifyItemChanged(previous);
+        }
+        notifyItemChanged(position);
     }
 
     @Override
