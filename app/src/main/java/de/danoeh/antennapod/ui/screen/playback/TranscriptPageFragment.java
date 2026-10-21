@@ -1,6 +1,7 @@
 package de.danoeh.antennapod.ui.screen.playback;
 
 import android.os.Bundle;
+import android.text.Layout;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -29,6 +30,7 @@ import de.danoeh.antennapod.storage.preferences.PlaybackPreferences;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.ui.screen.playback.audio.AudioPlayerFragment;
 import de.danoeh.antennapod.ui.transcript.TranscriptUtils;
+import de.danoeh.antennapod.ui.transcript.TranscriptViewholder;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.core.Maybe;
 import io.reactivex.rxjava3.disposables.Disposable;
@@ -80,6 +82,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 getString(R.string.transcript_offset_toggle_description));
         viewBinding.btnTranslationToggle.setOnClickListener(v -> toggleHideSecondLanguage());
         viewBinding.btnTranslationToggle.setContentDescription(getString(R.string.toggle_translation));
+        viewBinding.btnLineBreakToggle.setOnClickListener(v -> toggleSentencePerLine());
+        viewBinding.btnLineBreakToggle.setContentDescription(
+                getString(R.string.transcript_line_break_description));
         viewBinding.btnImmersive.setOnClickListener(v -> {
             if (getParentFragment() instanceof AudioPlayerFragment) {
                 ((AudioPlayerFragment) getParentFragment()).toggleImmersiveMode();
@@ -87,6 +92,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         });
         updateOffsetLabel();
         updateTranslationToggle();
+        updateSentenceToggle();
         updateOffsetToggle();
 
         return viewBinding.getRoot();
@@ -231,7 +237,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
         int pos = currentMedia.getTranscript().findSegmentIndexBefore(
                 lastPositionMs - UserPreferences.getTranscriptTimeOffset(currentMedia.getId()));
-        if (pos < 0 || pos == lastScrolledPosition) {
+        if (pos < 0) {
             return;
         }
 
@@ -240,7 +246,50 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         userScrolling = false;
 
+        if (pos == lastScrolledPosition) {
+            followLongSegment(pos, lastPositionMs
+                    - UserPreferences.getTranscriptTimeOffset(currentMedia.getId()));
+            return;
+        }
+
         scrollToPosition(pos);
+    }
+
+    private void followLongSegment(int pos, long position) {
+        if (currentMedia == null || currentMedia.getTranscript() == null) {
+            return;
+        }
+
+        RecyclerView.ViewHolder holder = viewBinding.recyclerView.findViewHolderForAdapterPosition(pos);
+        if (!(holder instanceof TranscriptViewholder)) {
+            return;
+        }
+
+        int viewportHeight = viewBinding.recyclerView.getHeight();
+        if (holder.itemView.getHeight() <= viewportHeight) {
+            return;
+        }
+
+        TextView content = ((TranscriptViewholder) holder).viewContent;
+        Layout layout = content.getLayout();
+        if (layout == null) {
+            return;
+        }
+
+        TranscriptSegment segment = currentMedia.getTranscript().getSegmentAt(pos);
+        if (!TranscriptTextUtils.isLongSegment(segment)) {
+            return;
+        }
+
+        float progress = TranscriptTextUtils.progressAt(segment, position);
+        int charIndex = TranscriptTextUtils.charIndexAt(content.getText().toString(), progress);
+        charIndex = Math.max(0, Math.min(charIndex, content.length()));
+        int line = layout.getLineForOffset(charIndex);
+        int screenY = holder.itemView.getTop() + content.getTop() + layout.getLineTop(line);
+
+        if (screenY > viewportHeight * 2 / 3) {
+            viewBinding.recyclerView.smoothScrollBy(0, screenY - viewportHeight / 2);
+        }
     }
 
     private void scrollToPosition(int pos) {
@@ -286,6 +335,10 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             public int calculateDtToFit(int viewStart, int viewEnd, int boxStart, int boxEnd, int snapPreference) {
                 int itemHeight = viewEnd - viewStart;
                 int boxHeight = boxEnd - boxStart;
+
+                if (itemHeight >= boxHeight) {
+                    return boxStart - viewStart;
+                }
 
                 // 先尝试将高亮字幕居中
                 int targetTop = boxStart + (boxHeight - itemHeight) / 2;
@@ -439,6 +492,20 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             adapter.setHideSecondLanguage(newState);
             updateTranslationToggle();
         }
+    }
+
+    public void toggleSentencePerLine() {
+        if (adapter != null) {
+            adapter.setSentencePerLine(!adapter.isSentencePerLine());
+            updateSentenceToggle();
+        }
+    }
+
+    private void updateSentenceToggle() {
+        if (viewBinding == null) {
+            return;
+        }
+        viewBinding.btnLineBreakToggle.setAlpha(adapter != null && adapter.isSentencePerLine() ? 1.0f : 0.5f);
     }
 
     public void toggleControlsBar() {
