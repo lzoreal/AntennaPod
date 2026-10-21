@@ -36,6 +36,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     private boolean inMultiselectMode = false;
     private final HashSet<Integer> selectedPositions = new HashSet<>();
     private boolean hideSecondLanguage = false;
+    private boolean sentencePerLine = false;
     private final int highlightTextColor;
     private final int normalTextColor;
 
@@ -57,6 +58,15 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
 
     public boolean isHideSecondLanguage() {
         return hideSecondLanguage;
+    }
+
+    public void setSentencePerLine(boolean split) {
+        this.sentencePerLine = split;
+        notifyDataSetChanged();
+    }
+
+    public boolean isSentencePerLine() {
+        return sentencePerLine;
     }
 
     @NonNull
@@ -114,6 +124,9 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         if (hideSecondLanguage && displayText.contains("\n")) {
             displayText = displayText.substring(0, displayText.indexOf('\n'));
         }
+        if (sentencePerLine) {
+            displayText = TranscriptTextUtils.splitIntoSentences(displayText);
+        }
 
         if (!StringUtil.isBlank(seg.getSpeaker())) {
             if (position > 0 && media.getTranscript()
@@ -169,8 +182,8 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         if (media == null || media.getTranscript() == null) {
             return;
         }
-        int index = media.getTranscript().findSegmentIndexBefore(
-                event.getPosition() - UserPreferences.getTranscriptTimeOffset(media.getId()));
+        long position = event.getPosition() - UserPreferences.getTranscriptTimeOffset(media.getId());
+        int index = media.getTranscript().findSegmentIndexBefore(position);
         if (index < 0 || index > media.getTranscript().getSegmentCount()) {
             return;
         }
