@@ -2,12 +2,16 @@ package de.danoeh.antennapod.ui.screen.playback;
 
 import android.content.Context;
 import android.content.res.TypedArray;
+import android.text.Spannable;
+import android.text.SpannableString;
 import android.text.TextUtils;
+import android.text.style.ForegroundColorSpan;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.ColorUtils;
 import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.elevation.SurfaceColors;
 import de.danoeh.antennapod.databinding.TranscriptItemBinding;
@@ -20,6 +24,7 @@ import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.ui.common.Converter;
 import de.danoeh.antennapod.ui.transcript.TranscriptViewholder;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import org.apache.commons.lang3.ObjectUtils;
 import org.greenrobot.eventbus.EventBus;
@@ -28,11 +33,16 @@ import org.greenrobot.eventbus.ThreadMode;
 import org.jsoup.internal.StringUtil;
 import android.util.TypedValue;
 public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder> {
+    private static final int PAST_SENTENCE_ALPHA = 0xA6;
+    private static final int FUTURE_SENTENCE_ALPHA = 0x8C;
+    private static final Object SENTENCE_HIGHLIGHT_PAYLOAD = new Object();
     private final SegmentClickListener segmentClickListener;
     private final Context context;
     private FeedMedia media;
     private int prevHighlightPosition = -1;
     private int highlightPosition = -1;
+    private int highlightedSentence = -1;
+    private long lastHighlightPositionMs = 0;
     private boolean inMultiselectMode = false;
     private final HashSet<Integer> selectedPositions = new HashSet<>();
     private boolean hideSecondLanguage = false;
@@ -80,6 +90,8 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             return;
         }
         this.media = (FeedMedia) media;
+        highlightedSentence = -1;
+        lastHighlightPositionMs = Math.max(0, ((FeedMedia) media).getPosition());
         notifyDataSetChanged();
     }
 
@@ -120,13 +132,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
 
         String timecode = Converter.getDurationStringLong((int) seg.getStartTime());
 
-        String displayText = seg.getWords();
-        if (hideSecondLanguage && displayText.contains("\n")) {
-            displayText = displayText.substring(0, displayText.indexOf('\n'));
-        }
-        if (sentencePerLine) {
-            displayText = TranscriptTextUtils.splitIntoSentences(displayText);
-        }
+        String displayText = getDisplayText(seg);
 
         if (!StringUtil.isBlank(seg.getSpeaker())) {
             if (position > 0 && media.getTranscript()
@@ -154,6 +160,80 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         } else {
             highlightViewHolder(holder, position == highlightPosition);
         }
+
+        if (!inMultiselectMode && position == highlightPosition) {
+            applyGradedHighlight(holder, position);
+        }
+    }
+
+    @Override
+    public void onBindViewHolder(@NonNull TranscriptViewholder holder, int position,
+                                 @NonNull List<Object> payloads) {
+        if (payloads.isEmpty() || media == null || media.getTranscript() == null) {
+            super.onBindViewHolder(holder, position, payloads);
+            return;
+        }
+        applyGradedHighlight(holder, position);
+    }
+
+    private String getDisplayText(TranscriptSegment seg) {
+        String displayText = seg.getWords();
+        if (hideSecondLanguage && displayText.contains("\n")) {
+            displayText = displayText.substring(0, displayText.indexOf('\n'));
+        }
+        if (sentencePerLine) {
+            displayText = TranscriptTextUtils.splitIntoSentences(displayText);
+        }
+        return displayText;
+    }
+
+    private void applyGradedHighlight(TranscriptViewholder holder, int position) {
+        TranscriptSegment segment = media.getTranscript().getSegmentAt(position);
+        if (!TranscriptTextUtils.isLongSegment(segment) || hasSecondLanguage(segment)) {
+            return;
+        }
+        String text = getDisplayText(segment);
+        int length = text.length();
+        int[] starts = TranscriptTextUtils.chunkStarts(text, length);
+        if (starts.length < 3) {
+            return;
+        }
+        int sentence = sentenceIndexAt(position, lastHighlightPositionMs);
+        SpannableString graded = new SpannableString(text);
+        for (int i = 0; i + 1 < starts.length; i++) {
+            int start = Math.min(starts[i], length);
+            int end = Math.min(starts[i + 1], length);
+            if (start >= end) {
+                continue;
+            }
+            int color;
+            if (i == sentence) {
+                color = highlightTextColor;
+            } else if (i < sentence) {
+                color = ColorUtils.setAlphaComponent(highlightTextColor, PAST_SENTENCE_ALPHA);
+            } else {
+                color = ColorUtils.setAlphaComponent(highlightTextColor, FUTURE_SENTENCE_ALPHA);
+            }
+            graded.setSpan(new ForegroundColorSpan(color), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        holder.viewContent.setText(graded);
+    }
+
+    private int sentenceIndexAt(int segmentIndex, long position) {
+        if (segmentIndex < 0 || segmentIndex >= media.getTranscript().getSegmentCount()) {
+            return -1;
+        }
+        TranscriptSegment segment = media.getTranscript().getSegmentAt(segmentIndex);
+        if (!TranscriptTextUtils.isLongSegment(segment) || hasSecondLanguage(segment)) {
+            return -1;
+        }
+        String text = getDisplayText(segment);
+        return TranscriptTextUtils.sentenceIndexAt(text,
+                TranscriptTextUtils.progressAt(segment, position), text.length());
+    }
+
+    private boolean hasSecondLanguage(TranscriptSegment segment) {
+        return !hideSecondLanguage && segment.getWords().contains("\n");
     }
 
     private void highlightViewHolder(TranscriptViewholder holder, boolean highlight) {
@@ -190,10 +270,16 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         if (prevHighlightPosition != highlightPosition) {
             prevHighlightPosition = highlightPosition;
         }
+        lastHighlightPositionMs = position;
+        int sentence = sentenceIndexAt(index, position);
         if (index != highlightPosition) {
             highlightPosition = index;
+            highlightedSentence = sentence;
             notifyItemChanged(prevHighlightPosition);
             notifyItemChanged(highlightPosition);
+        } else if (sentence != highlightedSentence) {
+            highlightedSentence = sentence;
+            notifyItemChanged(highlightPosition, SENTENCE_HIGHLIGHT_PAYLOAD);
         }
     }
 
@@ -204,6 +290,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         int previous = highlightPosition;
         highlightPosition = position;
         prevHighlightPosition = position;
+        highlightedSentence = -1;
         if (previous >= 0) {
             notifyItemChanged(previous);
         }
