@@ -3,18 +3,18 @@
       xmlns:custom="http://schemas.android.com/apk/res-auto">
 
     <item
-        android:id="@+id/immersive_mode_item"
-        android:icon="@drawable/ic_fullscreen"
-        android:title="@string/immersive_mode"
+        android:id="@+id/transcript_menu_item"
+        android:icon="@drawable/ic_subtitles"
+        android:title="@string/transcript"
         android:visible="false"
         custom:showAsAction="always">
     </item>
 
     <item
-        android:id="@+id/toggle_translation_item"
-        android:title="@string/toggle_translation"
+        android:id="@+id/floating_transcript_item"
+        android:icon="@drawable/ic_floating_transcript"
+        android:title="@string/pref_floating_transcript_title"
         android:visible="false"
-        custom:actionLayout="@layout/menu_item_translation"
         custom:showAsAction="always">
     </item>
 

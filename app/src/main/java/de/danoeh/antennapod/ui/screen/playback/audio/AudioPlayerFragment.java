@@ -1,6 +1,9 @@
 package de.danoeh.antennapod.ui.screen.playback.audio;
 
 import android.os.Bundle;
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
@@ -47,6 +50,7 @@ import de.danoeh.antennapod.ui.screen.playback.SleepTimerDialog;
 import de.danoeh.antennapod.ui.screen.playback.TranscriptDialogFragment;
 import de.danoeh.antennapod.ui.screen.playback.TranscriptPageFragment;
 import de.danoeh.antennapod.ui.screen.playback.VariableSpeedDialog;
+import de.danoeh.antennapod.ui.transcript.TranscriptFloatingWindowService;
 
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
@@ -117,7 +121,6 @@ public class AudioPlayerFragment extends Fragment implements
     private boolean seekedToChapterStart = false;
     private int currentChapterIndex = -1;
     private boolean isImmersiveMode = false;
-    private TextView menuTranslationText;
     private OnBackPressedCallback immersiveBackCallback;
 
     @Override
@@ -198,25 +201,57 @@ public class AudioPlayerFragment extends Fragment implements
 
     private void updateToolbarButtonsVisibility(int position) {
         boolean isTranscript = position == POS_TRANSCRIPT;
-        MenuItem immersiveItem = toolbar.getMenu().findItem(R.id.immersive_mode_item);
-        if (immersiveItem != null) {
-            immersiveItem.setVisible(isTranscript);
+        boolean hasTranscript = currentMedia != null && currentMedia.hasTranscript();
+
+        MenuItem controlsItem = toolbar.getMenu().findItem(R.id.transcript_menu_item);
+        if (controlsItem != null) {
+            controlsItem.setVisible(isTranscript && hasTranscript);
+            updateControlsBarButton();
         }
 
-        MenuItem translationItem = toolbar.getMenu().findItem(R.id.toggle_translation_item);
-        if (translationItem != null) {
-            if (isTranscript) {
-                TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
-                boolean isBilingual = transcriptFragment != null && transcriptFragment.isBilingual();
-                translationItem.setVisible(isBilingual);
-                if (isBilingual && menuTranslationText == null) {
-                    menuTranslationText = translationItem.getActionView().findViewById(R.id.menuTranslationText);
-                }
-                updateTranslationButtonAlpha();
-            } else {
-                translationItem.setVisible(false);
-            }
+        MenuItem floatingItem = toolbar.getMenu().findItem(R.id.floating_transcript_item);
+        if (floatingItem != null) {
+            floatingItem.setVisible(hasTranscript);
+            updateFloatingTranscriptButton();
         }
+    }
+
+    private void updateControlsBarButton() {
+        MenuItem item = toolbar.getMenu().findItem(R.id.transcript_menu_item);
+        if (item == null || item.getIcon() == null) {
+            return;
+        }
+        TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
+        boolean visible = transcriptFragment != null && transcriptFragment.isControlsBarVisible();
+        item.getIcon().mutate().setAlpha(visible ? 255 : 128);
+    }
+
+    private void toggleFloatingTranscript() {
+        if (currentMedia == null) {
+            return;
+        }
+        boolean enabled = !UserPreferences.isFloatingTranscriptEnabled();
+        if (enabled && !Settings.canDrawOverlays(requireContext())) {
+            startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + requireContext().getPackageName())));
+            return;
+        }
+        UserPreferences.setFloatingTranscriptEnabled(enabled);
+        if (enabled) {
+            TranscriptFloatingWindowService.start(requireContext(), currentMedia.getId());
+        } else {
+            TranscriptFloatingWindowService.stop(requireContext());
+        }
+        updateFloatingTranscriptButton();
+    }
+
+    private void updateFloatingTranscriptButton() {
+        MenuItem item = toolbar.getMenu().findItem(R.id.floating_transcript_item);
+        if (item == null || item.getIcon() == null) {
+            return;
+        }
+        boolean enabled = UserPreferences.isFloatingTranscriptEnabled();
+        item.getIcon().mutate().setAlpha(enabled ? 255 : 128);
     }
 
     private TranscriptPageFragment getTranscriptPageFragment() {
@@ -227,11 +262,11 @@ public class AudioPlayerFragment extends Fragment implements
         return null;
     }
 
-    private void updateTranslationButtonAlpha() {
-        if (menuTranslationText != null) {
-            TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
-            boolean isHidden = transcriptFragment != null && transcriptFragment.isHideSecondLanguage();
-            menuTranslationText.setAlpha(isHidden ? 0.5f : 1.0f);
+    public void toggleImmersiveMode() {
+        if (isImmersiveMode) {
+            exitImmersiveMode();
+        } else {
+            enterImmersiveMode();
         }
     }
 
@@ -293,9 +328,9 @@ public class AudioPlayerFragment extends Fragment implements
             decorView.setSystemUiVisibility(flags);
         }
 
-        MenuItem immersiveItem = toolbar.getMenu().findItem(R.id.immersive_mode_item);
-        if (immersiveItem != null) {
-            immersiveItem.setIcon(R.drawable.ic_fullscreen_exit);
+        TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
+        if (transcriptFragment != null) {
+            transcriptFragment.setImmersiveMode(true);
         }
     }
 
@@ -344,10 +379,11 @@ public class AudioPlayerFragment extends Fragment implements
             decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
         }
 
-        MenuItem immersiveItem = toolbar.getMenu().findItem(R.id.immersive_mode_item);
-        if (immersiveItem != null) {
-            immersiveItem.setIcon(R.drawable.ic_fullscreen);
+        TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
+        if (transcriptFragment != null) {
+            transcriptFragment.setImmersiveMode(false);
         }
+        updateControlsBarButton();
     }
 
     private void setChapterDividers() {
@@ -543,6 +579,8 @@ public class AudioPlayerFragment extends Fragment implements
         EventBus.getDefault().register(this);
         txtvRev.setText(NumberFormat.getInstance().format(UserPreferences.getRewindSecs()));
         txtvFF.setText(NumberFormat.getInstance().format(UserPreferences.getFastForwardSecs()));
+        updateFloatingTranscriptButton();
+        updateControlsBarButton();
     }
 
     @Override
@@ -712,18 +750,6 @@ public class AudioPlayerFragment extends Fragment implements
                 Collections.singletonList(currentMedia.getItem()));
         ((CastEnabledActivity) getActivity()).requestCastButton(toolbar.getMenu());
         updateToolbarButtonsVisibility(pager.getCurrentItem());
-
-        MenuItem translationItem = toolbar.getMenu().findItem(R.id.toggle_translation_item);
-        if (translationItem != null && translationItem.getActionView() != null) {
-            menuTranslationText = translationItem.getActionView().findViewById(R.id.menuTranslationText);
-            translationItem.getActionView().setOnClickListener(v -> {
-                TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
-                if (transcriptFragment != null) {
-                    transcriptFragment.toggleHideSecondLanguage();
-                    updateTranslationButtonAlpha();
-                }
-            });
-        }
     }
 
     @Override
@@ -744,11 +770,14 @@ public class AudioPlayerFragment extends Fragment implements
         } else if (itemId == R.id.transcript_item) {
             scrollToPage(POS_TRANSCRIPT, true);
             return true;
-        } else if (itemId == R.id.immersive_mode_item) {
-            if (isImmersiveMode) {
-                exitImmersiveMode();
-            } else {
-                enterImmersiveMode();
+        } else if (itemId == R.id.floating_transcript_item) {
+            toggleFloatingTranscript();
+            return true;
+        } else if (itemId == R.id.transcript_menu_item) {
+            TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
+            if (transcriptFragment != null) {
+                transcriptFragment.toggleControlsBar();
+                updateControlsBarButton();
             }
             return true;
         } else if (itemId == R.id.open_feed_item) {

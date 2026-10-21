@@ -1,6 +1,5 @@
 package de.danoeh.antennapod.playback.service;
 
-import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.media.audiofx.LoudnessEnhancer;
@@ -269,7 +268,7 @@ public class Media3PlaybackService extends MediaLibraryService {
             keepServiceRunningWhileCasting();
             loadCurrentMediaWhileCasting();
         }
-        getSharedPreferences("UserPreferences", Context.MODE_PRIVATE)
+        UserPreferences.getPreferences()
                 .registerOnSharedPreferenceChangeListener(transcriptPrefListener);
     }
 
@@ -309,14 +308,11 @@ public class Media3PlaybackService extends MediaLibraryService {
         }
     }
     private void startFloatingTranscript(long mediaId) {
-        Log.d("FloatingTranscript", "startFloatingTranscript: enabled="
-                + UserPreferences.isFloatingTranscriptEnabled() + ", mediaId=" + mediaId);
         if (!UserPreferences.isFloatingTranscriptEnabled()) {
             return;
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
                 && !Settings.canDrawOverlays(this)) {
-            Log.d("FloatingTranscript", "missing overlay permission");
             return;
         }
         Intent intent = new Intent();
@@ -324,14 +320,12 @@ public class Media3PlaybackService extends MediaLibraryService {
         intent.setAction("de.danoeh.antennapod.action.SHOW_FLOATING_TRANSCRIPT");
         intent.putExtra("extra_media_id", mediaId);
         startService(intent);
-        Log.d("FloatingTranscript", "startService sent");
     }
 
     private void stopFloatingTranscript() {
         Intent intent = new Intent();
         intent.setClassName(getPackageName(), "de.danoeh.antennapod.ui.transcript.TranscriptFloatingWindowService");
-        intent.setAction("de.danoeh.antennapod.action.HIDE_FLOATING_TRANSCRIPT");
-        startService(intent);
+        stopService(intent);
     }
     MediaLibrarySessionCallback sessionCallback = new MediaLibrarySessionCallback(this) {
         @Override
@@ -540,7 +534,7 @@ public class Media3PlaybackService extends MediaLibraryService {
         }
         // ★ 停止悬浮窗
         stopFloatingTranscript();
-        getSharedPreferences("UserPreferences", Context.MODE_PRIVATE)
+        UserPreferences.getPreferences()
                 .unregisterOnSharedPreferenceChangeListener(transcriptPrefListener);
         super.onDestroy();
     }

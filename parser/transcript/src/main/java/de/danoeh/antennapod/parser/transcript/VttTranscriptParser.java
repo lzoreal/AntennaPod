@@ -27,6 +27,8 @@ public class VttTranscriptParser {
 
     private record Timings(long start, long end) {}
 
+    private record Cue(long start, long end, List<String> lines, String speaker) {}
+
     public static Transcript parse(String str) {
         if (StringUtils.isBlank(str)) {
             return null;
@@ -39,6 +41,7 @@ public class VttTranscriptParser {
         Iterator<String> iterator = lines.iterator();
         Set<String> speakers = new HashSet<>();
         String speaker = "";
+        List<Cue> cues = new ArrayList<>();
 
         while (iterator.hasNext()) {
             String line = iterator.next();
@@ -57,36 +60,59 @@ public class VttTranscriptParser {
                 continue;
             }
 
-            boolean cueHasMultipleLines = payloadLines.size() > 1;
-
-            StringBuilder cleanedPayload = new StringBuilder();
+            List<String> cleanedLines = new ArrayList<>();
             for (String payloadLine : payloadLines) {
                 Matcher matcher = VOICE_SPAN.matcher(payloadLine);
                 if (matcher.find()) {
                     speaker = matcher.group(1);
                     speakers.add(speaker);
                 }
-                String cleaned = Jsoup.parse(payloadLine).text();
+                String cleaned = payloadLine.indexOf('<') < 0 && payloadLine.indexOf('&') < 0
+                        ? payloadLine
+                        : Jsoup.parse(payloadLine).text();
                 if (!cleaned.isEmpty()) {
-                    if (cleanedPayload.length() > 0) {
-                        cleanedPayload.append("\n");
-                    }
-                    cleanedPayload.append(cleaned);
+                    cleanedLines.add(cleaned);
                 }
             }
-
-            if (cueHasMultipleLines) {
-                transcript.setBilingual(true);
+            if (!cleanedLines.isEmpty()) {
+                cues.add(new Cue(timings.start, timings.end, cleanedLines, speaker));
             }
+        }
 
-            TranscriptSegment segment = new TranscriptSegment(
-                    timings.start, timings.end, cleanedPayload.toString(), speaker);
+        int multiLineCues = 0;
+        for (Cue cue : cues) {
+            if (cue.lines().size() > 1) {
+                multiLineCues++;
+            }
+        }
+        boolean bilingual = multiLineCues * 2 > cues.size();
+
+        TranscriptSegment segment = null;
+        for (Cue cue : cues) {
+            String payload = String.join(bilingual ? "\n" : " ", cue.lines());
+            if (!bilingual && segment != null && segment.getSpeaker().equals(cue.speaker())
+                    && cue.end() - segment.getStartTime() < TranscriptParser.MAX_SPAN) {
+                segment.append(cue.end(), payload);
+            } else {
+                if (segment != null) {
+                    transcript.addSegment(segment);
+                }
+                segment = new TranscriptSegment(cue.start(), cue.end(), payload, cue.speaker());
+            }
+            if (segment.getEndTime() - segment.getStartTime() >= TranscriptParser.MIN_SPAN) {
+                transcript.addSegment(segment);
+                segment = null;
+            }
+        }
+
+        if (segment != null) {
             transcript.addSegment(segment);
         }
 
         if (transcript.getSegmentCount() == 0) {
             return null;
         }
+        transcript.setBilingual(bilingual);
         transcript.setSpeakers(speakers);
         return transcript;
     }

@@ -25,7 +25,6 @@ import de.danoeh.antennapod.model.feed.Transcript;
 import de.danoeh.antennapod.model.feed.TranscriptSegment;
 import de.danoeh.antennapod.storage.database.DBReader;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
-import de.danoeh.antennapod.ui.appstartintent.MainActivityStarter;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.disposables.Disposable;
@@ -73,27 +72,21 @@ public class TranscriptFloatingWindowService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        android.util.Log.d("FloatingTranscript", ">>> onStartCommand intent=" + (intent != null));
         if (intent == null) {
             return START_NOT_STICKY;
         }
-        android.util.Log.d("FloatingTranscript", "action=" + intent.getAction());
         if (ACTION_HIDE.equals(intent.getAction())) {
-            android.util.Log.d("FloatingTranscript", "stopping self");
             stopSelf();
             return START_NOT_STICKY;
         }
 
         long mediaId = intent.getLongExtra(EXTRA_MEDIA_ID, -1);
-        android.util.Log.d("FloatingTranscript", "mediaId=" + mediaId + ", current=" + currentMediaId);
         if (mediaId != -1 && mediaId != currentMediaId) {
             currentMediaId = mediaId;
             loadTranscript(mediaId);
         }
         if (floatingView == null) {
             createFloatingWindow();
-        } else {
-            android.util.Log.d("FloatingTranscript", "floatingView already exists");
         }
         if (floatingView != null) {
             tvTranscript.setVisibility(View.VISIBLE);
@@ -165,52 +158,32 @@ public class TranscriptFloatingWindowService extends Service {
         return result;
     }
 
-    private void openPlayer() {
-        Intent intent = new MainActivityStarter(this)
-                .withOpenPlayer()
-                .getIntent();
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        startActivity(intent);
-    }
-
     private void loadTranscript(long mediaId) {
-        android.util.Log.d("FloatingTranscript", ">>> loadTranscript: " + mediaId);
         if (loadDisposable != null && !loadDisposable.isDisposed()) {
             loadDisposable.dispose();
         }
         transcript = null;
         loadDisposable = Observable.fromCallable(() -> {
                     FeedMedia media = DBReader.getFeedMedia(mediaId);
-                    android.util.Log.d("FloatingTranscript", "DBReader media=" + (media != null));
                     if (media == null) {
                         return null;
                     }
-                    Transcript t = TranscriptUtils.loadTranscript(media, false);
-                    android.util.Log.d("FloatingTranscript", "TranscriptUtils result=" + (t != null));
-                    return t;
+                    return TranscriptUtils.loadTranscript(media, false);
                 })
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(t -> {
-                    this.transcript = t;
-                    android.util.Log.d("FloatingTranscript", "transcript assigned, segments="
-                            + (t != null ? t.getSegmentCount() : "null"));
-                    if (t != null && !(t.getSegmentCount() == 0)) {
-                        TranscriptSegment first = t.getSegmentAt(0);
-                        android.util.Log.d("FloatingTranscript", "firstSeg: start=" + first.getStartTime()
-                                + ", end=" + first.getEndTime() + ", text=" + first.getWords());
-                    }
-                }, e -> {
-                    android.util.Log.e("FloatingTranscript", "load error", e);
-                    e.printStackTrace();
-                });
+                .subscribe(t -> this.transcript = t,
+                        e -> android.util.Log.e("FloatingTranscript", "load error", e));
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onPositionEvent(PlaybackPositionEvent event) {
-        if (transcript == null || tvTranscript == null) return;
+        if (transcript == null || transcript.getSegmentCount() == 0 || tvTranscript == null) {
+            return;
+        }
 
-        TranscriptSegment segment = transcript.getSegmentAtTime(event.getPosition());
+        long offset = UserPreferences.getTranscriptTimeOffset(currentMediaId);
+        TranscriptSegment segment = transcript.getSegmentAtTime(event.getPosition() - offset);
         if (segment != null) {
             String text = segment.getWords();
             if (text.contains("\n")) {
@@ -225,7 +198,7 @@ public class TranscriptFloatingWindowService extends Service {
 
             if (isNewSegment) {
                 tvTranscript.setText(text);
-                long remainingMs = segment.getEndTime() - event.getPosition();
+                long remainingMs = segment.getEndTime() + offset - event.getPosition();
                 tvTranscript.startAutoScroll(remainingMs, windowWidth);
             }
 

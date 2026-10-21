@@ -126,6 +126,8 @@ public abstract class UserPreferences {
     private static final String PREF_REWIND_SECS = "prefRewindSecs";
     private static final String PREF_QUEUE_LOCKED = "prefQueueLocked";
     public static final String PREF_FLOATING_TRANSCRIPT = "prefFloatingTranscript";
+    private static final String PREF_TRANSCRIPT_TIME_OFFSET = "prefTranscriptTimeOffset";
+    private static final String PREF_TRANSCRIPT_TIME_OFFSET_MEDIA = "prefTranscriptTimeOffsetMedia";
 
     // Experimental
     public static final int EPISODE_CLEANUP_QUEUE = -1;
@@ -156,6 +158,10 @@ public abstract class UserPreferences {
         UserPreferences.prefs = PreferenceManager.getDefaultSharedPreferences(context);
 
         createNoMediaFile();
+    }
+
+    public static SharedPreferences getPreferences() {
+        return prefs;
     }
 
     public enum ThemePreference {
@@ -920,5 +926,19 @@ public abstract class UserPreferences {
 
     public static void setFloatingTranscriptEnabled(boolean enabled) {
         prefs.edit().putBoolean(PREF_FLOATING_TRANSCRIPT, enabled).apply();
+    }
+
+    public static long getTranscriptTimeOffset(long mediaId) {
+        if (prefs.getLong(PREF_TRANSCRIPT_TIME_OFFSET_MEDIA, -1) != mediaId) {
+            return 0;
+        }
+        return prefs.getLong(PREF_TRANSCRIPT_TIME_OFFSET, 0);
+    }
+
+    public static void setTranscriptTimeOffset(long mediaId, long offsetMs) {
+        prefs.edit()
+                .putLong(PREF_TRANSCRIPT_TIME_OFFSET_MEDIA, mediaId)
+                .putLong(PREF_TRANSCRIPT_TIME_OFFSET, offsetMs)
+                .apply();
     }
 }
