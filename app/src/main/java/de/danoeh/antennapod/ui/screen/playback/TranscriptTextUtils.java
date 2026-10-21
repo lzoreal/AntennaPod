@@ -34,7 +34,10 @@ final class TranscriptTextUtils {
     }
 
     static int[] chunkStarts(String text) {
-        int length = primaryLength(text);
+        return chunkStarts(text, primaryLength(text));
+    }
+
+    static int[] chunkStarts(String text, int length) {
         List<Integer> starts = new ArrayList<>();
         starts.add(0);
         int last = 0;
@@ -57,6 +60,18 @@ final class TranscriptTextUtils {
             result[i] = starts.get(i);
         }
         return result;
+    }
+
+    static int sentenceIndexAt(String text, float progress, int length) {
+        int[] starts = chunkStarts(text, length);
+        int charIndex = Math.round(progress * length);
+        int index = 0;
+        for (int i = 1; i + 1 < starts.length; i++) {
+            if (starts[i] <= charIndex) {
+                index = i;
+            }
+        }
+        return index;
     }
 
     private static boolean isTrailingChar(char c) {
