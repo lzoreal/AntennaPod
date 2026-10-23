@@ -247,11 +247,10 @@ public class AudioPlayerFragment extends Fragment implements
 
     private void updateFloatingTranscriptButton() {
         MenuItem item = toolbar.getMenu().findItem(R.id.floating_transcript_item);
-        if (item == null || item.getIcon() == null) {
+        if (item == null) {
             return;
         }
-        boolean enabled = UserPreferences.isFloatingTranscriptEnabled();
-        item.getIcon().mutate().setAlpha(enabled ? 255 : 128);
+        item.setChecked(UserPreferences.isFloatingTranscriptEnabled());
     }
 
     private TranscriptPageFragment getTranscriptPageFragment() {

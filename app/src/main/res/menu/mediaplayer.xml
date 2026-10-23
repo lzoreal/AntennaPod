@@ -12,10 +12,10 @@
 
     <item
         android:id="@+id/floating_transcript_item"
-        android:icon="@drawable/ic_floating_transcript"
+        android:checkable="true"
         android:title="@string/pref_floating_transcript_title"
         android:visible="false"
-        custom:showAsAction="always">
+        custom:showAsAction="never">
     </item>
 
     <item

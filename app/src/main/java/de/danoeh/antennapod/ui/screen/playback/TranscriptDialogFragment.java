@@ -12,7 +12,6 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
-import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -91,7 +90,7 @@ public class TranscriptDialogFragment extends DialogFragment
         viewBinding.progLoading.setVisibility(View.VISIBLE);
         doInitialScroll = true;
 
-        TextView btnToggleTranslation = viewBinding.getRoot().findViewById(R.id.btnToggleTranslation);
+        View btnToggleTranslation = viewBinding.getRoot().findViewById(R.id.btnToggleTranslation);
         if (btnToggleTranslation != null) {
             btnToggleTranslation.setOnClickListener(v -> {
                 int newState = (adapter.getLanguageMode() + 1) % 3;
@@ -200,7 +199,7 @@ public class TranscriptDialogFragment extends DialogFragment
         viewBinding.progLoading.setVisibility(View.GONE);
         adapter.setMedia(media);
 
-        TextView btnToggleTranslation = viewBinding.getRoot().findViewById(R.id.btnToggleTranslation);
+        View btnToggleTranslation = viewBinding.getRoot().findViewById(R.id.btnToggleTranslation);
         if (btnToggleTranslation != null) {
             boolean isBilingual = ((FeedMedia) media).getTranscript().isBilingual();
             btnToggleTranslation.setVisibility(isBilingual ? View.VISIBLE : View.GONE);
