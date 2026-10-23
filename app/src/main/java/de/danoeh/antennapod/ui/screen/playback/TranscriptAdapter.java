@@ -2,10 +2,13 @@ package de.danoeh.antennapod.ui.screen.playback;
 
 import android.content.Context;
 import android.content.res.TypedArray;
+import android.graphics.Typeface;
+import android.text.Layout;
 import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.TextUtils;
 import android.text.style.ForegroundColorSpan;
+import android.text.style.StyleSpan;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -43,9 +46,9 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     private int highlightPosition = -1;
     private int highlightedSentence = -1;
     private long lastHighlightPositionMs = 0;
-    private boolean inMultiselectMode = false;
-    private final HashSet<Integer> selectedPositions = new HashSet<>();
-    private boolean hideSecondLanguage = false;
+    private int languageMode = LANGUAGE_MODE_BOTH;
+    private float lastTouchX = 0;
+    private float lastTouchY = 0;
     private boolean sentencePerLine = false;
     private final int highlightTextColor;
     private final int normalTextColor;
@@ -61,13 +64,17 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         typedArray.recycle();
     }
 
-    public void setHideSecondLanguage(boolean hide) {
-        this.hideSecondLanguage = hide;
+    public static final int LANGUAGE_MODE_BOTH = 0;
+    public static final int LANGUAGE_MODE_PRIMARY_ONLY = 1;
+    public static final int LANGUAGE_MODE_SECONDARY_ONLY = 2;
+
+    public void setLanguageMode(int mode) {
+        this.languageMode = mode;
         notifyDataSetChanged();
     }
 
-    public boolean isHideSecondLanguage() {
-        return hideSecondLanguage;
+    public int getLanguageMode() {
+        return languageMode;
     }
 
     public void setSentencePerLine(boolean split) {
@@ -95,21 +102,6 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         notifyDataSetChanged();
     }
 
-    public void setMultiselectMode(boolean multiselectMode) {
-        if (this.inMultiselectMode == multiselectMode) {
-            return;
-        }
-        this.inMultiselectMode = multiselectMode;
-        if (!multiselectMode) {
-            selectedPositions.clear();
-        }
-        notifyDataSetChanged();
-    }
-
-    public boolean isMultiselectMode() {
-        return inMultiselectMode;
-    }
-
     @Override
     public void onBindViewHolder(@NonNull TranscriptViewholder holder, int position) {
         if (media == null || media.getTranscript() == null) {
@@ -117,17 +109,26 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         }
 
         TranscriptSegment seg = media.getTranscript().getSegmentAt(position);
+        holder.viewContent.setOnTouchListener((v, event) -> {
+            if (event.getAction() == android.view.MotionEvent.ACTION_DOWN) {
+                lastTouchX = event.getX();
+                lastTouchY = event.getY();
+            }
+            return false;
+        });
         holder.viewContent.setOnClickListener(v -> {
             if (segmentClickListener != null)  {
-                segmentClickListener.onTranscriptClicked(position, seg);
+                segmentClickListener.onTranscriptClicked(position, seg,
+                        sentenceStartTimeAtTouch(holder, seg));
             }
         });
 
-        holder.viewContent.setOnLongClickListener(v -> {
-            if (segmentClickListener != null) {
-                segmentClickListener.onTranscriptLongClicked(position, seg);
+        holder.viewContent.setSelectionListener(selectedText -> {
+            if (selectedText != null && !selectedText.isEmpty()) {
+                if (segmentClickListener != null) {
+                    segmentClickListener.onTranscriptWordSelected(position, seg, selectedText);
+                }
             }
-            return true;
         });
 
         String timecode = Converter.getDurationStringLong((int) seg.getStartTime());
@@ -155,13 +156,9 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             holder.viewContent.setText(displayText);
         }
 
-        if (inMultiselectMode) {
-            highlightViewHolder(holder, selectedPositions.contains(position));
-        } else {
-            highlightViewHolder(holder, position == highlightPosition);
-        }
+        highlightViewHolder(holder, position == highlightPosition);
 
-        if (!inMultiselectMode && position == highlightPosition) {
+        if (position == highlightPosition) {
             applyGradedHighlight(holder, position);
         }
     }
@@ -178,8 +175,11 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
 
     private String getDisplayText(TranscriptSegment seg) {
         String displayText = seg.getWords();
-        if (hideSecondLanguage && displayText.contains("\n")) {
-            displayText = displayText.substring(0, displayText.indexOf('\n'));
+        if (languageMode != LANGUAGE_MODE_BOTH && seg.getTranslationLine() >= 0) {
+            int lineBreak = displayText.indexOf('\n');
+            displayText = languageMode == LANGUAGE_MODE_PRIMARY_ONLY
+                    ? displayText.substring(0, lineBreak)
+                    : displayText.substring(lineBreak + 1);
         }
         if (sentencePerLine) {
             displayText = TranscriptTextUtils.splitIntoSentences(displayText);
@@ -215,6 +215,9 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
                 color = ColorUtils.setAlphaComponent(highlightTextColor, FUTURE_SENTENCE_ALPHA);
             }
             graded.setSpan(new ForegroundColorSpan(color), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            if (i == sentence) {
+                graded.setSpan(new StyleSpan(Typeface.BOLD), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
         }
         holder.viewContent.setText(graded);
     }
@@ -232,29 +235,52 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
                 TranscriptTextUtils.progressAt(segment, position), text.length());
     }
 
+    private long sentenceStartTimeAtTouch(TranscriptViewholder holder, TranscriptSegment segment) {
+        Layout layout = holder.viewContent.getLayout();
+        if (layout == null) {
+            return segment.getStartTime();
+        }
+        int line = layout.getLineForVertical((int) lastTouchY);
+        int offset = layout.getOffsetForHorizontal(line, lastTouchX);
+        String text = getDisplayText(segment);
+        int sentenceIndex = TranscriptTextUtils.sentenceIndexAt(text,
+                offset / (float) Math.max(1, text.length()), text.length());
+        return TranscriptTextUtils.sentenceStartTime(segment, text, sentenceIndex);
+    }
+
     private boolean hasSecondLanguage(TranscriptSegment segment) {
-        return !hideSecondLanguage && segment.getWords().contains("\n");
+        return languageMode == LANGUAGE_MODE_BOTH && segment.getTranslationLine() >= 0;
     }
 
     private void highlightViewHolder(TranscriptViewholder holder, boolean highlight) {
+        int fontStep = UserPreferences.getTranscriptFontSize();
         if (highlight) {
-            holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
+            holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19 + fontStep * 2);
             holder.viewContent.setAlpha(1.0f);
-            holder.viewContent.setTypeface(null, android.graphics.Typeface.BOLD);
+            holder.viewContent.setTypeface(null, Typeface.BOLD);
 
             holder.viewContent.setTextColor(highlightTextColor);
 
             holder.viewTimecode.setAlpha(0.8f);
 
         } else {
-            holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+            holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16 + fontStep * 2);
             holder.viewContent.setAlpha(0.45f);
-            holder.viewContent.setTypeface(null, android.graphics.Typeface.NORMAL);
+            holder.viewContent.setTypeface(null, Typeface.NORMAL);
 
             holder.viewContent.setTextColor(normalTextColor);
 
             holder.viewTimecode.setAlpha(0.3f);
         }
+    }
+
+    public int getFontSizeStep() {
+        return UserPreferences.getTranscriptFontSize();
+    }
+
+    public void setFontSizeStep(int step) {
+        UserPreferences.setTranscriptFontSize(step);
+        notifyDataSetChanged();
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
@@ -321,66 +347,13 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         EventBus.getDefault().unregister(this);
     }
 
-    public void toggleSelection(int pos) {
-        if (selectedPositions.contains(pos)) {
-            selectedPositions.remove(pos);
-        } else {
-            selectedPositions.add(pos);
-        }
-        notifyItemChanged(pos);
-    }
-
-    public void selectAll() {
-        if (media == null || media.getTranscript() == null) {
-            return;
-        }
-        selectedPositions.clear();
-        int count = getItemCount();
-        for (int i = 0; i < count; i++) {
-            selectedPositions.add(i);
-        }
-        notifyDataSetChanged();
-    }
-
-    public String getSelectedText() {
-        if (!inMultiselectMode) {
-            return null;
-        }
-        Transcript transcript = media.getTranscript();
-        StringBuilder ss = new StringBuilder();
-        String lastSpeaker = null;
-        if (selectedPositions.isEmpty()) {
-            return "";
-        }
-        java.util.List<Integer> sortedPositions = new java.util.ArrayList<>(selectedPositions);
-        java.util.Collections.sort(sortedPositions);
-        int prevIndex = -2;
-        for (int index : sortedPositions) {
-            if (prevIndex != -2 && index != prevIndex + 1) {
-                ss.append("\n[...]\n");
-            }
-            TranscriptSegment seg = transcript.getSegmentAt(index);
-            if (!StringUtil.isBlank(seg.getSpeaker())) {
-                if (ObjectUtils.notEqual(lastSpeaker, seg.getSpeaker())) {
-                    ss.append("\n").append(seg.getSpeaker()).append(" : ");
-                    lastSpeaker = seg.getSpeaker();
-                }
-            } else {
-                lastSpeaker = null;
-            }
-            if (!TextUtils.isEmpty(ss) && ss.charAt(ss.length() - 1) != ' ') {
-                ss.append(' ');
-            }
-            ss.append(seg.getWords());
-            prevIndex = index;
-        }
-
-        return ss.toString().strip();
+    public int getHighlightPosition() {
+        return highlightPosition;
     }
 
     public interface SegmentClickListener {
-        void onTranscriptClicked(int position, TranscriptSegment seg);
+        void onTranscriptClicked(int position, TranscriptSegment seg, long sentenceStartTime);
 
-        void onTranscriptLongClicked(int position, TranscriptSegment seg);
+        void onTranscriptWordSelected(int position, TranscriptSegment seg, String selectedText);
     }
 }

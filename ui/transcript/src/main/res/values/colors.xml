@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="floating_transcript_text">#B4A7FF</color>
+    <color name="floating_transcript_shadow">#80000000</color>
+</resources>

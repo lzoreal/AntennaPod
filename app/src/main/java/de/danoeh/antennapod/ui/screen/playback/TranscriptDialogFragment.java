@@ -3,6 +3,7 @@ package de.danoeh.antennapod.ui.screen.playback;
 import android.app.Dialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.DisplayMetrics;
@@ -93,9 +94,10 @@ public class TranscriptDialogFragment extends DialogFragment
         TextView btnToggleTranslation = viewBinding.getRoot().findViewById(R.id.btnToggleTranslation);
         if (btnToggleTranslation != null) {
             btnToggleTranslation.setOnClickListener(v -> {
-                boolean newState = !adapter.isHideSecondLanguage();
-                adapter.setHideSecondLanguage(newState);
-                btnToggleTranslation.setAlpha(newState ? 0.5f : 1.0f);
+                int newState = (adapter.getLanguageMode() + 1) % 3;
+                adapter.setLanguageMode(newState);
+                btnToggleTranslation.setAlpha(
+                        newState == TranscriptAdapter.LANGUAGE_MODE_BOTH ? 1.0f : 0.5f);
             });
         }
 
@@ -103,62 +105,38 @@ public class TranscriptDialogFragment extends DialogFragment
                 .setView(viewBinding.getRoot())
                 .setNegativeButton(R.string.close_label, null)
                 .create();
-        setMultiselectMode(false);
         return dialog;
     }
 
-    private void setMultiselectMode(boolean multiselectMode) {
-        adapter.setMultiselectMode(multiselectMode);
-        viewBinding.toolbar.getMenu().findItem(R.id.action_copy).setVisible(multiselectMode);
-        viewBinding.toolbar.getMenu().findItem(R.id.action_cancel_copy).setVisible(multiselectMode);
-        viewBinding.toolbar.getMenu().findItem(R.id.action_select_all).setVisible(multiselectMode);
-        viewBinding.toolbar.getMenu().findItem(R.id.action_refresh).setVisible(!multiselectMode);
-        viewBinding.followAudioCheckbox.setChecked(!multiselectMode);
-    }
+    @Override
+    public void onTranscriptClicked(int pos, TranscriptSegment segment, long sentenceStartTime) {
+        long offset = media instanceof FeedMedia
+                ? UserPreferences.getTranscriptTimeOffset(((FeedMedia) media).getId()) : 0;
+        long startTime = sentenceStartTime + offset;
+        long endTime = segment.getEndTime() + offset;
 
-    private void copySelectedText() {
-        String selectedText = adapter.getSelectedText();
-        ClipboardManager clipboardManager = ContextCompat.getSystemService(requireContext(), ClipboardManager.class);
-        if (clipboardManager != null) {
-            clipboardManager.setPrimaryClip(ClipData.newPlainText(getString(R.string.transcript), selectedText));
-        }
-        if (Build.VERSION.SDK_INT <= 32) {
-            EventBus.getDefault().post(new MessageEvent(getString(R.string.copied_to_clipboard)));
-        }
+        scrollToPosition(pos);
+        PlaybackController.bindToMedia3Service(getActivity(), controller -> {
+            if (!(controller.getCurrentPosition() >= startTime
+                    && controller.getCurrentPosition() <= endTime)) {
+                controller.seekTo(Math.max(0, startTime));
+            } else if (controller.isPlaying()) {
+                controller.pause();
+            } else {
+                controller.play();
+            }
+        });
+        adapter.notifyItemChanged(pos);
+        viewBinding.followAudioCheckbox.setChecked(true);
     }
 
     @Override
-    public void onTranscriptClicked(int pos, TranscriptSegment segment) {
-        if (adapter.isMultiselectMode()) {
-            adapter.toggleSelection(pos);
-        } else {
-            long offset = media instanceof FeedMedia
-                    ? UserPreferences.getTranscriptTimeOffset(((FeedMedia) media).getId()) : 0;
-            long startTime = segment.getStartTime() + offset;
-            long endTime = segment.getEndTime() + offset;
-
-            scrollToPosition(pos);
-            PlaybackController.bindToMedia3Service(getActivity(), controller -> {
-                if (!(controller.getCurrentPosition() >= startTime
-                        && controller.getCurrentPosition() <= endTime)) {
-                    controller.seekTo(Math.max(0, startTime));
-                } else if (controller.isPlaying()) {
-                    controller.pause();
-                } else {
-                    controller.play();
-                }
-            });
-            adapter.notifyItemChanged(pos);
-            viewBinding.followAudioCheckbox.setChecked(true);
-        }
-    }
-
-    @Override
-    public void onTranscriptLongClicked(int position, TranscriptSegment seg) {
-        if (!adapter.isMultiselectMode()) {
-            setMultiselectMode(true);
-            adapter.toggleSelection(position);
-        }
+    public void onTranscriptWordSelected(int position, TranscriptSegment seg, String selectedText) {
+        PlaybackController.bindToMedia3Service(getActivity(), controller -> {
+            if (controller.isPlaying()) {
+                controller.pause();
+            }
+        });
     }
 
     @Override
@@ -274,16 +252,6 @@ public class TranscriptDialogFragment extends DialogFragment
         if (id == R.id.action_refresh) {
             viewBinding.progLoading.setVisibility(View.VISIBLE);
             loadMediaInfo(true);
-            return true;
-        } else if (id == R.id.action_copy) {
-            copySelectedText();
-            setMultiselectMode(false);
-            return true;
-        } else if (id == R.id.action_cancel_copy) {
-            setMultiselectMode(false);
-            return true;
-        } else if (id == R.id.action_select_all) {
-            adapter.selectAll();
             return true;
         }
         return false;

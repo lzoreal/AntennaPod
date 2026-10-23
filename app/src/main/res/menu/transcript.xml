@@ -5,18 +5,4 @@
         android:title="@string/refresh_label"
         android:icon="@drawable/ic_refresh"
         app:showAsAction="always" />
-    <item
-        android:id="@+id/action_copy"
-        android:title="@string/copy_to_clipboard"
-        android:icon="@drawable/ic_copy"
-        app:showAsAction="always" />
-    <item
-        android:id="@+id/action_select_all"
-        android:title="@string/select_all_label"
-        app:showAsAction="never" />
-    <item
-        android:id="@+id/action_cancel_copy"
-        android:title="@string/cancel_label"
-        android:icon="@drawable/ic_close"
-        app:showAsAction="always" />
 </menu>

@@ -313,6 +313,14 @@
     <string name="transcript_translation_toggle">文A</string>
     <string name="transcript_line_break_toggle">¶</string>
     <string name="transcript_line_break_description">Split sentences into separate lines</string>
+<string name="transcript_font_smaller_toggle">A-</string>
+<string name="transcript_font_larger_toggle">A+</string>
+<string name="transcript_font_smaller_description">Decrease transcript font size</string>
+<string name="transcript_font_larger_description">Increase transcript font size</string>
+    <string name="transcript_segment_loop_toggle">⟲</string>
+    <string name="transcript_segment_loop_description">Loop current segment</string>
+    <string name="transcript_segment_loop_message">Looping current segment</string>
+    <string name="transcript_segment_loop_disabled_message">Stopped looping</string>
     <string name="visit_website_label">Visit website</string>
     <string name="visit_social_interact_label">Show comments</string>
     <string name="visit_social_interact_confirm_dialog_title">You are leaving AntennaPod</string>
@@ -1081,6 +1089,6 @@
     <string name="wearos_play_on_phone" tools:ignore="UnusedResources">Play on phone</string>
     <string name="wearos_browse_phone" tools:ignore="UnusedResources">Browse phone</string>
     <string name="wearos_open_on_phone" tools:ignore="UnusedResources">Open on phone</string>
-    <string name="immersive_mode">沉浸模式</string>
-    <string name="toggle_translation">切换翻译</string>
+    <string name="immersive_mode">Immersive mode</string>
+    <string name="toggle_translation">Toggle translation</string>
 </resources>

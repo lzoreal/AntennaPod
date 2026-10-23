@@ -17,7 +17,7 @@
         android:textStyle="bold"
         android:textColor="?android:attr/textColorPrimary" />
 
-    <TextView
+    <de.danoeh.antennapod.ui.screen.playback.TranscriptTextView
         android:id="@+id/content"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -28,6 +28,6 @@
         android:selectAllOnFocus="false"
         android:singleLine="false"
         android:textColor="?android:attr/textColorPrimary"
-        android:textIsSelectable="false" />
+        android:textIsSelectable="true" />
 
 </LinearLayout>
