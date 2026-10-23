@@ -189,7 +189,7 @@ public class AudioPlayerFragment extends Fragment implements
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
-        // 在 onViewCreated 中注册返回键回调，此时 View Lifecycle 已到达 CREATED
+        // Register the back callback in onViewCreated, when the View Lifecycle has reached CREATED
         immersiveBackCallback = new OnBackPressedCallback(false) {
             @Override
             public void handleOnBackPressed() {
@@ -200,12 +200,11 @@ public class AudioPlayerFragment extends Fragment implements
     }
 
     private void updateToolbarButtonsVisibility(int position) {
-        boolean isTranscript = position == POS_TRANSCRIPT;
         boolean hasTranscript = currentMedia != null && currentMedia.hasTranscript();
 
         MenuItem controlsItem = toolbar.getMenu().findItem(R.id.transcript_menu_item);
         if (controlsItem != null) {
-            controlsItem.setVisible(isTranscript && hasTranscript);
+            controlsItem.setVisible(hasTranscript);
             updateControlsBarButton();
         }
 
@@ -222,8 +221,9 @@ public class AudioPlayerFragment extends Fragment implements
             return;
         }
         TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
-        boolean visible = transcriptFragment != null && transcriptFragment.isControlsBarVisible();
-        item.getIcon().mutate().setAlpha(visible ? 255 : 128);
+        boolean isTranscript = pager.getCurrentItem() == POS_TRANSCRIPT;
+        boolean controlsVisible = transcriptFragment != null && transcriptFragment.isControlsBarVisible();
+        item.getIcon().mutate().setAlpha(!isTranscript || controlsVisible ? 255 : 128);
     }
 
     private void toggleFloatingTranscript() {
@@ -247,11 +247,10 @@ public class AudioPlayerFragment extends Fragment implements
 
     private void updateFloatingTranscriptButton() {
         MenuItem item = toolbar.getMenu().findItem(R.id.floating_transcript_item);
-        if (item == null || item.getIcon() == null) {
+        if (item == null) {
             return;
         }
-        boolean enabled = UserPreferences.isFloatingTranscriptEnabled();
-        item.getIcon().mutate().setAlpha(enabled ? 255 : 128);
+        item.setChecked(UserPreferences.isFloatingTranscriptEnabled());
     }
 
     private TranscriptPageFragment getTranscriptPageFragment() {
@@ -276,7 +275,7 @@ public class AudioPlayerFragment extends Fragment implements
         }
         isImmersiveMode = true;
 
-        // 重新注册返回键回调到 Dispatcher 末尾，确保最高优先级
+        // Re-register the back callback at the end of the dispatcher to give it the highest priority
         if (immersiveBackCallback != null) {
             immersiveBackCallback.remove();
         }
@@ -288,11 +287,11 @@ public class AudioPlayerFragment extends Fragment implements
         };
         requireActivity().getOnBackPressedDispatcher().addCallback(getViewLifecycleOwner(), immersiveBackCallback);
 
-        // 隐藏 toolbar 和底部控制栏
+        // Hide the toolbar and the bottom controls
         toolbar.setVisibility(View.GONE);
         playtimeLayout.setVisibility(View.GONE);
 
-        // 隐藏主界面底部导航栏
+        // Hide the main navigation bar
         View bottomNav = getActivity().findViewById(R.id.bottomNavigationView);
         if (bottomNav != null) {
             bottomNav.setVisibility(View.GONE);
@@ -302,7 +301,7 @@ public class AudioPlayerFragment extends Fragment implements
             bottomPadding.setVisibility(View.GONE);
         }
 
-        // 关键修复：ViewPager2 在 RelativeLayout 中，需要移除上下约束并设为 MATCH_PARENT
+        // Important: ViewPager2 is inside a RelativeLayout, so remove the top/bottom rules and use MATCH_PARENT
         RelativeLayout.LayoutParams pagerParams = (RelativeLayout.LayoutParams) pager.getLayoutParams();
         pagerParams.removeRule(RelativeLayout.BELOW);
         pagerParams.removeRule(RelativeLayout.ABOVE);
@@ -311,7 +310,7 @@ public class AudioPlayerFragment extends Fragment implements
         pager.setLayoutParams(pagerParams);
         pager.requestLayout();
 
-        // 隐藏系统状态栏和导航栏
+        // Hide the system status bar and navigation bar
         View decorView = getActivity().getWindow().getDecorView();
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             WindowInsetsController controller = decorView.getWindowInsetsController();
@@ -340,16 +339,16 @@ public class AudioPlayerFragment extends Fragment implements
         }
         isImmersiveMode = false;
 
-        // 禁用返回键回调，让返回键恢复正常行为
+        // Disable the back callback so the back button behaves normally again
         if (immersiveBackCallback != null) {
             immersiveBackCallback.setEnabled(false);
         }
 
-        // 恢复 toolbar 和底部控制栏
+        // Restore the toolbar and the bottom controls
         toolbar.setVisibility(View.VISIBLE);
         playtimeLayout.setVisibility(View.VISIBLE);
 
-        // 恢复主界面底部导航栏
+        // Restore the main navigation bar
         View bottomNav = getActivity().findViewById(R.id.bottomNavigationView);
         if (bottomNav != null) {
             bottomNav.setVisibility(View.VISIBLE);
@@ -359,16 +358,16 @@ public class AudioPlayerFragment extends Fragment implements
             bottomPadding.setVisibility(View.VISIBLE);
         }
 
-        // 恢复 ViewPager2 的原始约束
+        // Restore the original ViewPager2 layout parameters
         RelativeLayout.LayoutParams pagerParams = (RelativeLayout.LayoutParams) pager.getLayoutParams();
         pagerParams.addRule(RelativeLayout.BELOW, R.id.toolbar);
         pagerParams.addRule(RelativeLayout.ABOVE, R.id.playtime_layout);
-        pagerParams.height = 0; // 0dp 配合上下约束填充中间区域
+        pagerParams.height = 0; // 0dp with top/bottom rules fills the middle area
         pagerParams.setMargins(0, 0, 0, (int) (12 * getResources().getDisplayMetrics().density));
         pager.setLayoutParams(pagerParams);
         pager.requestLayout();
 
-        // 显示系统状态栏和导航栏
+        // Show the system status bar and navigation bar
         View decorView = getActivity().getWindow().getDecorView();
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             WindowInsetsController controller = decorView.getWindowInsetsController();
@@ -774,10 +773,14 @@ public class AudioPlayerFragment extends Fragment implements
             toggleFloatingTranscript();
             return true;
         } else if (itemId == R.id.transcript_menu_item) {
-            TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
-            if (transcriptFragment != null) {
-                transcriptFragment.toggleControlsBar();
-                updateControlsBarButton();
+            if (pager.getCurrentItem() == POS_TRANSCRIPT) {
+                TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
+                if (transcriptFragment != null) {
+                    transcriptFragment.toggleControlsBar();
+                    updateControlsBarButton();
+                }
+            } else {
+                scrollToPage(POS_TRANSCRIPT, true);
             }
             return true;
         } else if (itemId == R.id.open_feed_item) {
@@ -802,7 +805,7 @@ public class AudioPlayerFragment extends Fragment implements
 
     public void fadePlayerToToolbar(float slideOffset) {
         if (isImmersiveMode) {
-            return; // 沉浸模式下禁止 BottomSheet 动画干扰
+            return; // Do not interfere with BottomSheet animations in immersive mode
         }
         float playerFadeProgress = Math.max(0.0f, Math.min(0.2f, slideOffset - 0.2f)) / 0.2f;
         View player = getView().findViewById(R.id.playerFragment);
