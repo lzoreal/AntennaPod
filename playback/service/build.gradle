@@ -31,6 +31,7 @@ dependencies {
     implementation project(':ui:notifications')
     implementation project(':ui:widget')
     implementation project(':ui:chapters')
+    implementation project(':ui:transcript')
 
     annotationProcessor libs.androidx.annotation
     implementation libs.androidx.car.app

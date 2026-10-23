@@ -1,6 +1,9 @@
 package de.danoeh.antennapod.ui.screen.playback.audio;
 
 import android.os.Bundle;
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
@@ -47,6 +50,7 @@ import de.danoeh.antennapod.ui.screen.playback.SleepTimerDialog;
 import de.danoeh.antennapod.ui.screen.playback.TranscriptDialogFragment;
 import de.danoeh.antennapod.ui.screen.playback.TranscriptPageFragment;
 import de.danoeh.antennapod.ui.screen.playback.VariableSpeedDialog;
+import de.danoeh.antennapod.ui.transcript.TranscriptFloatingWindowService;
 
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
@@ -117,7 +121,6 @@ public class AudioPlayerFragment extends Fragment implements
     private boolean seekedToChapterStart = false;
     private int currentChapterIndex = -1;
     private boolean isImmersiveMode = false;
-    private TextView menuTranslationText;
     private OnBackPressedCallback immersiveBackCallback;
 
     @Override
@@ -186,7 +189,7 @@ public class AudioPlayerFragment extends Fragment implements
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
-        // 在 onViewCreated 中注册返回键回调，此时 View Lifecycle 已到达 CREATED
+        // Register the back callback in onViewCreated, when the View Lifecycle has reached CREATED
         immersiveBackCallback = new OnBackPressedCallback(false) {
             @Override
             public void handleOnBackPressed() {
@@ -197,26 +200,57 @@ public class AudioPlayerFragment extends Fragment implements
     }
 
     private void updateToolbarButtonsVisibility(int position) {
-        boolean isTranscript = position == POS_TRANSCRIPT;
-        MenuItem immersiveItem = toolbar.getMenu().findItem(R.id.immersive_mode_item);
-        if (immersiveItem != null) {
-            immersiveItem.setVisible(isTranscript);
+        boolean hasTranscript = currentMedia != null && currentMedia.hasTranscript();
+
+        MenuItem controlsItem = toolbar.getMenu().findItem(R.id.transcript_menu_item);
+        if (controlsItem != null) {
+            controlsItem.setVisible(hasTranscript);
+            updateControlsBarButton();
         }
 
-        MenuItem translationItem = toolbar.getMenu().findItem(R.id.toggle_translation_item);
-        if (translationItem != null) {
-            if (isTranscript) {
-                TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
-                boolean isBilingual = transcriptFragment != null && transcriptFragment.isBilingual();
-                translationItem.setVisible(isBilingual);
-                if (isBilingual && menuTranslationText == null) {
-                    menuTranslationText = translationItem.getActionView().findViewById(R.id.menuTranslationText);
-                }
-                updateTranslationButtonAlpha();
-            } else {
-                translationItem.setVisible(false);
-            }
+        MenuItem floatingItem = toolbar.getMenu().findItem(R.id.floating_transcript_item);
+        if (floatingItem != null) {
+            floatingItem.setVisible(hasTranscript);
+            updateFloatingTranscriptButton();
         }
+    }
+
+    private void updateControlsBarButton() {
+        MenuItem item = toolbar.getMenu().findItem(R.id.transcript_menu_item);
+        if (item == null || item.getIcon() == null) {
+            return;
+        }
+        TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
+        boolean isTranscript = pager.getCurrentItem() == POS_TRANSCRIPT;
+        boolean controlsVisible = transcriptFragment != null && transcriptFragment.isControlsBarVisible();
+        item.getIcon().mutate().setAlpha(!isTranscript || controlsVisible ? 255 : 128);
+    }
+
+    private void toggleFloatingTranscript() {
+        if (currentMedia == null) {
+            return;
+        }
+        boolean enabled = !UserPreferences.isFloatingTranscriptEnabled();
+        if (enabled && !Settings.canDrawOverlays(requireContext())) {
+            startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + requireContext().getPackageName())));
+            return;
+        }
+        UserPreferences.setFloatingTranscriptEnabled(enabled);
+        if (enabled) {
+            TranscriptFloatingWindowService.start(requireContext(), currentMedia.getId());
+        } else {
+            TranscriptFloatingWindowService.stop(requireContext());
+        }
+        updateFloatingTranscriptButton();
+    }
+
+    private void updateFloatingTranscriptButton() {
+        MenuItem item = toolbar.getMenu().findItem(R.id.floating_transcript_item);
+        if (item == null) {
+            return;
+        }
+        item.setChecked(UserPreferences.isFloatingTranscriptEnabled());
     }
 
     private TranscriptPageFragment getTranscriptPageFragment() {
@@ -227,11 +261,11 @@ public class AudioPlayerFragment extends Fragment implements
         return null;
     }
 
-    private void updateTranslationButtonAlpha() {
-        if (menuTranslationText != null) {
-            TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
-            boolean isHidden = transcriptFragment != null && transcriptFragment.isHideSecondLanguage();
-            menuTranslationText.setAlpha(isHidden ? 0.5f : 1.0f);
+    public void toggleImmersiveMode() {
+        if (isImmersiveMode) {
+            exitImmersiveMode();
+        } else {
+            enterImmersiveMode();
         }
     }
 
@@ -241,7 +275,7 @@ public class AudioPlayerFragment extends Fragment implements
         }
         isImmersiveMode = true;
 
-        // 重新注册返回键回调到 Dispatcher 末尾，确保最高优先级
+        // Re-register the back callback at the end of the dispatcher to give it the highest priority
         if (immersiveBackCallback != null) {
             immersiveBackCallback.remove();
         }
@@ -253,11 +287,11 @@ public class AudioPlayerFragment extends Fragment implements
         };
         requireActivity().getOnBackPressedDispatcher().addCallback(getViewLifecycleOwner(), immersiveBackCallback);
 
-        // 隐藏 toolbar 和底部控制栏
+        // Hide the toolbar and the bottom controls
         toolbar.setVisibility(View.GONE);
         playtimeLayout.setVisibility(View.GONE);
 
-        // 隐藏主界面底部导航栏
+        // Hide the main navigation bar
         View bottomNav = getActivity().findViewById(R.id.bottomNavigationView);
         if (bottomNav != null) {
             bottomNav.setVisibility(View.GONE);
@@ -267,7 +301,7 @@ public class AudioPlayerFragment extends Fragment implements
             bottomPadding.setVisibility(View.GONE);
         }
 
-        // 关键修复：ViewPager2 在 RelativeLayout 中，需要移除上下约束并设为 MATCH_PARENT
+        // Important: ViewPager2 is inside a RelativeLayout, so remove the top/bottom rules and use MATCH_PARENT
         RelativeLayout.LayoutParams pagerParams = (RelativeLayout.LayoutParams) pager.getLayoutParams();
         pagerParams.removeRule(RelativeLayout.BELOW);
         pagerParams.removeRule(RelativeLayout.ABOVE);
@@ -276,7 +310,7 @@ public class AudioPlayerFragment extends Fragment implements
         pager.setLayoutParams(pagerParams);
         pager.requestLayout();
 
-        // 隐藏系统状态栏和导航栏
+        // Hide the system status bar and navigation bar
         View decorView = getActivity().getWindow().getDecorView();
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             WindowInsetsController controller = decorView.getWindowInsetsController();
@@ -293,9 +327,9 @@ public class AudioPlayerFragment extends Fragment implements
             decorView.setSystemUiVisibility(flags);
         }
 
-        MenuItem immersiveItem = toolbar.getMenu().findItem(R.id.immersive_mode_item);
-        if (immersiveItem != null) {
-            immersiveItem.setIcon(R.drawable.ic_fullscreen_exit);
+        TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
+        if (transcriptFragment != null) {
+            transcriptFragment.setImmersiveMode(true);
         }
     }
 
@@ -305,16 +339,16 @@ public class AudioPlayerFragment extends Fragment implements
         }
         isImmersiveMode = false;
 
-        // 禁用返回键回调，让返回键恢复正常行为
+        // Disable the back callback so the back button behaves normally again
         if (immersiveBackCallback != null) {
             immersiveBackCallback.setEnabled(false);
         }
 
-        // 恢复 toolbar 和底部控制栏
+        // Restore the toolbar and the bottom controls
         toolbar.setVisibility(View.VISIBLE);
         playtimeLayout.setVisibility(View.VISIBLE);
 
-        // 恢复主界面底部导航栏
+        // Restore the main navigation bar
         View bottomNav = getActivity().findViewById(R.id.bottomNavigationView);
         if (bottomNav != null) {
             bottomNav.setVisibility(View.VISIBLE);
@@ -324,16 +358,16 @@ public class AudioPlayerFragment extends Fragment implements
             bottomPadding.setVisibility(View.VISIBLE);
         }
 
-        // 恢复 ViewPager2 的原始约束
+        // Restore the original ViewPager2 layout parameters
         RelativeLayout.LayoutParams pagerParams = (RelativeLayout.LayoutParams) pager.getLayoutParams();
         pagerParams.addRule(RelativeLayout.BELOW, R.id.toolbar);
         pagerParams.addRule(RelativeLayout.ABOVE, R.id.playtime_layout);
-        pagerParams.height = 0; // 0dp 配合上下约束填充中间区域
+        pagerParams.height = 0; // 0dp with top/bottom rules fills the middle area
         pagerParams.setMargins(0, 0, 0, (int) (12 * getResources().getDisplayMetrics().density));
         pager.setLayoutParams(pagerParams);
         pager.requestLayout();
 
-        // 显示系统状态栏和导航栏
+        // Show the system status bar and navigation bar
         View decorView = getActivity().getWindow().getDecorView();
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             WindowInsetsController controller = decorView.getWindowInsetsController();
@@ -344,10 +378,11 @@ public class AudioPlayerFragment extends Fragment implements
             decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
         }
 
-        MenuItem immersiveItem = toolbar.getMenu().findItem(R.id.immersive_mode_item);
-        if (immersiveItem != null) {
-            immersiveItem.setIcon(R.drawable.ic_fullscreen);
+        TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
+        if (transcriptFragment != null) {
+            transcriptFragment.setImmersiveMode(false);
         }
+        updateControlsBarButton();
     }
 
     private void setChapterDividers() {
@@ -543,6 +578,8 @@ public class AudioPlayerFragment extends Fragment implements
         EventBus.getDefault().register(this);
         txtvRev.setText(NumberFormat.getInstance().format(UserPreferences.getRewindSecs()));
         txtvFF.setText(NumberFormat.getInstance().format(UserPreferences.getFastForwardSecs()));
+        updateFloatingTranscriptButton();
+        updateControlsBarButton();
     }
 
     @Override
@@ -712,18 +749,6 @@ public class AudioPlayerFragment extends Fragment implements
                 Collections.singletonList(currentMedia.getItem()));
         ((CastEnabledActivity) getActivity()).requestCastButton(toolbar.getMenu());
         updateToolbarButtonsVisibility(pager.getCurrentItem());
-
-        MenuItem translationItem = toolbar.getMenu().findItem(R.id.toggle_translation_item);
-        if (translationItem != null && translationItem.getActionView() != null) {
-            menuTranslationText = translationItem.getActionView().findViewById(R.id.menuTranslationText);
-            translationItem.getActionView().setOnClickListener(v -> {
-                TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
-                if (transcriptFragment != null) {
-                    transcriptFragment.toggleHideSecondLanguage();
-                    updateTranslationButtonAlpha();
-                }
-            });
-        }
     }
 
     @Override
@@ -744,11 +769,18 @@ public class AudioPlayerFragment extends Fragment implements
         } else if (itemId == R.id.transcript_item) {
             scrollToPage(POS_TRANSCRIPT, true);
             return true;
-        } else if (itemId == R.id.immersive_mode_item) {
-            if (isImmersiveMode) {
-                exitImmersiveMode();
+        } else if (itemId == R.id.floating_transcript_item) {
+            toggleFloatingTranscript();
+            return true;
+        } else if (itemId == R.id.transcript_menu_item) {
+            if (pager.getCurrentItem() == POS_TRANSCRIPT) {
+                TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
+                if (transcriptFragment != null) {
+                    transcriptFragment.toggleControlsBar();
+                    updateControlsBarButton();
+                }
             } else {
-                enterImmersiveMode();
+                scrollToPage(POS_TRANSCRIPT, true);
             }
             return true;
         } else if (itemId == R.id.open_feed_item) {
@@ -773,7 +805,7 @@ public class AudioPlayerFragment extends Fragment implements
 
     public void fadePlayerToToolbar(float slideOffset) {
         if (isImmersiveMode) {
-            return; // 沉浸模式下禁止 BottomSheet 动画干扰
+            return; // Do not interfere with BottomSheet animations in immersive mode
         }
         float playerFadeProgress = Math.max(0.0f, Math.min(0.2f, slideOffset - 0.2f)) / 0.2f;
         View player = getView().findViewById(R.id.playerFragment);

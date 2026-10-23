@@ -25,7 +25,14 @@ public class VttTranscriptParser {
     private static final Pattern VOICE_SPAN =
             Pattern.compile("<v(?:\\.[^\t\n\r &<>.]+)*[ \t]([^\n\r&>]+)>");
 
+    private static final int SCRIPT_UNKNOWN = -1;
+    private static final int SCRIPT_LATIN = 0;
+    private static final int SCRIPT_CJK = 1;
+    private static final int SCRIPT_OTHER = 2;
+
     private record Timings(long start, long end) {}
+
+    private record Cue(long start, long end, List<String> lines, String speaker) {}
 
     public static Transcript parse(String str) {
         if (StringUtils.isBlank(str)) {
@@ -39,6 +46,7 @@ public class VttTranscriptParser {
         Iterator<String> iterator = lines.iterator();
         Set<String> speakers = new HashSet<>();
         String speaker = "";
+        List<Cue> cues = new ArrayList<>();
 
         while (iterator.hasNext()) {
             String line = iterator.next();
@@ -57,36 +65,62 @@ public class VttTranscriptParser {
                 continue;
             }
 
-            boolean cueHasMultipleLines = payloadLines.size() > 1;
-
-            StringBuilder cleanedPayload = new StringBuilder();
+            List<String> cleanedLines = new ArrayList<>();
             for (String payloadLine : payloadLines) {
                 Matcher matcher = VOICE_SPAN.matcher(payloadLine);
                 if (matcher.find()) {
                     speaker = matcher.group(1);
                     speakers.add(speaker);
                 }
-                String cleaned = Jsoup.parse(payloadLine).text();
+                String cleaned = payloadLine.indexOf('<') < 0 && payloadLine.indexOf('&') < 0
+                        ? payloadLine
+                        : Jsoup.parse(payloadLine).text();
                 if (!cleaned.isEmpty()) {
-                    if (cleanedPayload.length() > 0) {
-                        cleanedPayload.append("\n");
-                    }
-                    cleanedPayload.append(cleaned);
+                    cleanedLines.add(cleaned);
                 }
             }
-
-            if (cueHasMultipleLines) {
-                transcript.setBilingual(true);
+            if (!cleanedLines.isEmpty()) {
+                cues.add(new Cue(timings.start, timings.end, cleanedLines, speaker));
             }
+        }
 
-            TranscriptSegment segment = new TranscriptSegment(
-                    timings.start, timings.end, cleanedPayload.toString(), speaker);
+        int bilingualCues = 0;
+        for (Cue cue : cues) {
+            if (cue.lines().size() > 1 && hasDifferentScripts(cue.lines())) {
+                bilingualCues++;
+            }
+        }
+        boolean bilingual = bilingualCues * 2 > cues.size();
+
+        TranscriptSegment segment = null;
+        for (Cue cue : cues) {
+            String payload = String.join(bilingual ? "\n" : " ", cue.lines());
+            if (!bilingual && segment != null && segment.getSpeaker().equals(cue.speaker())
+                    && cue.end() - segment.getStartTime() < TranscriptParser.MAX_SPAN) {
+                segment.append(cue.end(), payload);
+            } else {
+                if (segment != null) {
+                    transcript.addSegment(segment);
+                }
+                segment = new TranscriptSegment(cue.start(), cue.end(), payload, cue.speaker());
+                if (bilingual && hasDifferentScripts(cue.lines())) {
+                    segment.setTranslationLine(1);
+                }
+            }
+            if (segment.getEndTime() - segment.getStartTime() >= TranscriptParser.MIN_SPAN) {
+                transcript.addSegment(segment);
+                segment = null;
+            }
+        }
+
+        if (segment != null) {
             transcript.addSegment(segment);
         }
 
         if (transcript.getSegmentCount() == 0) {
             return null;
         }
+        transcript.setBilingual(bilingual);
         transcript.setSpeakers(speakers);
         return transcript;
     }
@@ -119,6 +153,48 @@ public class VttTranscriptParser {
             return null;
         }
         return new Timings(start, end);
+    }
+
+    private static boolean hasDifferentScripts(@NonNull List<String> lines) {
+        int firstScript = -1;
+        for (String line : lines) {
+            int script = scriptOf(line);
+            if (script == SCRIPT_UNKNOWN) {
+                continue;
+            }
+            if (firstScript == -1) {
+                firstScript = script;
+            } else if (firstScript != script) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int scriptOf(@NonNull String line) {
+        int latin = 0;
+        int cjk = 0;
+        int other = 0;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (!Character.isLetter(c)) {
+                continue;
+            }
+            if (Character.UnicodeScript.of(c) == Character.UnicodeScript.LATIN) {
+                latin++;
+            } else if ((c >= '\u3040' && c <= '\u9fff') || (c >= '\uac00' && c <= '\ud7af')) {
+                cjk++;
+            } else {
+                other++;
+            }
+        }
+        if (cjk > 0) {
+            return SCRIPT_CJK;
+        }
+        if (latin > 0) {
+            return SCRIPT_LATIN;
+        }
+        return other > 0 ? SCRIPT_OTHER : SCRIPT_UNKNOWN;
     }
 
     @NonNull

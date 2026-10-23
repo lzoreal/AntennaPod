@@ -17,7 +17,7 @@ dependencies {
     implementation libs.commons.io
     implementation libs.commons.lang3
     implementation libs.okhttp
-    // 已有依赖保持不变，追加以下：
+    // Existing dependencies are unchanged, the following are added:
     implementation project(':event')
     implementation project(':storage:database')
     implementation project(':storage:preferences')

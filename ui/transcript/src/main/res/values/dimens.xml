@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="floating_transcript_height">36dp</dimen>
+    <dimen name="floating_transcript_text_size">13sp</dimen>
+    <dimen name="floating_transcript_padding_horizontal">14dp</dimen>
+</resources>

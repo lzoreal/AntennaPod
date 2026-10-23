@@ -5,10 +5,11 @@ import android.widget.TextView;
 import androidx.recyclerview.widget.RecyclerView;
 
 import de.danoeh.antennapod.databinding.TranscriptItemBinding;
+import de.danoeh.antennapod.ui.screen.playback.TranscriptTextView;
 
 public class TranscriptViewholder extends RecyclerView.ViewHolder {
     public final TextView viewTimecode;
-    public final TextView viewContent;
+    public final TranscriptTextView viewContent;
 
     public TranscriptViewholder(TranscriptItemBinding binding) {
         super(binding.getRoot());

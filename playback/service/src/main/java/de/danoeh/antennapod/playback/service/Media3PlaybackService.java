@@ -1,12 +1,9 @@
 package de.danoeh.antennapod.playback.service;
 
-import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.media.audiofx.LoudnessEnhancer;
-import android.os.Build;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.webkit.URLUtil;
@@ -69,6 +66,7 @@ import de.danoeh.antennapod.ui.appstartintent.MainActivityStarter;
 import de.danoeh.antennapod.ui.chapters.ChapterUtils;
 import de.danoeh.antennapod.ui.episodes.PlaybackSpeedUtils;
 import de.danoeh.antennapod.ui.notifications.NotificationUtils;
+import de.danoeh.antennapod.ui.transcript.TranscriptFloatingWindowService;
 import de.danoeh.antennapod.ui.widget.WidgetUpdater;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.core.Maybe;
@@ -258,7 +256,7 @@ public class Media3PlaybackService extends MediaLibraryService {
             }
         };
         player.addListener(playerListener);
-        // ★ 添加：恢复时如果已经在播放，启动悬浮窗
+        // Start the floating transcript when resuming while playing
         if (player != null && player.isPlaying() && currentPlayable != null) {
             startFloatingTranscript(currentPlayable.getId());
         }
@@ -269,8 +267,7 @@ public class Media3PlaybackService extends MediaLibraryService {
             keepServiceRunningWhileCasting();
             loadCurrentMediaWhileCasting();
         }
-        getSharedPreferences("UserPreferences", Context.MODE_PRIVATE)
-                .registerOnSharedPreferenceChangeListener(transcriptPrefListener);
+        UserPreferences.registerFloatingTranscriptListener(transcriptPrefListener);
     }
 
     @UnstableApi
@@ -309,29 +306,11 @@ public class Media3PlaybackService extends MediaLibraryService {
         }
     }
     private void startFloatingTranscript(long mediaId) {
-        Log.d("FloatingTranscript", "startFloatingTranscript: enabled="
-                + UserPreferences.isFloatingTranscriptEnabled() + ", mediaId=" + mediaId);
-        if (!UserPreferences.isFloatingTranscriptEnabled()) {
-            return;
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-                && !Settings.canDrawOverlays(this)) {
-            Log.d("FloatingTranscript", "missing overlay permission");
-            return;
-        }
-        Intent intent = new Intent();
-        intent.setClassName(getPackageName(), "de.danoeh.antennapod.ui.transcript.TranscriptFloatingWindowService");
-        intent.setAction("de.danoeh.antennapod.action.SHOW_FLOATING_TRANSCRIPT");
-        intent.putExtra("extra_media_id", mediaId);
-        startService(intent);
-        Log.d("FloatingTranscript", "startService sent");
+        TranscriptFloatingWindowService.start(this, mediaId);
     }
 
     private void stopFloatingTranscript() {
-        Intent intent = new Intent();
-        intent.setClassName(getPackageName(), "de.danoeh.antennapod.ui.transcript.TranscriptFloatingWindowService");
-        intent.setAction("de.danoeh.antennapod.action.HIDE_FLOATING_TRANSCRIPT");
-        startService(intent);
+        TranscriptFloatingWindowService.stop(this);
     }
     MediaLibrarySessionCallback sessionCallback = new MediaLibrarySessionCallback(this) {
         @Override
@@ -436,7 +415,7 @@ public class Media3PlaybackService extends MediaLibraryService {
             if (PlaybackService.isRunning) {
                 lastPositionSaveTime = System.currentTimeMillis();
                 setupPositionObserver();
-                // ★ 启动悬浮窗 Transcript
+                // Start the floating transcript
                 if (currentPlayable != null) {
                     startFloatingTranscript(currentPlayable.getId());
                 }
@@ -447,7 +426,7 @@ public class Media3PlaybackService extends MediaLibraryService {
                     SynchronizationQueue.getInstance().enqueueEpisodePlayed(currentPlayable,
                             playbackStartPosition, false);
                 }
-                // ★ 停止悬浮窗 Transcript
+                // Stop the floating transcript
                 stopFloatingTranscript();
             }
             WidgetUpdater.WidgetState widgetState = new WidgetUpdater.WidgetState(currentPlayable,
@@ -538,10 +517,9 @@ public class Media3PlaybackService extends MediaLibraryService {
         if (mediaSession != null) {
             mediaSession.release();
         }
-        // ★ 停止悬浮窗
+        // Stop the floating transcript
         stopFloatingTranscript();
-        getSharedPreferences("UserPreferences", Context.MODE_PRIVATE)
-                .unregisterOnSharedPreferenceChangeListener(transcriptPrefListener);
+        UserPreferences.unregisterFloatingTranscriptListener(transcriptPrefListener);
         super.onDestroy();
     }
 
@@ -672,7 +650,7 @@ public class Media3PlaybackService extends MediaLibraryService {
             applyVolumeAdaption(1.0f);
         }
         updatePlaybackPreferences();
-        // ★ 添加：切歌时如果正在播放，启动悬浮窗
+        // Start the floating transcript when the episode changes while playing
         if (player != null && player.isPlaying()) {
             startFloatingTranscript(media.getId());
         }
