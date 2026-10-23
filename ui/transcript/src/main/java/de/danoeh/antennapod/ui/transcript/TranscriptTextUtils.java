@@ -1,21 +1,16 @@
-package de.danoeh.antennapod.ui.screen.playback;
+package de.danoeh.antennapod.ui.transcript;
 
 import de.danoeh.antennapod.model.feed.TranscriptSegment;
 
 import java.util.ArrayList;
 import java.util.List;
 
-final class TranscriptTextUtils {
-    private static final long LONG_SEGMENT_MS = 15000;
+public final class TranscriptTextUtils {
 
     private TranscriptTextUtils() {
     }
 
-    static boolean isLongSegment(TranscriptSegment segment) {
-        return segment.getEndTime() - segment.getStartTime() >= LONG_SEGMENT_MS;
-    }
-
-    static float progressAt(TranscriptSegment segment, long position) {
+    public static float progressAt(TranscriptSegment segment, long position) {
         long duration = segment.getEndTime() - segment.getStartTime();
         if (duration <= 0) {
             return 0f;
@@ -24,20 +19,24 @@ final class TranscriptTextUtils {
         return Math.max(0f, Math.min(1f, progress));
     }
 
-    static int primaryLength(String text) {
+    public static int primaryLength(String text) {
         int newline = text.indexOf('\n');
         return newline < 0 ? text.length() : newline;
     }
 
-    static int charIndexAt(String text, float progress) {
+    public static int bilingualSplit(String text) {
+        return text.lastIndexOf('\n');
+    }
+
+    public static int charIndexAt(String text, float progress) {
         return Math.round(progress * primaryLength(text));
     }
 
-    static int[] chunkStarts(String text) {
+    public static int[] chunkStarts(String text) {
         return chunkStarts(text, primaryLength(text));
     }
 
-    static int[] chunkStarts(String text, int length) {
+    public static int[] chunkStarts(String text, int length) {
         List<Integer> starts = new ArrayList<>();
         starts.add(0);
         int last = 0;
@@ -62,7 +61,7 @@ final class TranscriptTextUtils {
         return result;
     }
 
-    static int sentenceIndexAt(String text, float progress, int length) {
+    public static int sentenceIndexAt(String text, float progress, int length) {
         int[] starts = chunkStarts(text, length);
         int charIndex = Math.round(progress * length);
         int index = 0;
@@ -74,13 +73,24 @@ final class TranscriptTextUtils {
         return index;
     }
 
+    public static long sentenceStartTime(TranscriptSegment segment, String text, int sentenceIndex, int length) {
+        int[] starts = chunkStarts(text, length);
+        int count = starts.length - 1;
+        if (count <= 1) {
+            return segment.getStartTime();
+        }
+        int index = Math.max(0, Math.min(sentenceIndex, count - 1));
+        long duration = segment.getEndTime() - segment.getStartTime();
+        return segment.getStartTime() + duration * index / count;
+    }
+
     private static boolean isTrailingChar(char c) {
         return c == '"' || c == '\'' || c == '”' || c == '’' || c == '!' || c == '?' || c == ')'
                 || c == '）' || c == ']' || c == '】' || c == '」' || c == '』' || c == '》'
                 || c == '。' || c == '！' || c == '？' || c == '…';
     }
 
-    static String splitIntoSentences(String text) {
+    public static String splitIntoSentences(String text) {
         int length = primaryLength(text);
         int[] starts = chunkStarts(text);
         if (starts.length < 3) {

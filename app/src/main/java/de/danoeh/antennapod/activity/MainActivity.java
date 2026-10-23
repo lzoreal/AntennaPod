@@ -740,6 +740,15 @@ public class MainActivity extends CastEnabledActivity implements NavigationToolb
         } else if (intent.getBooleanExtra(MainActivityStarter.EXTRA_OPEN_PLAYER, false)) {
             sheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
             bottomSheetCallback.onSlide(null, 1.0f);
+            if (intent.getBooleanExtra(MainActivityStarter.EXTRA_OPEN_TRANSCRIPT, false)) {
+                findViewById(R.id.audioplayerFragment).post(() -> {
+                    AudioPlayerFragment audioPlayer = (AudioPlayerFragment) getSupportFragmentManager()
+                            .findFragmentByTag(AudioPlayerFragment.TAG);
+                    if (audioPlayer != null) {
+                        audioPlayer.scrollToPage(AudioPlayerFragment.POS_TRANSCRIPT, false);
+                    }
+                });
+            }
         } else {
             handleDeeplink(intent.getData());
         }

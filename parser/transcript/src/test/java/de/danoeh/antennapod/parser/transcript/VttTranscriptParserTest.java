@@ -4,7 +4,9 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import de.danoeh.antennapod.model.feed.Transcript;
 
 @RunWith(RobolectricTestRunner.class)
@@ -136,6 +138,94 @@ public class VttTranscriptParserTest {
     public void testParseVttComplex() {
         Transcript result = VttTranscriptParser.parse(vttStrComplex);
         checkResults(result);
+    }
+
+    @Test
+    public void testBilingualDetection() {
+        String bilingual = """
+                WEBVTT
+
+                00:00.000 --> 00:02.000
+                这是第一句
+                This is the first sentence
+
+                00:00:02.000 --> 00:03.000
+                这是第二句
+                This is the second sentence
+                """;
+        Transcript result = VttTranscriptParser.parse(bilingual);
+        assertTrue(result.isBilingual());
+
+        String twoLinesSingleLanguage = """
+                WEBVTT
+
+                00:00.000 --> 00:02.000
+                This is the first sentence
+                continued on a second line
+
+                00:00:02.000 --> 00:03.000
+                This is the second sentence
+                continued on a second line
+                """;
+        result = VttTranscriptParser.parse(twoLinesSingleLanguage);
+        assertFalse(result.isBilingual());
+    }
+
+    @Test
+    public void testBilingualKeepsTranslationLine() {
+        String bilingual = """
+                WEBVTT
+
+                00:00.000 --> 00:02.000
+                This is the first sentence
+                这是第一句
+
+                00:00:02.000 --> 00:04.000
+                This is the second sentence
+                这是第二句
+                """;
+        Transcript result = VttTranscriptParser.parse(bilingual);
+        assertTrue(result.isBilingual());
+        assertEquals(1, result.getSegmentAt(0).getTranslationLine());
+        assertEquals(1, result.getSegmentAt(1).getTranslationLine());
+        assertEquals("This is the first sentence\n这是第一句", result.getSegmentAt(0).getWords());
+    }
+
+    @Test
+    public void testNotBilingualWithoutTranslationLine() {
+        String singleLanguage = """
+                WEBVTT
+
+                00:00.000 --> 00:02.000
+                This is the first sentence
+                continued on a second line
+                """;
+        Transcript result = VttTranscriptParser.parse(singleLanguage);
+        assertFalse(result.isBilingual());
+        assertEquals(-1, result.getSegmentAt(0).getTranslationLine());
+        assertEquals("This is the first sentence continued on a second line",
+                result.getSegmentAt(0).getWords());
+    }
+
+    @Test
+    public void testBilingualNeedsMajorityOfCues() {
+        String mostlySingleLanguage = """
+                WEBVTT
+
+                00:00.000 --> 00:02.000
+                This is the first sentence
+                这是第一句
+
+                00:00:02.000 --> 00:04.000
+                This is the second sentence
+                continued on a second line
+
+                00:00:04.000 --> 00:06.000
+                This is the third sentence
+                continued on a second line
+                """;
+        Transcript result = VttTranscriptParser.parse(mostlySingleLanguage);
+        assertFalse(result.isBilingual());
     }
 
     @Test
