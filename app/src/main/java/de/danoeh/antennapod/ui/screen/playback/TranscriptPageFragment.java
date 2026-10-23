@@ -17,6 +17,8 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.LinearSmoothScroller;
@@ -34,6 +36,7 @@ import de.danoeh.antennapod.storage.database.DBReader;
 import de.danoeh.antennapod.storage.preferences.PlaybackPreferences;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.ui.screen.playback.audio.AudioPlayerFragment;
+import de.danoeh.antennapod.ui.transcript.TranscriptTextUtils;
 import de.danoeh.antennapod.ui.transcript.TranscriptUtils;
 import de.danoeh.antennapod.ui.transcript.TranscriptViewholder;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
@@ -56,6 +59,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private int lastScrolledPosition = -1;
     private long lastPositionMs = 0;
     private boolean controlsBarVisibleBeforeImmersive = false;
+    private boolean immersiveMode = false;
+    private int immersiveTopInset = 0;
     private static final long SCROLL_COOLDOWN_MS = 3000;
     private static final long FOLLOW_SCROLL_INTERVAL_MS = 300;
     private static final int FONT_SIZE_MIN_STEP = -2;
@@ -109,6 +114,16 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         updateSentenceToggle();
         updateOffsetToggle();
         updateSegmentLoopToggle();
+
+        ViewCompat.setOnApplyWindowInsetsListener(viewBinding.getRoot(), (v, insets) -> {
+            immersiveTopInset = Math.max(immersiveTopInset, Math.max(
+                    insets.getInsets(WindowInsetsCompat.Type.displayCutout()).top,
+                    insets.getInsets(WindowInsetsCompat.Type.statusBars()).top));
+            if (immersiveMode) {
+                v.setPadding(0, getImmersiveTopInset(), 0, 0);
+            }
+            return insets;
+        });
 
         return viewBinding.getRoot();
     }
@@ -296,10 +311,6 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
 
         TranscriptSegment segment = currentMedia.getTranscript().getSegmentAt(pos);
-        if (!TranscriptTextUtils.isLongSegment(segment)) {
-            return;
-        }
-
         float progress = TranscriptTextUtils.progressAt(segment, position);
         int charIndex = TranscriptTextUtils.charIndexAt(content.getText().toString(), progress);
         charIndex = Math.max(0, Math.min(charIndex, content.length()));
@@ -632,6 +643,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (viewBinding == null) {
             return;
         }
+        immersiveMode = immersive;
         if (immersive) {
             controlsBarVisibleBeforeImmersive = viewBinding.controlsBar.getVisibility() == View.VISIBLE;
             viewBinding.controlsBar.setVisibility(View.GONE);
@@ -639,8 +651,21 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             viewBinding.controlsBar.setVisibility(
                     controlsBarVisibleBeforeImmersive ? View.VISIBLE : View.GONE);
         }
+        viewBinding.getRoot().setPadding(0, immersive ? getImmersiveTopInset() : 0, 0, 0);
         viewBinding.btnImmersive.setImageResource(
                 immersive ? R.drawable.ic_fullscreen_exit : R.drawable.ic_fullscreen);
+    }
+
+    private int getImmersiveTopInset() {
+        if (immersiveTopInset == 0) {
+            WindowInsetsCompat windowInsets = ViewCompat.getRootWindowInsets(viewBinding.getRoot());
+            if (windowInsets != null) {
+                immersiveTopInset = Math.max(
+                        windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout()).top,
+                        windowInsets.getInsets(WindowInsetsCompat.Type.statusBars()).top);
+            }
+        }
+        return immersiveTopInset;
     }
 
     private void updateTranslationToggle() {

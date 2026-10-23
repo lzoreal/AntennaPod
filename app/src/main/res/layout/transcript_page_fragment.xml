@@ -8,26 +8,23 @@
     <LinearLayout
         android:id="@+id/controlsBar"
         android:layout_width="match_parent"
-        android:layout_height="40dp"
+        android:layout_height="48dp"
         android:gravity="end|center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
         android:visibility="gone">
 
         <ImageButton
             android:id="@+id/btnOffsetToggle"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/transcript_offset_toggle_description"
             android:src="@drawable/ic_transcript_offset" />
 
         <ImageButton
             android:id="@+id/btnTranslationToggle"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginStart="8dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/toggle_translation"
             android:src="@drawable/ic_transcript_translate"
@@ -35,45 +32,40 @@
 
         <ImageButton
             android:id="@+id/btnLineBreakToggle"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginStart="8dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/transcript_line_break_description"
             android:src="@drawable/ic_transcript_linebreak" />
 
         <ImageButton
             android:id="@+id/btnFontSmaller"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginStart="8dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/transcript_font_smaller_description"
             android:src="@drawable/ic_transcript_font_smaller" />
 
         <ImageButton
             android:id="@+id/btnFontLarger"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginStart="8dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/transcript_font_larger_description"
             android:src="@drawable/ic_transcript_font_larger" />
 
         <ImageButton
             android:id="@+id/btnSegmentLoop"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginStart="8dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/transcript_segment_loop_description"
             android:src="@drawable/ic_transcript_loop" />
 
         <ImageButton
             android:id="@+id/btnImmersive"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginStart="8dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/immersive_mode"
             android:src="@drawable/ic_fullscreen" />

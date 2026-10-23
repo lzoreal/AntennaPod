@@ -44,6 +44,8 @@ public class TranscriptFloatingWindowService extends Service {
     private WindowManager.LayoutParams params;
     private long currentMediaId = -1;
     private int windowWidth;
+    private long lastSentenceSegmentStart = -1;
+    private int lastSentenceIndex = -1;
 
     public static void start(Context context, long mediaId) {
         if (!UserPreferences.isFloatingTranscriptEnabled()) {
@@ -169,6 +171,8 @@ public class TranscriptFloatingWindowService extends Service {
             loadDisposable.dispose();
         }
         transcript = null;
+        lastSentenceSegmentStart = -1;
+        lastSentenceIndex = -1;
         loadDisposable = Observable.fromCallable(() -> {
                     FeedMedia media = DBReader.getFeedMedia(mediaId);
                     if (media == null) {
@@ -189,27 +193,43 @@ public class TranscriptFloatingWindowService extends Service {
         }
 
         long offset = UserPreferences.getTranscriptTimeOffset(currentMediaId);
-        TranscriptSegment segment = transcript.getSegmentAtTime(event.getPosition() - offset);
+        long position = event.getPosition() - offset;
+        TranscriptSegment segment = transcript.getSegmentAtTime(position);
         if (segment != null) {
-            String text = segment.getWords();
-            if (text.contains("\n")) {
-                text = text.substring(0, text.indexOf('\n'));
+            String words = segment.getWords();
+            int primaryLength = TranscriptTextUtils.primaryLength(words);
+            int[] sentenceStarts = TranscriptTextUtils.chunkStarts(words, primaryLength);
+            if (primaryLength == 0 || sentenceStarts.length < 2) {
+                tvTranscript.stopAutoScroll();
+                tvTranscript.setVisibility(View.INVISIBLE);
+                return;
             }
+
+            int sentenceIndex = TranscriptTextUtils.sentenceIndexAt(words,
+                    TranscriptTextUtils.progressAt(segment, position), primaryLength);
+            String text = words.substring(sentenceStarts[sentenceIndex],
+                    sentenceStarts[sentenceIndex + 1]).trim();
             if (segment.getSpeaker() != null && !segment.getSpeaker().isEmpty()) {
                 text = segment.getSpeaker() + ": " + text;
             }
 
-            CharSequence current = tvTranscript.getText();
-            boolean isNewSegment = current == null || !text.contentEquals(current);
-
-            if (isNewSegment) {
+            boolean isNewSentence = segment.getStartTime() != lastSentenceSegmentStart
+                    || sentenceIndex != lastSentenceIndex;
+            if (isNewSentence) {
+                lastSentenceSegmentStart = segment.getStartTime();
+                lastSentenceIndex = sentenceIndex;
+                long sentenceEndTime = sentenceIndex + 2 < sentenceStarts.length
+                        ? TranscriptTextUtils.sentenceStartTime(segment, words,
+                                sentenceIndex + 1, primaryLength)
+                        : segment.getEndTime();
                 tvTranscript.setText(text);
-                long remainingMs = segment.getEndTime() + offset - event.getPosition();
-                tvTranscript.startAutoScroll(remainingMs, windowWidth);
+                tvTranscript.startAutoScroll(sentenceEndTime + offset - event.getPosition(), windowWidth);
             }
 
             tvTranscript.setVisibility(View.VISIBLE);
         } else {
+            lastSentenceSegmentStart = -1;
+            lastSentenceIndex = -1;
             tvTranscript.stopAutoScroll();
             tvTranscript.setVisibility(View.INVISIBLE);
         }

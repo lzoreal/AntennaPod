@@ -2,10 +2,9 @@ package de.danoeh.antennapod.ui.screen.playback;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 
 import de.danoeh.antennapod.model.feed.TranscriptSegment;
+import de.danoeh.antennapod.ui.transcript.TranscriptTextUtils;
 
 import org.junit.Test;
 
@@ -25,13 +24,6 @@ public class TranscriptTextUtilsTest {
         assertEquals(0, TranscriptTextUtils.charIndexAt(text, 0f));
         assertEquals(5, TranscriptTextUtils.charIndexAt(text, 1f));
         assertEquals(3, TranscriptTextUtils.charIndexAt(text, 0.5f));
-    }
-
-    @Test
-    public void testIsLongSegment() {
-        assertFalse(TranscriptTextUtils.isLongSegment(segment(0, 14999, "Short.")));
-        assertTrue(TranscriptTextUtils.isLongSegment(segment(0, 15000, "Long.")));
-        assertTrue(TranscriptTextUtils.isLongSegment(segment(1000, 20000, "Long.")));
     }
 
     @Test
@@ -93,11 +85,12 @@ public class TranscriptTextUtilsTest {
     public void testSentenceStartTime() {
         String text = "One. Two. Three.";
         TranscriptSegment segment = segment(10000, 16000, text);
-        assertEquals(10000, TranscriptTextUtils.sentenceStartTime(segment, text, 0));
-        assertEquals(12000, TranscriptTextUtils.sentenceStartTime(segment, text, 1));
-        assertEquals(14000, TranscriptTextUtils.sentenceStartTime(segment, text, 2));
-        assertEquals(14000, TranscriptTextUtils.sentenceStartTime(segment, text, 99));
-        assertEquals(10000, TranscriptTextUtils.sentenceStartTime(segment, "Single sentence.", 3));
+        assertEquals(10000, TranscriptTextUtils.sentenceStartTime(segment, text, 0, text.length()));
+        assertEquals(12000, TranscriptTextUtils.sentenceStartTime(segment, text, 1, text.length()));
+        assertEquals(14000, TranscriptTextUtils.sentenceStartTime(segment, text, 2, text.length()));
+        assertEquals(14000, TranscriptTextUtils.sentenceStartTime(segment, text, 99, text.length()));
+        String single = "Single sentence.";
+        assertEquals(10000, TranscriptTextUtils.sentenceStartTime(segment, single, 3, single.length()));
     }
 
     private static TranscriptSegment segment(long start, long end, String words) {

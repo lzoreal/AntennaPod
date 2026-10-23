@@ -44,18 +44,16 @@
             android:layout_marginHorizontal="16dp"
             android:text="@string/transcript_follow_audio_label" />
 
-        <TextView
+        <ImageButton
             android:id="@+id/btnToggleTranslation"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:layout_alignParentEnd="true"
             android:layout_centerVertical="true"
             android:layout_marginEnd="16dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:gravity="center"
-            android:text="@string/transcript_translation_toggle"
-            android:textColor="?android:attr/textColorPrimary"
-            android:textSize="13sp"
+            android:contentDescription="@string/toggle_translation"
+            android:src="@drawable/ic_transcript_translate"
             android:visibility="gone" />
 
     </RelativeLayout>

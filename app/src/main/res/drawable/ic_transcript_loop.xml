@@ -5,7 +5,17 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/action_icon_color">
-    <path
-        android:fillColor="@android:color/white"
-        android:pathData="M7,7h10v3l4,-4 -4,-4v3H5v6h2V7zM17,17H7v-3l-4,4 4,4v-3h12v-6h-2v4zM11.25,9h1.5v6h-1.5z" />
+    <group
+        android:scaleX="1.25"
+        android:scaleY="1.25"
+        android:pivotX="12"
+        android:pivotY="12">
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="1.76"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:fillColor="@android:color/transparent"
+            android:pathData="M4.5,11.5 A7.5,7.5 0 1 1 12,19 M11.2,16.6 L8.2,19 L11.2,21.4 M9,9.5 L15,9.5 M9,13.5 L15,13.5" />
+    </group>
 </vector>

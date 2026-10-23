@@ -25,6 +25,7 @@ import de.danoeh.antennapod.model.feed.TranscriptSegment;
 import de.danoeh.antennapod.model.playback.Playable;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.ui.common.Converter;
+import de.danoeh.antennapod.ui.transcript.TranscriptTextUtils;
 import de.danoeh.antennapod.ui.transcript.TranscriptViewholder;
 import java.util.HashSet;
 import java.util.List;
@@ -189,11 +190,14 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
 
     private void applyGradedHighlight(TranscriptViewholder holder, int position) {
         TranscriptSegment segment = media.getTranscript().getSegmentAt(position);
-        if (!TranscriptTextUtils.isLongSegment(segment) || hasSecondLanguage(segment)) {
-            return;
-        }
         String text = getDisplayText(segment);
         int length = text.length();
+        boolean bilingual = hasSecondLanguage(segment);
+        if (bilingual) {
+            length = TranscriptTextUtils.bilingualSplit(text);
+        } else {
+            length = TranscriptTextUtils.primaryLength(text);
+        }
         int[] starts = TranscriptTextUtils.chunkStarts(text, length);
         if (starts.length < 3) {
             return;
@@ -219,7 +223,38 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
                 graded.setSpan(new StyleSpan(Typeface.BOLD), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
         }
+        if (bilingual && length < text.length()) {
+            applyTranslationHighlight(graded, text, length, sentence);
+        }
         holder.viewContent.setText(graded);
+    }
+
+    private void applyTranslationHighlight(SpannableString graded, String text, int primaryLength, int sentence) {
+        String translation = text.substring(primaryLength + 1);
+        int[] translationStarts = TranscriptTextUtils.chunkStarts(translation, translation.length());
+        if (translationStarts.length < 3) {
+            return;
+        }
+        int offset = primaryLength + 1;
+        for (int i = 0; i + 1 < translationStarts.length; i++) {
+            int start = offset + translationStarts[i];
+            int end = offset + translationStarts[i + 1];
+            if (start >= end) {
+                continue;
+            }
+            int color;
+            if (i == sentence) {
+                color = highlightTextColor;
+            } else if (i < sentence) {
+                color = ColorUtils.setAlphaComponent(highlightTextColor, PAST_SENTENCE_ALPHA);
+            } else {
+                color = ColorUtils.setAlphaComponent(highlightTextColor, FUTURE_SENTENCE_ALPHA);
+            }
+            graded.setSpan(new ForegroundColorSpan(color), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            if (i == sentence) {
+                graded.setSpan(new StyleSpan(Typeface.BOLD), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+        }
     }
 
     private int sentenceIndexAt(int segmentIndex, long position) {
@@ -227,12 +262,11 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             return -1;
         }
         TranscriptSegment segment = media.getTranscript().getSegmentAt(segmentIndex);
-        if (!TranscriptTextUtils.isLongSegment(segment) || hasSecondLanguage(segment)) {
-            return -1;
-        }
         String text = getDisplayText(segment);
+        int length = hasSecondLanguage(segment)
+                ? TranscriptTextUtils.bilingualSplit(text) : text.length();
         return TranscriptTextUtils.sentenceIndexAt(text,
-                TranscriptTextUtils.progressAt(segment, position), text.length());
+                TranscriptTextUtils.progressAt(segment, position), length);
     }
 
     private long sentenceStartTimeAtTouch(TranscriptViewholder holder, TranscriptSegment segment) {
@@ -243,9 +277,25 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         int line = layout.getLineForVertical((int) lastTouchY);
         int offset = layout.getOffsetForHorizontal(line, lastTouchX);
         String text = getDisplayText(segment);
+        int length = text.length();
+        if (hasSecondLanguage(segment)) {
+            int primaryLength = TranscriptTextUtils.bilingualSplit(text);
+            if (offset > primaryLength && length > primaryLength + 1) {
+                String translation = text.substring(primaryLength + 1);
+                int[] translationStarts = TranscriptTextUtils.chunkStarts(translation, translation.length());
+                int translationIndex = 0;
+                for (int i = 1; i + 1 < translationStarts.length; i++) {
+                    if (translationStarts[i] <= offset - primaryLength - 1) {
+                        translationIndex = i;
+                    }
+                }
+                return TranscriptTextUtils.sentenceStartTime(segment, text, translationIndex, primaryLength);
+            }
+            length = primaryLength;
+        }
         int sentenceIndex = TranscriptTextUtils.sentenceIndexAt(text,
-                offset / (float) Math.max(1, text.length()), text.length());
-        return TranscriptTextUtils.sentenceStartTime(segment, text, sentenceIndex);
+                offset / (float) Math.max(1, length), length);
+        return TranscriptTextUtils.sentenceStartTime(segment, text, sentenceIndex, length);
     }
 
     private boolean hasSecondLanguage(TranscriptSegment segment) {
