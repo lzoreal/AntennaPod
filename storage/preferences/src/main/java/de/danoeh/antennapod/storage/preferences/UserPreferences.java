@@ -129,6 +129,10 @@ public abstract class UserPreferences {
     private static final String PREF_TRANSCRIPT_TIME_OFFSET = "prefTranscriptTimeOffset";
     private static final String PREF_TRANSCRIPT_TIME_OFFSET_MEDIA = "prefTranscriptTimeOffsetMedia";
     private static final String PREF_TRANSCRIPT_FONT_SIZE = "prefTranscriptFontSize";
+    public static final String PREF_TRANSCRIPT_LANGUAGE_MODE = "prefTranscriptLanguageMode";
+    public static final int TRANSCRIPT_LANGUAGE_MODE_BOTH = 0;
+    public static final int TRANSCRIPT_LANGUAGE_MODE_PRIMARY_ONLY = 1;
+    public static final int TRANSCRIPT_LANGUAGE_MODE_SECONDARY_ONLY = 2;
     private static final String PREF_FLOATING_TRANSCRIPT_X = "prefFloatingTranscriptX";
     private static final String PREF_FLOATING_TRANSCRIPT_Y = "prefFloatingTranscriptY";
 
@@ -961,6 +965,14 @@ public abstract class UserPreferences {
 
     public static void setTranscriptFontSize(int step) {
         prefs.edit().putInt(PREF_TRANSCRIPT_FONT_SIZE, step).apply();
+    }
+
+    public static int getTranscriptLanguageMode() {
+        return prefs.getInt(PREF_TRANSCRIPT_LANGUAGE_MODE, TRANSCRIPT_LANGUAGE_MODE_BOTH);
+    }
+
+    public static void setTranscriptLanguageMode(int mode) {
+        prefs.edit().putInt(PREF_TRANSCRIPT_LANGUAGE_MODE, mode).apply();
     }
 
     public static int getFloatingTranscriptX() {

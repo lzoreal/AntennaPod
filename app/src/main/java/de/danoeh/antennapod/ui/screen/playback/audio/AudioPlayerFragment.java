@@ -200,12 +200,11 @@ public class AudioPlayerFragment extends Fragment implements
     }
 
     private void updateToolbarButtonsVisibility(int position) {
-        boolean isTranscript = position == POS_TRANSCRIPT;
         boolean hasTranscript = currentMedia != null && currentMedia.hasTranscript();
 
         MenuItem controlsItem = toolbar.getMenu().findItem(R.id.transcript_menu_item);
         if (controlsItem != null) {
-            controlsItem.setVisible(isTranscript && hasTranscript);
+            controlsItem.setVisible(hasTranscript);
             updateControlsBarButton();
         }
 
@@ -222,8 +221,9 @@ public class AudioPlayerFragment extends Fragment implements
             return;
         }
         TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
-        boolean visible = transcriptFragment != null && transcriptFragment.isControlsBarVisible();
-        item.getIcon().mutate().setAlpha(visible ? 255 : 128);
+        boolean isTranscript = pager.getCurrentItem() == POS_TRANSCRIPT;
+        boolean controlsVisible = transcriptFragment != null && transcriptFragment.isControlsBarVisible();
+        item.getIcon().mutate().setAlpha(!isTranscript || controlsVisible ? 255 : 128);
     }
 
     private void toggleFloatingTranscript() {
@@ -773,10 +773,14 @@ public class AudioPlayerFragment extends Fragment implements
             toggleFloatingTranscript();
             return true;
         } else if (itemId == R.id.transcript_menu_item) {
-            TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
-            if (transcriptFragment != null) {
-                transcriptFragment.toggleControlsBar();
-                updateControlsBarButton();
+            if (pager.getCurrentItem() == POS_TRANSCRIPT) {
+                TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
+                if (transcriptFragment != null) {
+                    transcriptFragment.toggleControlsBar();
+                    updateControlsBarButton();
+                }
+            } else {
+                scrollToPage(POS_TRANSCRIPT, true);
             }
             return true;
         } else if (itemId == R.id.open_feed_item) {

@@ -5,7 +5,7 @@
     <item
         android:id="@+id/transcript_menu_item"
         android:icon="@drawable/ic_subtitles"
-        android:title="@string/transcript"
+        android:title="@string/show_transcript"
         android:visible="false"
         custom:showAsAction="always">
     </item>
