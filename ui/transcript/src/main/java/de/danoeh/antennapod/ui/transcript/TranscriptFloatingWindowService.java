@@ -3,6 +3,7 @@ package de.danoeh.antennapod.ui.transcript;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.IBinder;
@@ -38,7 +39,8 @@ public class TranscriptFloatingWindowService extends Service {
 
     private WindowManager windowManager;
     private View floatingView;
-    private ScrollTextView  tvTranscript;
+    private ScrollTextView tvTranscript;
+    private ScrollTextView tvTranscriptTranslation;
     private Transcript transcript;
     private Disposable loadDisposable;
     private WindowManager.LayoutParams params;
@@ -46,6 +48,13 @@ public class TranscriptFloatingWindowService extends Service {
     private int windowWidth;
     private long lastSentenceSegmentStart = -1;
     private int lastSentenceIndex = -1;
+    private long lastPlaybackPosition = -1;
+    private final SharedPreferences.OnSharedPreferenceChangeListener languageModeListener =
+            (sharedPreferences, key) -> {
+                if (UserPreferences.PREF_TRANSCRIPT_LANGUAGE_MODE.equals(key)) {
+                    updateTranscript(true);
+                }
+            };
 
     public static void start(Context context, long mediaId) {
         if (!UserPreferences.isFloatingTranscriptEnabled()) {
@@ -73,6 +82,7 @@ public class TranscriptFloatingWindowService extends Service {
         super.onCreate();
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         EventBus.getDefault().register(this);
+        UserPreferences.registerFloatingTranscriptListener(languageModeListener);
     }
 
     @Override
@@ -89,15 +99,14 @@ public class TranscriptFloatingWindowService extends Service {
         if (floatingView == null) {
             createFloatingWindow();
         }
-        if (floatingView != null) {
-            tvTranscript.setVisibility(View.VISIBLE);
-        }
+        updateTranscript(true);
         return START_NOT_STICKY;
     }
 
     private void createFloatingWindow() {
         floatingView = LayoutInflater.from(this).inflate(R.layout.floating_transcript_layout, null);
         tvTranscript = floatingView.findViewById(R.id.tv_floating_transcript);
+        tvTranscriptTranslation = floatingView.findViewById(R.id.tv_floating_transcript_translation);
 
         int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -171,6 +180,7 @@ public class TranscriptFloatingWindowService extends Service {
             loadDisposable.dispose();
         }
         transcript = null;
+        lastPlaybackPosition = -1;
         lastSentenceSegmentStart = -1;
         lastSentenceIndex = -1;
         loadDisposable = Observable.fromCallable(() -> {
@@ -188,57 +198,109 @@ public class TranscriptFloatingWindowService extends Service {
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onPositionEvent(PlaybackPositionEvent event) {
-        if (transcript == null || transcript.getSegmentCount() == 0 || tvTranscript == null) {
+        lastPlaybackPosition = event.getPosition();
+        updateTranscript(false);
+    }
+
+    private void updateTranscript(boolean forceUpdate) {
+        if (lastPlaybackPosition < 0 || transcript == null
+                || transcript.getSegmentCount() == 0 || tvTranscript == null) {
             return;
         }
 
         long offset = UserPreferences.getTranscriptTimeOffset(currentMediaId);
-        long position = event.getPosition() - offset;
+        long position = lastPlaybackPosition - offset;
         TranscriptSegment segment = transcript.getSegmentAtTime(position);
-        if (segment != null) {
-            String words = segment.getWords();
-            int primaryLength = TranscriptTextUtils.primaryLength(words);
-            int[] sentenceStarts = TranscriptTextUtils.chunkStarts(words, primaryLength);
-            if (primaryLength == 0 || sentenceStarts.length < 2) {
-                tvTranscript.stopAutoScroll();
-                tvTranscript.setVisibility(View.INVISIBLE);
-                return;
-            }
+        if (segment == null) {
+            hideTranscript();
+            return;
+        }
 
-            int sentenceIndex = TranscriptTextUtils.sentenceIndexAt(words,
-                    TranscriptTextUtils.progressAt(segment, position), primaryLength);
+        String words = segment.getWords();
+        boolean bilingual = segment.getTranslationLine() >= 0 && words.indexOf('\n') >= 0;
+        int primaryLength = bilingual
+                ? TranscriptTextUtils.bilingualSplit(words)
+                : TranscriptTextUtils.primaryLength(words);
+        int[] sentenceStarts = TranscriptTextUtils.chunkStarts(words, primaryLength);
+        if (primaryLength <= 0 || sentenceStarts.length < 2) {
+            hideTranscript();
+            return;
+        }
+
+        int sentenceIndex = TranscriptTextUtils.sentenceIndexAt(words,
+                TranscriptTextUtils.progressAt(segment, position), primaryLength);
+        boolean isNewSentence = segment.getStartTime() != lastSentenceSegmentStart
+                || sentenceIndex != lastSentenceIndex;
+        if (!forceUpdate && !isNewSentence) {
+            return;
+        }
+
+        lastSentenceSegmentStart = segment.getStartTime();
+        lastSentenceIndex = sentenceIndex;
+        long sentenceEndTime = sentenceIndex + 2 < sentenceStarts.length
+                ? TranscriptTextUtils.sentenceStartTime(segment, words,
+                        sentenceIndex + 1, primaryLength)
+                : segment.getEndTime();
+        long remainingMs = sentenceEndTime + offset - lastPlaybackPosition;
+
+        int languageMode = UserPreferences.getTranscriptLanguageMode();
+        boolean showTranslation = bilingual
+                && languageMode != UserPreferences.TRANSCRIPT_LANGUAGE_MODE_PRIMARY_ONLY;
+        boolean showPrimary = languageMode != UserPreferences.TRANSCRIPT_LANGUAGE_MODE_SECONDARY_ONLY
+                || !showTranslation;
+
+        if (showPrimary) {
             String text = words.substring(sentenceStarts[sentenceIndex],
                     sentenceStarts[sentenceIndex + 1]).trim();
             if (segment.getSpeaker() != null && !segment.getSpeaker().isEmpty()) {
                 text = segment.getSpeaker() + ": " + text;
             }
-
-            boolean isNewSentence = segment.getStartTime() != lastSentenceSegmentStart
-                    || sentenceIndex != lastSentenceIndex;
-            if (isNewSentence) {
-                lastSentenceSegmentStart = segment.getStartTime();
-                lastSentenceIndex = sentenceIndex;
-                long sentenceEndTime = sentenceIndex + 2 < sentenceStarts.length
-                        ? TranscriptTextUtils.sentenceStartTime(segment, words,
-                                sentenceIndex + 1, primaryLength)
-                        : segment.getEndTime();
-                tvTranscript.setText(text);
-                tvTranscript.startAutoScroll(sentenceEndTime + offset - event.getPosition(), windowWidth);
-            }
-
+            tvTranscript.setText(text);
             tvTranscript.setVisibility(View.VISIBLE);
+            tvTranscript.startAutoScroll(remainingMs, windowWidth);
         } else {
-            lastSentenceSegmentStart = -1;
-            lastSentenceIndex = -1;
             tvTranscript.stopAutoScroll();
-            tvTranscript.setVisibility(View.INVISIBLE);
+            tvTranscript.setVisibility(View.GONE);
         }
+
+        updateTranslationView(words, primaryLength, sentenceIndex, showTranslation, remainingMs);
+    }
+
+    private void updateTranslationView(String words, int primaryLength, int sentenceIndex,
+                                       boolean showTranslation, long remainingMs) {
+        if (!showTranslation) {
+            tvTranscriptTranslation.stopAutoScroll();
+            tvTranscriptTranslation.setVisibility(View.GONE);
+            return;
+        }
+        String translation = words.substring(primaryLength + 1);
+        int[] translationStarts = TranscriptTextUtils.chunkStarts(translation, translation.length());
+        if (translationStarts.length < 2) {
+            tvTranscriptTranslation.stopAutoScroll();
+            tvTranscriptTranslation.setVisibility(View.GONE);
+            return;
+        }
+        int translationIndex = Math.min(sentenceIndex, translationStarts.length - 2);
+        tvTranscriptTranslation.setText(translation.substring(translationStarts[translationIndex],
+                translationStarts[translationIndex + 1]).trim());
+        tvTranscriptTranslation.setVisibility(View.VISIBLE);
+        tvTranscriptTranslation.startAutoScroll(remainingMs, windowWidth);
+    }
+
+    private void hideTranscript() {
+        lastSentenceSegmentStart = -1;
+        lastSentenceIndex = -1;
+        tvTranscript.stopAutoScroll();
+        tvTranscript.setVisibility(View.GONE);
+        tvTranscriptTranslation.stopAutoScroll();
+        tvTranscriptTranslation.setVisibility(View.GONE);
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
         EventBus.getDefault().unregister(this);
+        UserPreferences.unregisterFloatingTranscriptListener(languageModeListener);
         if (loadDisposable != null && !loadDisposable.isDisposed()) {
             loadDisposable.dispose();
         }

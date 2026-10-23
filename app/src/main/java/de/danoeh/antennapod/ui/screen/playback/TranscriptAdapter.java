@@ -47,10 +47,10 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     private int highlightPosition = -1;
     private int highlightedSentence = -1;
     private long lastHighlightPositionMs = 0;
-    private int languageMode = LANGUAGE_MODE_BOTH;
+    private int languageMode = UserPreferences.getTranscriptLanguageMode();
     private float lastTouchX = 0;
     private float lastTouchY = 0;
-    private boolean sentencePerLine = false;
+    private boolean sentencePerLine = true;
     private final int highlightTextColor;
     private final int normalTextColor;
 
@@ -65,12 +65,13 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         typedArray.recycle();
     }
 
-    public static final int LANGUAGE_MODE_BOTH = 0;
-    public static final int LANGUAGE_MODE_PRIMARY_ONLY = 1;
-    public static final int LANGUAGE_MODE_SECONDARY_ONLY = 2;
+    public static final int LANGUAGE_MODE_BOTH = UserPreferences.TRANSCRIPT_LANGUAGE_MODE_BOTH;
+    public static final int LANGUAGE_MODE_PRIMARY_ONLY = UserPreferences.TRANSCRIPT_LANGUAGE_MODE_PRIMARY_ONLY;
+    public static final int LANGUAGE_MODE_SECONDARY_ONLY = UserPreferences.TRANSCRIPT_LANGUAGE_MODE_SECONDARY_ONLY;
 
     public void setLanguageMode(int mode) {
         this.languageMode = mode;
+        UserPreferences.setTranscriptLanguageMode(mode);
         notifyDataSetChanged();
     }
 
@@ -195,8 +196,6 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         boolean bilingual = hasSecondLanguage(segment);
         if (bilingual) {
             length = TranscriptTextUtils.bilingualSplit(text);
-        } else {
-            length = TranscriptTextUtils.primaryLength(text);
         }
         int[] starts = TranscriptTextUtils.chunkStarts(text, length);
         if (starts.length < 3) {

@@ -1,21 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp"
-    android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24"
-    android:tint="?attr/action_icon_color">
-    <group
-        android:scaleX="1.25"
-        android:scaleY="1.25"
-        android:pivotX="12"
-        android:pivotY="12">
-        <path
-            android:strokeColor="@android:color/white"
-            android:strokeWidth="1.76"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:fillColor="@android:color/transparent"
-            android:pathData="M4,9.5 L4,6 Q4,4 6,4 L9.5,4 M14.5,4 L18,4 Q20,4 20,6 L20,9.5 M20,14.5 L20,18 Q20,20 18,20 L14.5,20 M9.5,20 L6,20 Q4,20 4,18 L4,14.5" />
+    android:width="20dp"
+    android:height="20dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <group android:translateY="960">
+        <group
+            android:scaleX="0.75"
+            android:translateX="120">
+            <path
+                android:fillColor="?attr/action_icon_color"
+                android:pathData="M212-212h71q26 0 44.5 18.5T346-149q0 26-18.5 44.5T283-86H149q-26 0-44.5-18.5T86-149v-134q0-26 18.5-44.5T149-346q26 0 44.5 18.5T212-283v71Zm536 0v-71q0-26 18.5-44.5T811-346q26 0 44.5 18.5T874-283v134q0 26-18.5 44.5T811-86H678q-26 0-44.5-18.5T615-149q0-26 18.5-44.5T678-212h70ZM212-748v70q0 26-18.5 44.5T149-615q-26 0-44.5-18.5T86-678v-133q0-26 18.5-44.5T149-874h134q26 0 44.5 18.5T346-811q0 26-18.5 44.5T283-748h-71Zm536 0h-70q-26 0-44.5-18.5T615-811q0-26 18.5-44.5T678-874h133q26 0 44.5 18.5T874-811v133q0 26-18.5 44.5T811-615q-26 0-44.5-18.5T748-678v-70Z" />
+        </group>
     </group>
 </vector>
