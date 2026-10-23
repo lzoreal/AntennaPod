@@ -128,6 +128,9 @@ public abstract class UserPreferences {
     public static final String PREF_FLOATING_TRANSCRIPT = "prefFloatingTranscript";
     private static final String PREF_TRANSCRIPT_TIME_OFFSET = "prefTranscriptTimeOffset";
     private static final String PREF_TRANSCRIPT_TIME_OFFSET_MEDIA = "prefTranscriptTimeOffsetMedia";
+    private static final String PREF_TRANSCRIPT_FONT_SIZE = "prefTranscriptFontSize";
+    private static final String PREF_FLOATING_TRANSCRIPT_X = "prefFloatingTranscriptX";
+    private static final String PREF_FLOATING_TRANSCRIPT_Y = "prefFloatingTranscriptY";
 
     // Experimental
     public static final int EPISODE_CLEANUP_QUEUE = -1;
@@ -928,6 +931,16 @@ public abstract class UserPreferences {
         prefs.edit().putBoolean(PREF_FLOATING_TRANSCRIPT, enabled).apply();
     }
 
+    public static void registerFloatingTranscriptListener(
+            SharedPreferences.OnSharedPreferenceChangeListener listener) {
+        prefs.registerOnSharedPreferenceChangeListener(listener);
+    }
+
+    public static void unregisterFloatingTranscriptListener(
+            SharedPreferences.OnSharedPreferenceChangeListener listener) {
+        prefs.unregisterOnSharedPreferenceChangeListener(listener);
+    }
+
     public static long getTranscriptTimeOffset(long mediaId) {
         if (prefs.getLong(PREF_TRANSCRIPT_TIME_OFFSET_MEDIA, -1) != mediaId) {
             return 0;
@@ -939,6 +952,29 @@ public abstract class UserPreferences {
         prefs.edit()
                 .putLong(PREF_TRANSCRIPT_TIME_OFFSET_MEDIA, mediaId)
                 .putLong(PREF_TRANSCRIPT_TIME_OFFSET, offsetMs)
+                .apply();
+    }
+
+    public static int getTranscriptFontSize() {
+        return prefs.getInt(PREF_TRANSCRIPT_FONT_SIZE, 0);
+    }
+
+    public static void setTranscriptFontSize(int step) {
+        prefs.edit().putInt(PREF_TRANSCRIPT_FONT_SIZE, step).apply();
+    }
+
+    public static int getFloatingTranscriptX() {
+        return prefs.getInt(PREF_FLOATING_TRANSCRIPT_X, -1);
+    }
+
+    public static int getFloatingTranscriptY() {
+        return prefs.getInt(PREF_FLOATING_TRANSCRIPT_Y, -1);
+    }
+
+    public static void setFloatingTranscriptPosition(int x, int y) {
+        prefs.edit()
+                .putInt(PREF_FLOATING_TRANSCRIPT_X, x)
+                .putInt(PREF_FLOATING_TRANSCRIPT_Y, y)
                 .apply();
     }
 }

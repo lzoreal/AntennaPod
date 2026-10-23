@@ -74,6 +74,17 @@ final class TranscriptTextUtils {
         return index;
     }
 
+    static long sentenceStartTime(TranscriptSegment segment, String text, int sentenceIndex) {
+        int[] starts = chunkStarts(text, text.length());
+        int count = starts.length - 1;
+        if (count <= 1) {
+            return segment.getStartTime();
+        }
+        int index = Math.max(0, Math.min(sentenceIndex, count - 1));
+        long duration = segment.getEndTime() - segment.getStartTime();
+        return segment.getStartTime() + duration * index / count;
+    }
+
     private static boolean isTrailingChar(char c) {
         return c == '"' || c == '\'' || c == '”' || c == '’' || c == '!' || c == '?' || c == ')'
                 || c == '）' || c == ']' || c == '】' || c == '」' || c == '』' || c == '》'

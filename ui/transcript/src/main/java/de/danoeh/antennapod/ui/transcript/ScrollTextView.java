@@ -30,14 +30,14 @@ public class ScrollTextView extends TextView {
 
         float scrollDistance = textWidth - contentWidth;
         float requiredSpeed = scrollDistance / durationMs;  // px/ms
-        float maxSpeed = 0.30f;  // 最高速度 200px/s，再快就看不清了
+        float maxSpeed = 0.30f;  // Max speed of 300px/s, any faster and it becomes unreadable
 
         long actualDuration;
         if (requiredSpeed > maxSpeed) {
-            // 文字太长时间太短，以最高速度滚，会提前滚完
+            // Text too long for the duration: scroll at max speed, which finishes early
             actualDuration = (long) (scrollDistance / maxSpeed);
         } else {
-            // 正常情况：在 durationMs 内刚好滚完
+            // Normal case: finish scrolling exactly within durationMs
             actualDuration = durationMs;
         }
 

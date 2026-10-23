@@ -7,6 +7,7 @@ import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.IBinder;
 import android.provider.Settings;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
@@ -31,8 +32,8 @@ import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 
 public class TranscriptFloatingWindowService extends Service {
+    private static final String TAG = "FloatingTranscript";
     private static final String ACTION_SHOW = "de.danoeh.antennapod.action.SHOW_FLOATING_TRANSCRIPT";
-    private static final String ACTION_HIDE = "de.danoeh.antennapod.action.HIDE_FLOATING_TRANSCRIPT";
     private static final String EXTRA_MEDIA_ID = "extra_media_id";
 
     private WindowManager windowManager;
@@ -54,13 +55,15 @@ public class TranscriptFloatingWindowService extends Service {
         Intent intent = new Intent(context, TranscriptFloatingWindowService.class);
         intent.setAction(ACTION_SHOW);
         intent.putExtra(EXTRA_MEDIA_ID, mediaId);
-        context.startService(intent);
+        try {
+            context.startService(intent);
+        } catch (IllegalStateException e) {
+            Log.e(TAG, "Unable to start floating transcript", e);
+        }
     }
 
     public static void stop(Context context) {
-        Intent intent = new Intent(context, TranscriptFloatingWindowService.class);
-        intent.setAction(ACTION_HIDE);
-        context.startService(intent);
+        context.stopService(new Intent(context, TranscriptFloatingWindowService.class));
     }
 
     @Override
@@ -73,10 +76,6 @@ public class TranscriptFloatingWindowService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null) {
-            return START_NOT_STICKY;
-        }
-        if (ACTION_HIDE.equals(intent.getAction())) {
-            stopSelf();
             return START_NOT_STICKY;
         }
 
@@ -118,6 +117,12 @@ public class TranscriptFloatingWindowService extends Service {
         params.gravity = Gravity.TOP | Gravity.START;
         params.x = (screenWidth - windowWidth) / 2;
         params.y = getStatusBarHeight();
+        int savedX = UserPreferences.getFloatingTranscriptX();
+        int savedY = UserPreferences.getFloatingTranscriptY();
+        if (savedX >= 0 && savedY >= 0) {
+            params.x = Math.max(0, Math.min(savedX, screenWidth - windowWidth));
+            params.y = Math.max(0, Math.min(savedY, screenHeight - getStatusBarHeight()));
+        }
 
         floatingView.setOnTouchListener(new View.OnTouchListener() {
             private float downX, downY;
@@ -140,6 +145,7 @@ public class TranscriptFloatingWindowService extends Service {
                         windowManager.updateViewLayout(floatingView, params);
                         return true;
                     case MotionEvent.ACTION_UP:
+                        UserPreferences.setFloatingTranscriptPosition(params.x, params.y);
                         return true;
                 }
                 return false;
@@ -217,7 +223,11 @@ public class TranscriptFloatingWindowService extends Service {
             loadDisposable.dispose();
         }
         if (floatingView != null) {
-            windowManager.removeView(floatingView);
+            try {
+                windowManager.removeView(floatingView);
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Floating view was already removed", e);
+            }
             floatingView = null;
         }
     }
