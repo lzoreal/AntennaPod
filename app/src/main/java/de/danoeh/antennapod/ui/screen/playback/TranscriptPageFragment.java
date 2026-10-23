@@ -364,7 +364,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         doInitialScroll = false;
 
-        boolean quickScroll = fast || Math.abs(lm.findFirstVisibleItemPosition() - pos) > 5;
+        boolean quickScroll = Math.abs(lm.findFirstVisibleItemPosition() - pos) > 5;
         if (quickScroll) {
             viewBinding.recyclerView.scrollToPosition(pos);
         }
