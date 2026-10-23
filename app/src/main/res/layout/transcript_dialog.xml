@@ -51,12 +51,11 @@
             android:layout_alignParentEnd="true"
             android:layout_centerVertical="true"
             android:layout_marginEnd="16dp"
-            android:background="@drawable/bg_round_rect"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:gravity="center"
             android:text="@string/transcript_translation_toggle"
-            android:textColor="@color/white"
+            android:textColor="?android:attr/textColorPrimary"
             android:textSize="13sp"
-            android:textStyle="bold"
             android:visibility="gone" />
 
     </RelativeLayout>
