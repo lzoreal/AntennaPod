@@ -15,98 +15,59 @@
         android:paddingEnd="8dp"
         android:visibility="gone">
 
-        <TextView
+        <ImageButton
             android:id="@+id/btnOffsetToggle"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:background="@drawable/bg_round_rect"
-            android:gravity="center"
-            android:minWidth="48dp"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:text="@string/transcript_offset_toggle"
-            android:textColor="@color/white"
-            android:textSize="13sp"
-            android:textStyle="bold" />
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/transcript_offset_toggle_description"
+            android:src="@drawable/ic_transcript_offset" />
 
-        <TextView
+        <ImageButton
             android:id="@+id/btnTranslationToggle"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:layout_marginStart="8dp"
-            android:background="@drawable/bg_round_rect"
-            android:gravity="center"
-            android:minWidth="44dp"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:text="@string/transcript_translation_toggle"
-            android:textColor="@color/white"
-            android:textSize="13sp"
-            android:textStyle="bold"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/toggle_translation"
+            android:src="@drawable/ic_transcript_translate"
             android:visibility="gone" />
 
-        <TextView
+        <ImageButton
             android:id="@+id/btnLineBreakToggle"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:layout_marginStart="8dp"
-            android:background="@drawable/bg_round_rect"
-            android:gravity="center"
-            android:minWidth="44dp"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:text="@string/transcript_line_break_toggle"
-            android:textColor="@color/white"
-            android:textSize="13sp"
-            android:textStyle="bold" />
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/transcript_line_break_description"
+            android:src="@drawable/ic_transcript_linebreak" />
 
-        <TextView
+        <ImageButton
             android:id="@+id/btnFontSmaller"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:layout_marginStart="8dp"
-            android:background="@drawable/bg_round_rect"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/transcript_font_smaller_description"
-            android:gravity="center"
-            android:minWidth="44dp"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:text="@string/transcript_font_smaller_toggle"
-            android:textColor="@color/white"
-            android:textSize="13sp"
-            android:textStyle="bold" />
+            android:src="@drawable/ic_transcript_font_smaller" />
 
-        <TextView
+        <ImageButton
             android:id="@+id/btnFontLarger"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:layout_marginStart="8dp"
-            android:background="@drawable/bg_round_rect"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/transcript_font_larger_description"
-            android:gravity="center"
-            android:minWidth="44dp"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:text="@string/transcript_font_larger_toggle"
-            android:textColor="@color/white"
-            android:textSize="13sp"
-            android:textStyle="bold" />
+            android:src="@drawable/ic_transcript_font_larger" />
 
-        <TextView
+        <ImageButton
             android:id="@+id/btnSegmentLoop"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:layout_marginStart="8dp"
-            android:background="@drawable/bg_round_rect"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/transcript_segment_loop_description"
-            android:gravity="center"
-            android:minWidth="44dp"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:text="@string/transcript_segment_loop_toggle"
-            android:textColor="@color/white"
-            android:textSize="13sp"
-            android:textStyle="bold" />
+            android:src="@drawable/ic_transcript_loop" />
 
         <ImageButton
             android:id="@+id/btnImmersive"
@@ -177,80 +138,74 @@
             <TextView
                 android:id="@+id/btnOffsetBack30"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+                android:layout_height="32dp"
                 android:layout_marginStart="2dp"
                 android:layout_marginEnd="2dp"
                 android:layout_weight="1"
-                android:background="@drawable/bg_round_rect"
+                android:background="?attr/selectableItemBackground"
                 android:gravity="center"
-                android:textColor="@color/white"
-                android:textSize="12sp"
-                android:textStyle="bold" />
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/btnOffsetBack10"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+                android:layout_height="32dp"
                 android:layout_marginStart="2dp"
                 android:layout_marginEnd="2dp"
                 android:layout_weight="1"
-                android:background="@drawable/bg_round_rect"
+                android:background="?attr/selectableItemBackground"
                 android:gravity="center"
-                android:textColor="@color/white"
-                android:textSize="12sp"
-                android:textStyle="bold" />
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/btnOffsetBack5"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+                android:layout_height="32dp"
                 android:layout_marginStart="2dp"
                 android:layout_marginEnd="2dp"
                 android:layout_weight="1"
-                android:background="@drawable/bg_round_rect"
+                android:background="?attr/selectableItemBackground"
                 android:gravity="center"
-                android:textColor="@color/white"
-                android:textSize="12sp"
-                android:textStyle="bold" />
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/btnOffsetForward5"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+                android:layout_height="32dp"
                 android:layout_marginStart="2dp"
                 android:layout_marginEnd="2dp"
                 android:layout_weight="1"
-                android:background="@drawable/bg_round_rect"
+                android:background="?attr/selectableItemBackground"
                 android:gravity="center"
-                android:textColor="@color/white"
-                android:textSize="12sp"
-                android:textStyle="bold" />
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/btnOffsetForward10"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+                android:layout_height="32dp"
                 android:layout_marginStart="2dp"
                 android:layout_marginEnd="2dp"
                 android:layout_weight="1"
-                android:background="@drawable/bg_round_rect"
+                android:background="?attr/selectableItemBackground"
                 android:gravity="center"
-                android:textColor="@color/white"
-                android:textSize="12sp"
-                android:textStyle="bold" />
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/btnOffsetForward30"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+                android:layout_height="32dp"
                 android:layout_marginStart="2dp"
                 android:layout_marginEnd="2dp"
                 android:layout_weight="1"
-                android:background="@drawable/bg_round_rect"
+                android:background="?attr/selectableItemBackground"
                 android:gravity="center"
-                android:textColor="@color/white"
-                android:textSize="12sp"
-                android:textStyle="bold" />
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="13sp" />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>
