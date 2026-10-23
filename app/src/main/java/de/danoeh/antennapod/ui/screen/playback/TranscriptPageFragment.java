@@ -43,6 +43,7 @@ import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.core.Maybe;
 import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
+import java.util.Locale;
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
@@ -55,13 +56,11 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private FeedMedia currentMedia;
     private boolean doInitialScroll = true;
     private boolean userScrolling = false;
-    private long lastUserScrollTime = 0;
     private int lastScrolledPosition = -1;
     private long lastPositionMs = 0;
     private boolean controlsBarVisibleBeforeImmersive = false;
     private boolean immersiveMode = false;
     private int immersiveTopInset = 0;
-    private static final long SCROLL_COOLDOWN_MS = 3000;
     private static final long FOLLOW_SCROLL_INTERVAL_MS = 300;
     private static final int FONT_SIZE_MIN_STEP = -2;
     private static final int FONT_SIZE_MAX_STEP = 3;
@@ -86,7 +85,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 super.onScrollStateChanged(recyclerView, newState);
                 if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
                     userScrolling = true;
-                    lastUserScrollTime = System.currentTimeMillis();
+                    updateBackToCurrentVisibility();
+                } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    resumeFollowingIfHighlightVisible();
                 }
             }
         });
@@ -102,6 +103,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         viewBinding.btnFontSmaller.setOnClickListener(v -> adjustFontSize(-1));
         viewBinding.btnFontLarger.setOnClickListener(v -> adjustFontSize(1));
         viewBinding.btnSegmentLoop.setOnClickListener(v -> toggleSegmentLoop());
+        viewBinding.btnBackToCurrent.setOnClickListener(v -> returnToCurrentSentence());
         viewBinding.btnLineBreakToggle.setContentDescription(
                 getString(R.string.transcript_line_break_description));
         viewBinding.btnImmersive.setOnClickListener(v -> {
@@ -114,6 +116,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         updateSentenceToggle();
         updateOffsetToggle();
         updateSegmentLoopToggle();
+        updateBackToCurrentVisibility();
 
         ViewCompat.setOnApplyWindowInsetsListener(viewBinding.getRoot(), (v, insets) -> {
             immersiveTopInset = Math.max(immersiveTopInset, Math.max(
@@ -233,7 +236,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
         adapter.setMedia(currentMedia);
         doInitialScroll = true;
+        userScrolling = false;
         lastScrolledPosition = -1;
+        updateBackToCurrentVisibility();
         lastPositionMs = Math.max(0, currentMedia.getPosition());
         updateOffsetLabel();
         updateTranslationToggle();
@@ -275,10 +280,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
 
-        if (userScrolling && System.currentTimeMillis() - lastUserScrollTime < SCROLL_COOLDOWN_MS) {
+        if (userScrolling) {
             return;
         }
-        userScrolling = false;
 
         if (pos == lastScrolledPosition) {
             followLongSegment(pos, lastPositionMs
@@ -329,6 +333,10 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     }
 
     private void scrollToPosition(int pos) {
+        scrollToPosition(pos, false);
+    }
+
+    private void scrollToPosition(int pos, boolean fast) {
         lastScrolledPosition = pos;
         LinearLayoutManager lm = (LinearLayoutManager) viewBinding.recyclerView.getLayoutManager();
         if (lm == null) {
@@ -356,7 +364,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         doInitialScroll = false;
 
-        boolean quickScroll = Math.abs(lm.findFirstVisibleItemPosition() - pos) > 5;
+        boolean quickScroll = fast || Math.abs(lm.findFirstVisibleItemPosition() - pos) > 5;
         if (quickScroll) {
             viewBinding.recyclerView.scrollToPosition(pos);
         }
@@ -389,7 +397,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
             @Override
             protected float calculateSpeedPerPixel(DisplayMetrics displayMetrics) {
-                return (quickScroll ? 200 : 1000) / (float) displayMetrics.densityDpi;
+                return (fast ? 100 : quickScroll ? 200 : 1000) / (float) displayMetrics.densityDpi;
             }
         };
         smoothScroller.setTargetPosition(pos);
@@ -417,9 +425,41 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         });
 
         userScrolling = false;
-        lastUserScrollTime = 0;
+        updateBackToCurrentVisibility();
         if (segmentLooping) {
             loopSegmentIndex = position;
+        }
+    }
+
+    private void returnToCurrentSentence() {
+        userScrolling = false;
+        updateBackToCurrentVisibility();
+        if (adapter == null) {
+            return;
+        }
+        int position = adapter.getHighlightPosition();
+        if (position >= 0) {
+            scrollToPosition(position, true);
+        }
+    }
+
+    private void updateBackToCurrentVisibility() {
+        if (viewBinding == null) {
+            return;
+        }
+        viewBinding.btnBackToCurrent.setVisibility(userScrolling ? View.VISIBLE : View.GONE);
+    }
+
+    private void resumeFollowingIfHighlightVisible() {
+        if (!userScrolling || viewBinding == null || adapter == null) {
+            return;
+        }
+        LinearLayoutManager lm = (LinearLayoutManager) viewBinding.recyclerView.getLayoutManager();
+        int highlight = adapter.getHighlightPosition();
+        if (lm != null && highlight >= lm.findFirstVisibleItemPosition()
+                && highlight <= lm.findLastVisibleItemPosition()) {
+            userScrolling = false;
+            updateBackToCurrentVisibility();
         }
     }
 
@@ -514,6 +554,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             int pos = currentMedia.getTranscript().findSegmentIndexBefore(lastPositionMs - offsetMs);
             adapter.setHighlightPosition(pos);
             userScrolling = false;
+            updateBackToCurrentVisibility();
             lastScrolledPosition = -1;
             scrollToPosition(pos);
         }
@@ -536,12 +577,26 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     }
 
     private void setupOffsetButtons() {
+        bindFineOffsetButton(viewBinding.btnOffsetBack05, -500);
+        bindFineOffsetButton(viewBinding.btnOffsetForward05, 500);
         bindOffsetButton(viewBinding.btnOffsetBack30, -30000);
         bindOffsetButton(viewBinding.btnOffsetBack10, -10000);
         bindOffsetButton(viewBinding.btnOffsetBack5, -5000);
         bindOffsetButton(viewBinding.btnOffsetForward5, 5000);
         bindOffsetButton(viewBinding.btnOffsetForward10, 10000);
         bindOffsetButton(viewBinding.btnOffsetForward30, 30000);
+    }
+
+    private void bindFineOffsetButton(TextView button, long deltaMs) {
+        String seconds = String.format(Locale.getDefault(), "%.1f", Math.abs(deltaMs) / 1000.0);
+        boolean backwards = deltaMs < 0;
+        button.setText(getString(backwards
+                ? R.string.transcript_offset_back_fine_format
+                : R.string.transcript_offset_forward_fine_format, seconds));
+        button.setContentDescription(getString(backwards
+                ? R.string.transcript_offset_back_fine_description
+                : R.string.transcript_offset_forward_fine_description, seconds));
+        button.setOnClickListener(v -> adjustTimeOffset(deltaMs));
     }
 
     private void bindOffsetButton(TextView button, long deltaMs) {
@@ -575,8 +630,11 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     }
 
     private String formatTimeOffset(long offsetMs) {
-        long seconds = Math.round(offsetMs / 1000.0);
-        return (seconds > 0 ? "+" : "") + seconds + " s";
+        double seconds = offsetMs / 1000.0;
+        String value = seconds == Math.rint(seconds)
+                ? String.valueOf((long) seconds)
+                : String.format(Locale.getDefault(), "%.1f", seconds);
+        return (seconds > 0 ? "+" : "") + value + " s";
     }
 
     // ===== Public methods called by AudioPlayerFragment =====
