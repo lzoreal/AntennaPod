@@ -300,11 +300,16 @@
     <string name="show_transcript">Show transcript</string>
     <string name="transcript">Transcript</string>
     <string name="transcript_follow_audio_label">Follow audio</string>
+    <string name="transcript_back_to_current">Back to current sentence</string>
     <string name="no_transcript_label">No transcript</string>
     <string name="transcript_offset_back_format">-%1$d s</string>
     <string name="transcript_offset_forward_format">+%1$d s</string>
     <string name="transcript_offset_back_description">Shift transcript %1$d seconds earlier</string>
     <string name="transcript_offset_forward_description">Shift transcript %1$d seconds later</string>
+    <string name="transcript_offset_back_fine_format">-%1$s s</string>
+    <string name="transcript_offset_forward_fine_format">+%1$s s</string>
+    <string name="transcript_offset_back_fine_description">Shift transcript %1$s seconds earlier</string>
+    <string name="transcript_offset_forward_fine_description">Shift transcript %1$s seconds later</string>
     <string name="transcript_offset_label">Offset: %1$s</string>
     <string name="transcript_offset_reset_description">Reset transcript offset</string>
     <string name="transcript_offset_message">Transcript offset: %1$s</string>

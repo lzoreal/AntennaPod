@@ -13,6 +13,7 @@ import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.WindowManager;
 
 import androidx.annotation.Nullable;
@@ -27,6 +28,7 @@ import de.danoeh.antennapod.model.feed.Transcript;
 import de.danoeh.antennapod.model.feed.TranscriptSegment;
 import de.danoeh.antennapod.storage.database.DBReader;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
+import de.danoeh.antennapod.ui.appstartintent.MainActivityStarter;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.disposables.Disposable;
@@ -135,9 +137,11 @@ public class TranscriptFloatingWindowService extends Service {
             params.y = Math.max(0, Math.min(savedY, screenHeight - getStatusBarHeight()));
         }
 
+        final int touchSlop = ViewConfiguration.get(this).getScaledTouchSlop();
         floatingView.setOnTouchListener(new View.OnTouchListener() {
             private float downX, downY;
             private int startX, startY;
+            private boolean moved;
 
             @Override
             public boolean onTouch(View v, MotionEvent event) {
@@ -147,16 +151,29 @@ public class TranscriptFloatingWindowService extends Service {
                         downY = event.getRawY();
                         startX = params.x;
                         startY = params.y;
+                        moved = false;
                         return true;
                     case MotionEvent.ACTION_MOVE:
-                        params.x = startX + (int) (event.getRawX() - downX);
-                        params.y = startY + (int) (event.getRawY() - downY);
+                        float deltaX = event.getRawX() - downX;
+                        float deltaY = event.getRawY() - downY;
+                        if (!moved
+                                && Math.abs(deltaX) < touchSlop
+                                && Math.abs(deltaY) < touchSlop) {
+                            return true;
+                        }
+                        moved = true;
+                        params.x = startX + (int) deltaX;
+                        params.y = startY + (int) deltaY;
                         params.x = Math.max(0, Math.min(params.x, screenWidth - windowWidth));
                         params.y = Math.max(0, Math.min(params.y, screenHeight - floatingView.getHeight()));
                         windowManager.updateViewLayout(floatingView, params);
                         return true;
                     case MotionEvent.ACTION_UP:
-                        UserPreferences.setFloatingTranscriptPosition(params.x, params.y);
+                        if (moved) {
+                            UserPreferences.setFloatingTranscriptPosition(params.x, params.y);
+                        } else {
+                            openTranscriptPage();
+                        }
                         return true;
                 }
                 return false;
@@ -164,6 +181,14 @@ public class TranscriptFloatingWindowService extends Service {
         });
 
         windowManager.addView(floatingView, params);
+    }
+
+    private void openTranscriptPage() {
+        MainActivityStarter starter = new MainActivityStarter(this)
+                .withOpenPlayer()
+                .withOpenTranscript();
+        starter.getIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        starter.start();
     }
 
     private int getStatusBarHeight() {
