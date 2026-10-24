@@ -19,11 +19,10 @@ public class TranscriptTextUtilsTest {
     }
 
     @Test
-    public void testCharIndexAtUsesPrimaryLineOnly() {
-        String text = "Hello\nWelt";
-        assertEquals(0, TranscriptTextUtils.charIndexAt(text, 0f));
-        assertEquals(5, TranscriptTextUtils.charIndexAt(text, 1f));
-        assertEquals(3, TranscriptTextUtils.charIndexAt(text, 0.5f));
+    public void testCharIndexAtUsesPrimaryBlockOnly() {
+        assertEquals(11, TranscriptTextUtils.charIndexAt("Hello there\n你好。", 1f));
+        assertEquals(6, TranscriptTextUtils.charIndexAt("Hello there\n你好。", 0.5f));
+        assertEquals(11, TranscriptTextUtils.charIndexAt("Hello there", 1f));
     }
 
     @Test
@@ -68,9 +67,52 @@ public class TranscriptTextUtilsTest {
     }
 
     @Test
-    public void testSplitIntoSentencesKeepsSecondaryLanguageLine() {
-        assertEquals("Hello.\nWorld.\nHallo. Welt.",
+    public void testSplitIntoSentencesSplitsSameScriptLines() {
+        assertEquals("Hello.\nWorld.\nHallo.\nWelt.",
                 TranscriptTextUtils.splitIntoSentences("Hello. World.\nHallo. Welt."));
+    }
+
+    @Test
+    public void testLanguageSplitIndexLocatesTrailingLanguageBlock() {
+        assertEquals(-1, TranscriptTextUtils.languageSplitIndex("Hello\nWelt"));
+        assertEquals(5, TranscriptTextUtils.languageSplitIndex("Hello\n你好。\n世界。"));
+        assertEquals(13, TranscriptTextUtils.languageSplitIndex("Hello. World.\n你好。"));
+        assertEquals(13, TranscriptTextUtils.languageSplitIndex("Hello. World.\n你好。\n世界。"));
+        assertEquals(5, TranscriptTextUtils.languageSplitIndex("Hello\n\n你好。"));
+        assertEquals(10, TranscriptTextUtils.languageSplitIndex("Hi.\nThere.\n你好。\n世界。"));
+        assertEquals(-1, TranscriptTextUtils.languageSplitIndex("Hello. World."));
+        assertEquals(-1, TranscriptTextUtils.languageSplitIndex("Hello. World.\nHallo. Welt."));
+    }
+
+    @Test
+    public void testSplitIntoSentencesKeepsWrappedPrimarySentences() {
+        assertEquals("Hello.\nWorld.\n你好。",
+                TranscriptTextUtils.splitIntoSentences("Hello. World.\n你好。"));
+        assertEquals("Hello.\nWorld.\n你好。\n世界。",
+                TranscriptTextUtils.splitIntoSentences("Hello. World.\n你好。\n世界。"));
+        assertEquals("Hi.\nThere.\n你好。\n世界。",
+                TranscriptTextUtils.splitIntoSentences("Hi. There.\n你好。\n世界。"));
+        assertEquals("你好。\n世界。",
+                TranscriptTextUtils.splitIntoSentences("你好。世界。"));
+    }
+
+    @Test
+    public void testInterleavedScriptsFallBackToWholeText() {
+        assertEquals(-1, TranscriptTextUtils.languageSplitIndex("你好。\nHello.\n世界。"));
+    }
+
+    @Test
+    public void testEveryLanguageModeKeepsAllSentences() {
+        String cue = "Hello there my friend.\nHow are you doing today?\n你好，朋友。\n你今天怎么样？";
+        int split = TranscriptTextUtils.languageSplitIndex(cue);
+        assertEquals(47, split);
+        assertEquals("Hello there my friend.\nHow are you doing today?\n你好，朋友。\n你今天怎么样？",
+                TranscriptTextUtils.splitIntoSentences(cue));
+        assertEquals("Hello there my friend.\nHow are you doing today?",
+                TranscriptTextUtils.splitIntoSentences(cue.substring(0, split)));
+        assertEquals("你好，朋友。\n你今天怎么样？",
+                TranscriptTextUtils.splitIntoSentences(cue.substring(split + 1)));
+        assertEquals(47, TranscriptTextUtils.charIndexAt(TranscriptTextUtils.splitIntoSentences(cue), 1f));
     }
 
     @Test
