@@ -4,12 +4,12 @@ import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.Layout;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.DecelerateInterpolator;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -503,7 +503,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     }
 
     private void followLongSegment(int pos, long position) {
-        if (currentMedia == null || currentMedia.getTranscript() == null) {
+        if (currentMedia == null || currentMedia.getTranscript() == null || adapter == null) {
             return;
         }
 
@@ -512,33 +512,35 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
 
+        int[] bounds = adapter.getSentenceBounds((TranscriptViewholder) holder);
+        if (bounds == null) {
+            return;
+        }
+
         int viewportHeight = viewBinding.recyclerView.getHeight();
-        if (holder.itemView.getHeight() <= viewportHeight) {
+        int screenY = holder.itemView.getTop() + (bounds[0] + bounds[1]) / 2;
+        int delta = screenY - viewportHeight / 2;
+        if (Math.abs(delta) < 16) {
             return;
         }
-
-        TextView content = ((TranscriptViewholder) holder).viewContent;
-        Layout layout = content.getLayout();
-        if (layout == null) {
+        long now = System.currentTimeMillis();
+        if (now - lastFollowScrollTime < FOLLOW_SCROLL_INTERVAL_MS) {
             return;
         }
+        lastFollowScrollTime = now;
+        viewBinding.recyclerView.stopScroll();
+        viewBinding.recyclerView.smoothScrollBy(0, delta);
+    }
 
-        TranscriptSegment segment = currentMedia.getTranscript().getSegmentAt(pos);
-        float progress = TranscriptTextUtils.progressAt(segment, position);
-        int charIndex = TranscriptTextUtils.charIndexAt(content.getText().toString(), progress);
-        charIndex = Math.max(0, Math.min(charIndex, content.length()));
-        int line = layout.getLineForOffset(charIndex);
-        int screenY = holder.itemView.getTop() + content.getTop() + layout.getLineTop(line);
-
-        if (screenY > viewportHeight * 2 / 3) {
-            long now = System.currentTimeMillis();
-            if (now - lastFollowScrollTime < FOLLOW_SCROLL_INTERVAL_MS) {
-                return;
-            }
-            lastFollowScrollTime = now;
-            viewBinding.recyclerView.stopScroll();
-            viewBinding.recyclerView.smoothScrollBy(0, screenY - viewportHeight / 2);
+    private int[] sentenceBounds(View targetView) {
+        if (adapter == null || viewBinding == null) {
+            return null;
         }
+        RecyclerView.ViewHolder holder = viewBinding.recyclerView.getChildViewHolder(targetView);
+        if (!(holder instanceof TranscriptViewholder)) {
+            return null;
+        }
+        return adapter.getSentenceBounds((TranscriptViewholder) holder);
     }
 
     private void scrollToPosition(int pos) {
@@ -552,15 +554,15 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
 
-        // No need to scroll if the highlighted line is centered and fully visible
+        // No need to scroll if the current sentence is already centered
         View targetView = lm.findViewByPosition(pos);
         if (targetView != null) {
-            int top = targetView.getTop();
-            int bottom = targetView.getBottom();
             int rvHeight = viewBinding.recyclerView.getHeight();
-            int itemHeight = targetView.getHeight();
-            int centerTop = (rvHeight - itemHeight) / 2;
-            if (Math.abs(top - centerTop) < 20 && bottom <= rvHeight) {
+            int[] bounds = sentenceBounds(targetView);
+            int centerY = bounds != null
+                    ? targetView.getTop() + (bounds[0] + bounds[1]) / 2
+                    : (targetView.getTop() + targetView.getBottom()) / 2;
+            if (Math.abs(centerY - rvHeight / 2) < 20) {
                 return;
             }
         }
@@ -585,23 +587,17 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             }
 
             @Override
-            public int calculateDtToFit(int viewStart, int viewEnd, int boxStart, int boxEnd, int snapPreference) {
-                int itemHeight = viewEnd - viewStart;
-                int boxHeight = boxEnd - boxStart;
-
-                if (itemHeight >= boxHeight) {
-                    return boxStart - viewStart;
+            protected void onTargetFound(View targetView, RecyclerView.State state,
+                                         RecyclerView.SmoothScroller.Action action) {
+                int viewportHeight = viewBinding.recyclerView.getHeight();
+                int centerY = targetView.getTop() + targetView.getHeight() / 2;
+                int[] bounds = sentenceBounds(targetView);
+                if (bounds != null) {
+                    centerY = targetView.getTop() + (bounds[0] + bounds[1]) / 2;
                 }
-
-                // First try to center the highlighted transcript line
-                int targetTop = boxStart + (boxHeight - itemHeight) / 2;
-
-                // If centering pushes it below the screen, scroll down until it is fully visible (bottom aligned)
-                if (targetTop + itemHeight > boxEnd) {
-                    targetTop = boxEnd - itemHeight;
-                }
-
-                return targetTop - viewStart;
+                int dy = centerY - viewportHeight / 2;
+                int duration = Math.max(1, calculateTimeForDeceleration(Math.abs(dy)));
+                action.update(0, dy, duration, new DecelerateInterpolator());
             }
 
             @Override
