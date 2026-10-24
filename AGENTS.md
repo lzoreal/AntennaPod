@@ -1,3 +1,12 @@
+# Project Context
+AntennaPod is an open-source podcast application for Android, written in Java and built with Gradle.
+This fork carries an ongoing transcript feature (bilingual sentence display, per-media time offsets, a floating transcript window and on-device verification); `docs/transcript-handover.md` is the entry point for that workstream.
+`CLAUDE.md` includes this file (`@AGENTS.md`); keep this file as the single source of truth for all agents.
+
+# Tool Use
+Before editing a file, always read it first. The user might have updated it; if the user changed a file, that change has absolute priority.
+When running git commands, disable the pager.
+
 # Coding Style
 Never fix any warnings outside the code you wrote.
 Only update existing code if necessary to fulfill the user request.
@@ -12,6 +21,22 @@ Only ever edit the English strings file at `ui/i18n/src/main/res/values/strings.
 Every string added to the English file must also get a Chinese translation in `ui/i18n/src/main/res/values-zh-rCN/strings.xml`.
 Never reference the full package name of classes directly in the code, use imports.
 
+# Architecture
+AntennaPod uses a highly modularized Gradle architecture, organized by domain. `settings.gradle` is authoritative; the main modules are:
+- `:app` / `:app-wearos` — main Android app and Wear OS app; integrate all features.
+- `:event` — EventBus events for cross-component communication.
+- `:model` — core data classes (`Feed`, `FeedItem`, `FeedMedia`, `Chapter`, `Transcript`).
+- `:system` — crash reporting, package and thread utilities.
+- `:net:*` — `:common`, `:discovery`, `:download:service-interface`/`:download:service`, `:ssl`, `:sync:*`.
+- `:parser:*` — `:feed` (XML feeds), `:media` (media tags), `:transcript` (episode transcripts).
+- `:playback:*` — `:base`, `:cast` (Chromecast), `:service` (Media3 playback service).
+- `:storage:*` — `:database`, `:database-maintenance-service`, `:importexport`, `:preferences`.
+- `:ui:*` — shared UI and screens (`:common`, `:episodes`, `:preferences`, `:statistics`, `:i18n`, `:transcript`, `:widget`, ...).
+Cross-cutting conventions:
+- Several functional areas split a service-interface and a service module; consumers depend on the interface, and the implementation is registered at app startup via `ClientConfigurator`.
+- Use EventBus (`:event`) for cross-component events, `:storage:preferences` for settings, `:storage:database` for DB access, and `:playback:service` for playback/Media3.
+- Keep module boundaries; do not reach into another module's internals when a shared module already exists.
+
 # Running and Testing
 After you are sure that the code is correct, ensure that there are no compilation errors (warnings are okay).
 To compile the code, use `./gradlew :app:assembleDebug`.
@@ -25,6 +50,7 @@ ONLY USE THE EXACT COMMANDS GIVEN IN THIS FILE!
 
 Only then run the application or the tests to verify it.
 Usually you will need to run the application, but if there are existing tests that cover the code you wrote, you can run those instead.
+Only run the tests or device-test scenarios that cover the code you changed; do not re-run scripts for features you did not modify.
 For installing and running the application, use the command
 `./gradlew --console=plain :app:installPlayDebug && adb shell monkey -p de.danoeh.antennapod.debug 1`.
 If needed, you can grab a textual representation of the screen using `adb shell uiautomator dump /sdcard/ui.xml; adb shell cat /sdcard/ui.xml`.
@@ -58,4 +84,5 @@ If you do not follow these, the issue gets closed automatically.
 # Transcript Feature
 Transcript paths: `:parser:transcript`, `:ui:transcript`, `Transcript*.java` in `:app`/`:model`, `transcript_*` layouts/resources, and the transcript hooks in `Media3PlaybackService`/`AudioPlayerFragment`.
 Before editing any of them, read `docs/transcript-handover.md` starting at §0.
+On-device scenarios live in `scripts/transcript-tests/` (`bash scripts/transcript-tests/run.sh --list`); run only the scenarios covering your change.
 Change code and doc in one commit: update the affected §1 row, re-grep every §3 anchor, update §5 notes, and after an on-device run record the code baseline commit, script commit and date in §5.2.

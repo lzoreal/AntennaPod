@@ -91,6 +91,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     private void applyLayout(TranscriptViewholder holder) {
         holder.viewContent.setLineSpacing(0, lineSpacingMultiplier);
         holder.viewContent.setPadding(horizontalPaddingPx, 0, horizontalPaddingPx, 0);
+        holder.viewTimecode.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14 + fontSizeStep * 2);
         holder.viewTimecode.setPadding(horizontalPaddingPx, 0, horizontalPaddingPx, 0);
         ViewGroup.MarginLayoutParams params =
                 (ViewGroup.MarginLayoutParams) holder.viewTimecode.getLayoutParams();
@@ -469,6 +470,54 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         return index;
     }
 
+    public int[] getSentenceBounds(TranscriptViewholder holder) {
+        int position = holder.getAbsoluteAdapterPosition();
+        if (position == RecyclerView.NO_POSITION || position != highlightPosition) {
+            return null;
+        }
+        TranscriptSegment segment = segmentAt(position);
+        if (segment == null) {
+            return null;
+        }
+        DisplayInfo info = getDisplayInfo(segment);
+        int sentence = sentenceIndexAt(segment, info, lastHighlightPositionMs);
+        if (sentence < 0) {
+            return null;
+        }
+        int start;
+        int end;
+        if (info.interleaved) {
+            if (sentence >= info.pairStarts.length) {
+                return null;
+            }
+            start = info.primaryDisplayStarts[sentence];
+            end = info.primaryDisplayEnds[sentence];
+            int translationStart = info.translationDisplayStarts[sentence];
+            int translationEnd = info.translationDisplayEnds[sentence];
+            if (translationStart >= 0 && translationEnd > translationStart) {
+                start = Math.min(start, translationStart);
+                end = Math.max(end, translationEnd);
+            }
+        } else {
+            if (sentence + 1 >= info.primaryStarts.length) {
+                return null;
+            }
+            start = info.primaryStarts[sentence];
+            end = info.primaryStarts[sentence + 1];
+        }
+        Layout layout = holder.viewContent.getLayout();
+        if (layout == null || layout.getText() == null
+                || start < 0 || end <= start || start >= layout.getText().length()) {
+            return null;
+        }
+        int lastOffset = Math.min(end - 1, layout.getText().length() - 1);
+        int firstLine = layout.getLineForOffset(start);
+        int lastLine = layout.getLineForOffset(lastOffset);
+        int top = holder.viewContent.getTop() + layout.getLineTop(firstLine);
+        int bottom = holder.viewContent.getTop() + layout.getLineBottom(lastLine);
+        return new int[]{top, bottom};
+    }
+
     private long[] sentenceTimesAtTouch(TranscriptViewholder holder, TranscriptSegment segment) {
         Layout layout = holder.viewContent.getLayout();
         if (layout == null) {
@@ -502,7 +551,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
 
     private void highlightViewHolder(TranscriptViewholder holder, boolean highlight) {
         if (highlight) {
-            holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19 + fontSizeStep * 2);
+            holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16 + fontSizeStep * 2);
             holder.viewContent.setAlpha(1.0f);
             holder.viewContent.setTypeface(null, Typeface.BOLD);
 
