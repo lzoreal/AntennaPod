@@ -46,6 +46,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     private int highlightPosition = -1;
     private int highlightedSentence = -1;
     private long lastHighlightPositionMs = 0;
+    private boolean positionEventsSuppressed = false;
     private int languageMode = UserPreferences.getTranscriptLanguageMode();
     private int fontSizeStep = UserPreferences.getTranscriptFontSize();
     private float lastTouchX = 0;
@@ -367,7 +368,14 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onEventMainThread(PlaybackPositionEvent event) {
+        if (positionEventsSuppressed) {
+            return;
+        }
         updatePlaybackPosition(event.getPosition());
+    }
+
+    public void setPositionEventsSuppressed(boolean suppressed) {
+        positionEventsSuppressed = suppressed;
     }
 
     public void updatePlaybackPosition(long positionMs) {

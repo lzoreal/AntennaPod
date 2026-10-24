@@ -81,6 +81,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private ListenableFuture<MediaController> controllerFuture;
     private MediaController mediaController;
     private boolean highlightTickerActive = false;
+    private boolean highlightTickerDriving = false;
     private final Runnable highlightTicker = new Runnable() {
         @Override
         public void run() {
@@ -88,12 +89,24 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 return;
             }
             MediaController controller = mediaController;
-            if (controller != null && controller.isConnected() && controller.isPlaying()) {
+            boolean playing = controller != null && controller.isConnected() && controller.isPlaying();
+            if (playing) {
                 long position = controller.getCurrentPosition();
+                setHighlightTickerDriving(true);
                 if (adapter != null) {
                     adapter.updatePlaybackPosition(position);
                 }
                 handlePlaybackPosition(position);
+            } else if (highlightTickerDriving) {
+                long position = controller != null && controller.isConnected()
+                        ? controller.getCurrentPosition() : -1;
+                setHighlightTickerDriving(false);
+                if (position >= 0) {
+                    if (adapter != null) {
+                        adapter.updatePlaybackPosition(position);
+                    }
+                    handlePlaybackPosition(position);
+                }
             }
             highlightHandler.postDelayed(this, HIGHLIGHT_UPDATE_INTERVAL_MS);
         }
@@ -189,6 +202,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     @Override
     public void onPause() {
         highlightTickerActive = false;
+        setHighlightTickerDriving(false);
         highlightHandler.removeCallbacks(highlightTicker);
         super.onPause();
     }
@@ -222,8 +236,19 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }, MoreExecutors.directExecutor());
     }
 
+    private void setHighlightTickerDriving(boolean driving) {
+        if (highlightTickerDriving == driving) {
+            return;
+        }
+        highlightTickerDriving = driving;
+        if (adapter != null) {
+            adapter.setPositionEventsSuppressed(driving);
+        }
+    }
+
     private void disconnectPlaybackController() {
         highlightTickerActive = false;
+        setHighlightTickerDriving(false);
         highlightHandler.removeCallbacks(highlightTicker);
         if (mediaController != null) {
             mediaController.release();
@@ -416,6 +441,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onPlaybackPositionEvent(PlaybackPositionEvent event) {
+        if (highlightTickerDriving) {
+            return;
+        }
         handlePlaybackPosition(event.getPosition());
     }
 
