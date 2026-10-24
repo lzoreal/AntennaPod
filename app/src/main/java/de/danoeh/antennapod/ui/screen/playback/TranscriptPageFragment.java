@@ -6,6 +6,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.DisplayMetrics;
 import android.util.Log;
+import android.view.Choreographer;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -67,11 +68,27 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private boolean doInitialScroll = true;
     private boolean userScrolling = false;
     private int lastScrolledPosition = -1;
+    private float followDensity = 1f;
+    private Choreographer choreographer;
+    private boolean followFrameScheduled = false;
+    private final Choreographer.FrameCallback followFrameCallback = new Choreographer.FrameCallback() {
+        @Override
+        public void doFrame(long frameTimeNanos) {
+            followFrameScheduled = false;
+            if (!canAutoFollow() || !scrollTowardsCurrentSentence()) {
+                return;
+            }
+            followFrameScheduled = true;
+            choreographer.postFrameCallback(this);
+        }
+    };
     private long lastPositionMs = 0;
     private boolean controlsBarVisibleBeforeImmersive = false;
     private boolean immersiveMode = false;
     private int immersiveTopInset = 0;
-    private static final long FOLLOW_SCROLL_INTERVAL_MS = 300;
+    private static final float FOLLOW_STEP_FACTOR = 0.18f;
+    private static final float FOLLOW_MAX_STEP_DP = 10f;
+    private static final float FOLLOW_DEAD_ZONE_PX = 1f;
     private static final long HIGHLIGHT_UPDATE_INTERVAL_MS = 250;
     private static final int FONT_SIZE_MIN_STEP = UserPreferences.TRANSCRIPT_FONT_SIZE_MIN_STEP;
     private static final int FONT_SIZE_MAX_STEP = UserPreferences.TRANSCRIPT_FONT_SIZE_MAX_STEP;
@@ -79,7 +96,6 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             R.string.transcript_layout_compact,
             R.string.transcript_layout_standard,
             R.string.transcript_layout_loose};
-    private long lastFollowScrollTime = 0;
     private boolean segmentLooping = false;
     private int loopSegmentIndex = -1;
     private final Handler highlightHandler = new Handler(Looper.getMainLooper());
@@ -122,6 +138,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
         viewBinding = TranscriptPageFragmentBinding.inflate(inflater, container, false);
+        choreographer = Choreographer.getInstance();
+        followDensity = getResources().getDisplayMetrics().density;
 
         adapter = new TranscriptAdapter(getContext(), this);
         LinearLayoutManager layoutManager = new LinearLayoutManager(getContext());
@@ -138,9 +156,11 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 super.onScrollStateChanged(recyclerView, newState);
                 if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
                     userScrolling = true;
+                    stopFollowFrame();
                     updateBackToCurrentVisibility();
                 } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
                     resumeFollowingIfHighlightVisible();
+                    scheduleFollowFrame();
                 }
             }
         });
@@ -221,6 +241,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         super.onResume();
         highlightTickerActive = true;
         highlightHandler.post(highlightTicker);
+        scheduleFollowFrame();
     }
 
     @Override
@@ -228,6 +249,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         highlightTickerActive = false;
         setHighlightTickerDriving(false);
         highlightHandler.removeCallbacks(highlightTicker);
+        stopFollowFrame();
         super.onPause();
     }
 
@@ -287,6 +309,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     @Override
     public void onDestroyView() {
         super.onDestroyView();
+        stopFollowFrame();
         viewBinding = null;
         adapter = null;
     }
@@ -494,51 +517,64 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
 
         if (pos == lastScrolledPosition) {
-            followLongSegment(pos, lastPositionMs
-                    - UserPreferences.getTranscriptTimeOffset(currentMedia.getId()));
+            scheduleFollowFrame();
             return;
         }
 
         scrollToPosition(pos);
     }
 
-    private void followLongSegment(int pos, long position) {
-        if (currentMedia == null || currentMedia.getTranscript() == null || adapter == null) {
+    private boolean canAutoFollow() {
+        return isResumed() && viewBinding != null && adapter != null && !userScrolling
+                && viewBinding.recyclerView.getScrollState() == RecyclerView.SCROLL_STATE_IDLE
+                && adapter.getHighlightPosition() >= 0;
+    }
+
+    private void scheduleFollowFrame() {
+        if (choreographer == null || followFrameScheduled || !canAutoFollow()) {
             return;
         }
+        followFrameScheduled = true;
+        choreographer.postFrameCallback(followFrameCallback);
+    }
 
-        RecyclerView.ViewHolder holder = viewBinding.recyclerView.findViewHolderForAdapterPosition(pos);
+    private void stopFollowFrame() {
+        if (choreographer != null && followFrameScheduled) {
+            choreographer.removeFrameCallback(followFrameCallback);
+            followFrameScheduled = false;
+        }
+    }
+
+    private boolean scrollTowardsCurrentSentence() {
+        int position = adapter.getHighlightPosition();
+        RecyclerView recyclerView = viewBinding.recyclerView;
+        RecyclerView.ViewHolder holder = recyclerView.findViewHolderForAdapterPosition(position);
         if (!(holder instanceof TranscriptViewholder)) {
-            return;
+            return false;
         }
-
         int[] bounds = adapter.getSentenceBounds((TranscriptViewholder) holder);
         if (bounds == null) {
-            return;
+            return false;
         }
-
-        RecyclerView recyclerView = viewBinding.recyclerView;
-        if (recyclerView.getScrollState() != RecyclerView.SCROLL_STATE_IDLE) {
-            return;
+        int target = holder.itemView.getTop() + (bounds[0] + bounds[1]) / 2;
+        int error = target - recyclerView.getHeight() / 2;
+        if (Math.abs(error) <= FOLLOW_DEAD_ZONE_PX) {
+            return false;
         }
-        int viewportHeight = recyclerView.getHeight();
-        int screenY = holder.itemView.getTop() + (bounds[0] + bounds[1]) / 2;
-        int delta = screenY - viewportHeight / 2;
-        if (Math.abs(delta) < 16) {
-            return;
+        float maxStep = FOLLOW_MAX_STEP_DP * followDensity;
+        float step = Math.max(-maxStep, Math.min(maxStep, error * FOLLOW_STEP_FACTOR));
+        int dy = Math.round(step);
+        if (dy == 0) {
+            dy = error > 0 ? 1 : -1;
         }
-        if (delta < 0 && !recyclerView.canScrollVertically(-1)) {
-            return;
+        if (dy < 0 && !recyclerView.canScrollVertically(-1)) {
+            return false;
         }
-        if (delta > 0 && !recyclerView.canScrollVertically(1)) {
-            return;
+        if (dy > 0 && !recyclerView.canScrollVertically(1)) {
+            return false;
         }
-        long now = System.currentTimeMillis();
-        if (now - lastFollowScrollTime < FOLLOW_SCROLL_INTERVAL_MS) {
-            return;
-        }
-        lastFollowScrollTime = now;
-        recyclerView.smoothScrollBy(0, delta);
+        recyclerView.scrollBy(0, dy);
+        return true;
     }
 
     private int[] sentenceBounds(View targetView) {
