@@ -5,6 +5,7 @@ import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import de.danoeh.antennapod.model.feed.Transcript;
 
@@ -28,6 +29,15 @@ public class JsonTranscriptParserTest {
         assertEquals(result.getSegmentAtTime(1800L).getStartTime(), 800L);
         // 2 segments get merged into at least 5 second
         assertEquals(result.getSegmentAtTime(1800L).getWords(), "And");
+    }
+
+    @Test
+    public void testMissingSpeakersAreNotAddedToSpeakerSet() {
+        String json = "{'segments': ["
+                + "{'startTime': 0, 'endTime': 5, 'body': 'Hello'},"
+                + "{'startTime': 5, 'endTime': 10, 'body': 'World'}]}";
+        Transcript result = JsonTranscriptParser.parse(json);
+        assertTrue(result.getSpeakers().isEmpty());
     }
 
     @Test

@@ -50,9 +50,11 @@ public class JsonTranscriptParser {
 
                 prevSpeaker = speaker;
                 speaker = jsonObject.optString("speaker");
-                speakers.add(speaker);
                 if (StringUtils.isEmpty(speaker) && StringUtils.isNotEmpty(prevSpeaker)) {
                     speaker = prevSpeaker;
+                }
+                if (StringUtils.isNotEmpty(speaker)) {
+                    speakers.add(speaker);
                 }
                 String body = jsonObject.optString("body");
                 if (!prevSpeaker.equals(speaker)) {

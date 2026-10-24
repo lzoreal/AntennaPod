@@ -4,10 +4,12 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.IBinder;
 import android.provider.Settings;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.LayoutInflater;
@@ -101,6 +103,9 @@ public class TranscriptFloatingWindowService extends Service {
         if (floatingView == null) {
             createFloatingWindow();
         }
+        if (transcript == null) {
+            hideTranscript();
+        }
         updateTranscript(true);
         return START_NOT_STICKY;
     }
@@ -114,7 +119,7 @@ public class TranscriptFloatingWindowService extends Service {
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE;
 
-        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        DisplayMetrics dm = getResources().getDisplayMetrics();
         int screenWidth = dm.widthPixels;
         int screenHeight = dm.heightPixels;
         windowWidth = (int) (screenWidth * 0.9);
@@ -133,8 +138,9 @@ public class TranscriptFloatingWindowService extends Service {
         int savedX = UserPreferences.getFloatingTranscriptX();
         int savedY = UserPreferences.getFloatingTranscriptY();
         if (savedX >= 0 && savedY >= 0) {
-            params.x = Math.max(0, Math.min(savedX, screenWidth - windowWidth));
-            params.y = Math.max(0, Math.min(savedY, screenHeight - getStatusBarHeight()));
+            params.x = Math.max(0, Math.min((int) (savedX * dm.density), screenWidth - windowWidth));
+            params.y = Math.max(0, Math.min((int) (savedY * dm.density),
+                    screenHeight - getStatusBarHeight()));
         }
 
         final int touchSlop = ViewConfiguration.get(this).getScaledTouchSlop();
@@ -170,7 +176,8 @@ public class TranscriptFloatingWindowService extends Service {
                         return true;
                     case MotionEvent.ACTION_UP:
                         if (moved) {
-                            UserPreferences.setFloatingTranscriptPosition(params.x, params.y);
+                            UserPreferences.setFloatingTranscriptPosition(
+                                    (int) (params.x / dm.density), (int) (params.y / dm.density));
                         } else {
                             openTranscriptPage();
                         }
@@ -200,6 +207,24 @@ public class TranscriptFloatingWindowService extends Service {
         return result;
     }
 
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        if (floatingView == null || params == null) {
+            return;
+        }
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        windowWidth = (int) (dm.widthPixels * 0.9f);
+        params.width = windowWidth;
+        params.x = Math.max(0, Math.min(params.x, dm.widthPixels - windowWidth));
+        params.y = Math.max(0, Math.min(params.y, dm.heightPixels - floatingView.getHeight()));
+        try {
+            windowManager.updateViewLayout(floatingView, params);
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "Unable to update floating window", e);
+        }
+    }
+
     private void loadTranscript(long mediaId) {
         if (loadDisposable != null && !loadDisposable.isDisposed()) {
             loadDisposable.dispose();
@@ -208,27 +233,39 @@ public class TranscriptFloatingWindowService extends Service {
         lastPlaybackPosition = -1;
         lastSentenceSegmentStart = -1;
         lastSentenceIndex = -1;
+        hideTranscript();
         loadDisposable = Observable.fromCallable(() -> {
-                    FeedMedia media = DBReader.getFeedMedia(mediaId);
-                    if (media == null) {
-                        return null;
-                    }
-                    if (lastPlaybackPosition < 0) {
-                        lastPlaybackPosition = Math.max(0, media.getPosition());
-                    }
-                    return TranscriptUtils.loadTranscript(media, false);
-                })
+            FeedMedia media = DBReader.getFeedMedia(mediaId);
+            if (media == null) {
+                return null;
+            }
+            if (lastPlaybackPosition < 0) {
+                lastPlaybackPosition = Math.max(0, media.getPosition());
+            }
+            return TranscriptUtils.loadTranscript(media, false);
+        })
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(t -> {
-                            this.transcript = t;
-                            updateTranscript(true);
-                        },
-                        e -> android.util.Log.e("FloatingTranscript", "load error", e));
+                    this.transcript = t;
+                    if (t == null || t.getSegmentCount() == 0) {
+                        hideTranscript();
+                        stopSelf();
+                        return;
+                    }
+                    updateTranscript(true);
+                }, e -> {
+                    Log.e(TAG, "Unable to load transcript", e);
+                    hideTranscript();
+                    stopSelf();
+                });
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onPositionEvent(PlaybackPositionEvent event) {
+        if (event.getPosition() < 0) {
+            return;
+        }
         lastPlaybackPosition = event.getPosition();
         updateTranscript(false);
     }
@@ -250,8 +287,7 @@ public class TranscriptFloatingWindowService extends Service {
         TranscriptSegment segment = transcript.getSegmentAtTime(position);
 
         String words = segment.getWords();
-        int split = segment.getTranslationLine() >= 0
-                ? TranscriptTextUtils.languageSplitIndex(words) : -1;
+        int split = TranscriptTextUtils.languageSplitIndex(words);
         boolean bilingual = split >= 0;
         String primaryText = bilingual ? words.substring(0, split) : words;
         int primaryLength = primaryText.length();
@@ -283,6 +319,7 @@ public class TranscriptFloatingWindowService extends Service {
         boolean showPrimary = languageMode != UserPreferences.TRANSCRIPT_LANGUAGE_MODE_SECONDARY_ONLY
                 || !showTranslation;
 
+        setTouchable(true);
         if (showPrimary) {
             String text = primaryText.substring(sentenceStarts[sentenceIndex],
                     sentenceStarts[sentenceIndex + 1]).trim();
@@ -324,10 +361,36 @@ public class TranscriptFloatingWindowService extends Service {
     private void hideTranscript() {
         lastSentenceSegmentStart = -1;
         lastSentenceIndex = -1;
-        tvTranscript.stopAutoScroll();
-        tvTranscript.setVisibility(View.GONE);
-        tvTranscriptTranslation.stopAutoScroll();
-        tvTranscriptTranslation.setVisibility(View.GONE);
+        if (tvTranscript != null) {
+            tvTranscript.stopAutoScroll();
+            tvTranscript.setVisibility(View.GONE);
+        }
+        if (tvTranscriptTranslation != null) {
+            tvTranscriptTranslation.stopAutoScroll();
+            tvTranscriptTranslation.setVisibility(View.GONE);
+        }
+        setTouchable(false);
+    }
+
+    private void setTouchable(boolean touchable) {
+        if (floatingView == null || params == null) {
+            return;
+        }
+        boolean currentlyTouchable =
+                (params.flags & WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) == 0;
+        if (currentlyTouchable == touchable) {
+            return;
+        }
+        if (touchable) {
+            params.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        } else {
+            params.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        }
+        try {
+            windowManager.updateViewLayout(floatingView, params);
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "Unable to update floating window", e);
+        }
     }
 
     @Override

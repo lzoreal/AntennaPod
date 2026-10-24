@@ -305,13 +305,22 @@ public class Media3PlaybackService extends MediaLibraryService {
             Log.e(TAG, "Unable to keep service running while casting", e);
         }
     }
+
     private void startFloatingTranscript(long mediaId) {
+        if (currentPlayable instanceof FeedMedia) {
+            FeedItem item = ((FeedMedia) currentPlayable).getItem();
+            if (item == null || !item.hasTranscript()) {
+                stopFloatingTranscript();
+                return;
+            }
+        }
         TranscriptFloatingWindowService.start(this, mediaId);
     }
 
     private void stopFloatingTranscript() {
         TranscriptFloatingWindowService.stop(this);
     }
+
     MediaLibrarySessionCallback sessionCallback = new MediaLibrarySessionCallback(this) {
         @Override
         @NonNull
@@ -383,6 +392,7 @@ public class Media3PlaybackService extends MediaLibraryService {
             }
             if (playbackState == Player.STATE_ENDED && currentPlayable != null) {
                 handlePlaybackEnded();
+                stopFloatingTranscript();
             }
         }
 
@@ -426,8 +436,6 @@ public class Media3PlaybackService extends MediaLibraryService {
                     SynchronizationQueue.getInstance().enqueueEpisodePlayed(currentPlayable,
                             playbackStartPosition, false);
                 }
-                // Stop the floating transcript
-                stopFloatingTranscript();
             }
             WidgetUpdater.WidgetState widgetState = new WidgetUpdater.WidgetState(currentPlayable,
                     PlaybackService.isRunning ? PlayerStatus.PLAYING : PlayerStatus.PAUSED,
@@ -621,6 +629,7 @@ public class Media3PlaybackService extends MediaLibraryService {
         allowStreamingThisTime = false;
         return false;
     }
+
     private final SharedPreferences.OnSharedPreferenceChangeListener transcriptPrefListener =
             (sharedPreferences, key) -> {
                 if (UserPreferences.PREF_FLOATING_TRANSCRIPT.equals(key)) {
@@ -632,6 +641,7 @@ public class Media3PlaybackService extends MediaLibraryService {
                     }
                 }
             };
+
     @OptIn(markerClass = UnstableApi.class)
     private void switchToPlayable(FeedMedia media) {
         currentPlayable = media;
@@ -650,8 +660,8 @@ public class Media3PlaybackService extends MediaLibraryService {
             applyVolumeAdaption(1.0f);
         }
         updatePlaybackPreferences();
-        // Start the floating transcript when the episode changes while playing
-        if (player != null && player.isPlaying()) {
+        // Start the floating transcript when the episode changes
+        if (player != null) {
             startFloatingTranscript(media.getId());
         }
         WidgetUpdater.WidgetState widgetState = new WidgetUpdater.WidgetState(currentPlayable,

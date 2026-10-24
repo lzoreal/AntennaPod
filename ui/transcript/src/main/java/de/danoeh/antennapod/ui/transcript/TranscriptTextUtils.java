@@ -122,7 +122,10 @@ public final class TranscriptTextUtils {
     }
 
     public static int sentenceIndexAt(String text, float progress, int length) {
-        int[] starts = chunkStarts(text, length);
+        return sentenceIndexAt(chunkStarts(text, length), progress, length);
+    }
+
+    public static int sentenceIndexAt(int[] starts, float progress, int length) {
         int charIndex = Math.round(progress * length);
         int index = 0;
         for (int i = 1; i + 1 < starts.length; i++) {
@@ -134,7 +137,10 @@ public final class TranscriptTextUtils {
     }
 
     public static long sentenceStartTime(TranscriptSegment segment, String text, int sentenceIndex, int length) {
-        int[] starts = chunkStarts(text, length);
+        return sentenceStartTime(segment, chunkStarts(text, length), sentenceIndex);
+    }
+
+    public static long sentenceStartTime(TranscriptSegment segment, int[] starts, int sentenceIndex) {
         int count = starts.length - 1;
         if (count <= 1) {
             return segment.getStartTime();

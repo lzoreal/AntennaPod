@@ -46,7 +46,6 @@ public class TranscriptDialogFragment extends DialogFragment
     private Playable media;
     private Transcript transcript;
     private TranscriptAdapter adapter = null;
-    private boolean doInitialScroll = true;
     private LinearLayoutManager layoutManager;
 
     @Override
@@ -82,10 +81,11 @@ public class TranscriptDialogFragment extends DialogFragment
 
         viewBinding.followAudioCheckbox.setChecked(true);
         viewBinding.progLoading.setVisibility(View.VISIBLE);
-        doInitialScroll = true;
 
         View btnToggleTranslation = viewBinding.getRoot().findViewById(R.id.btnToggleTranslation);
         if (btnToggleTranslation != null) {
+            btnToggleTranslation.setAlpha(
+                    adapter.getLanguageMode() == TranscriptAdapter.LANGUAGE_MODE_BOTH ? 1.0f : 0.5f);
             btnToggleTranslation.setOnClickListener(v -> {
                 int newState = (adapter.getLanguageMode() + 1) % 3;
                 adapter.setLanguageMode(newState);
@@ -165,14 +165,13 @@ public class TranscriptDialogFragment extends DialogFragment
                 this.media = media;
 
                 transcript = TranscriptUtils.loadTranscript((FeedMedia) this.media, forceRefresh);
-                doInitialScroll = true;
                 ((FeedMedia) this.media).setTranscript(transcript);
                 emitter.onSuccess(this.media);
             } else {
                 emitter.onComplete();
             }
         })
-        .subscribeOn(Schedulers.computation())
+        .subscribeOn(Schedulers.io())
         .observeOn(AndroidSchedulers.mainThread())
         .subscribe(media -> onMediaChanged((Playable) media),
                 error -> {
@@ -222,10 +221,9 @@ public class TranscriptDialogFragment extends DialogFragment
         if (pos <= 0) {
             return;
         }
-        if (!viewBinding.followAudioCheckbox.isChecked() && !doInitialScroll) {
+        if (!viewBinding.followAudioCheckbox.isChecked()) {
             return;
         }
-        doInitialScroll = false;
 
         boolean quickScroll = Math.abs(layoutManager.findFirstVisibleItemPosition() - pos) > 5;
         if (layoutManager.findFirstVisibleItemPosition() < pos - 1

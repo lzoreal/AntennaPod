@@ -160,6 +160,16 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             viewBinding.progLoading.setVisibility(View.GONE);
             viewBinding.emptyView.setVisibility(View.GONE);
             viewBinding.recyclerView.setVisibility(View.VISIBLE);
+            if (!userScrolling) {
+                if (PlaybackPreferences.getCurrentPlayerStatus()
+                        != PlaybackPreferences.PLAYER_STATUS_PLAYING) {
+                    lastPositionMs = Math.max(0, currentMedia.getPosition());
+                }
+                long offset = UserPreferences.getTranscriptTimeOffset(currentMedia.getId());
+                int pos = currentMedia.getTranscript().findSegmentIndexBefore(lastPositionMs - offset);
+                adapter.setHighlightPosition(pos, lastPositionMs - offset);
+                scrollToPosition(pos);
+            }
             return;
         }
 
@@ -180,17 +190,17 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                     Playable media = DBReader.getFeedMedia(mediaId);
 
                     if (media instanceof FeedMedia) {
-                        currentMedia = (FeedMedia) media;
+                        FeedMedia feedMedia = (FeedMedia) media;
 
-                        if (!currentMedia.hasTranscript() || currentMedia.getTranscript() == null) {
+                        if (!feedMedia.hasTranscript() || feedMedia.getTranscript() == null) {
                             try {
-                                currentMedia.setTranscript(TranscriptUtils.loadTranscript(currentMedia, false));
+                                feedMedia.setTranscript(TranscriptUtils.loadTranscript(feedMedia, false));
                             } catch (Exception e) {
                                 Log.e(TAG, "TranscriptUtils.loadTranscript FAILED", e);
                             }
                         }
 
-                        emitter.onSuccess(currentMedia);
+                        emitter.onSuccess(feedMedia);
                     } else {
                         emitter.onComplete();
                     }
@@ -557,7 +567,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (adapter != null && currentMedia.getTranscript() != null
                 && currentMedia.getTranscript().getSegmentCount() > 0) {
             int pos = currentMedia.getTranscript().findSegmentIndexBefore(lastPositionMs - offsetMs);
-            adapter.setHighlightPosition(pos);
+            adapter.setHighlightPosition(pos, lastPositionMs - offsetMs);
             userScrolling = false;
             updateBackToCurrentVisibility();
             lastScrolledPosition = -1;

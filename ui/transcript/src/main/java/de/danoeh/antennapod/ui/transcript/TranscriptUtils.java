@@ -7,6 +7,9 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.nio.charset.Charset;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import de.danoeh.antennapod.model.feed.FeedMedia;
 import de.danoeh.antennapod.net.common.AntennapodHttpClient;
 import de.danoeh.antennapod.model.feed.Transcript;
@@ -19,6 +22,8 @@ import org.apache.commons.lang3.StringUtils;
 
 public class TranscriptUtils {
     private static final String TAG = "Transcript";
+    private static final int MAX_CACHED_TRANSCRIPTS = 8;
+    private static final Map<String, Transcript> TRANSCRIPT_CACHE = new LinkedHashMap<>();
 
     public static String loadTranscriptFromUrl(String url, boolean forceRefresh) throws InterruptedIOException {
         if (forceRefresh) {
@@ -50,7 +55,7 @@ public class TranscriptUtils {
             Log.d(TAG, "InterruptedIOException while downloading transcript URL " + url);
             throw e;
         } catch (Exception e) {
-            e.printStackTrace();
+            Log.e(TAG, "Unable to download transcript URL " + url, e);
             return null;
         } finally {
             if (response != null) {
@@ -61,10 +66,21 @@ public class TranscriptUtils {
     }
 
     public static Transcript loadTranscript(FeedMedia media, Boolean forceRefresh) throws InterruptedIOException {
+        if (media == null || media.getItem() == null) {
+            return null;
+        }
         String transcriptType = media.getItem().getTranscriptType();
+        String cacheKey = cacheKey(media);
 
-        if (!forceRefresh && media.getItem().getTranscript() != null) {
-            return media.getTranscript();
+        if (!forceRefresh) {
+            Transcript cached = getCachedTranscript(cacheKey);
+            if (cached != null) {
+                media.setTranscript(cached);
+                return cached;
+            }
+            if (media.getItem().getTranscript() != null) {
+                return media.getTranscript();
+            }
         }
 
         if (!forceRefresh && media.getTranscriptFileUrl() != null) {
@@ -73,21 +89,77 @@ public class TranscriptUtils {
                 if (transcriptFile.exists()) {
                     String t = FileUtils.readFileToString(transcriptFile, (String) null);
                     if (StringUtils.isNotEmpty(t)) {
-                        media.setTranscript(TranscriptParser.parse(t, transcriptType));
-                        return media.getTranscript();
+                        Transcript transcript = parseTranscript(t, transcriptType);
+                        if (transcript != null) {
+                            cacheTranscript(cacheKey, transcript);
+                        }
+                        media.setTranscript(transcript);
+                        return transcript;
                     }
                 }
             } catch (IOException e) {
-                e.printStackTrace();
+                Log.e(TAG, "Unable to read transcript file", e);
             }
         }
 
         String transcriptUrl = media.getItem().getTranscriptUrl();
-        String t = TranscriptUtils.loadTranscriptFromUrl(transcriptUrl, forceRefresh);
+        if (transcriptUrl == null) {
+            return null;
+        }
+        String t = loadTranscriptFromUrl(transcriptUrl, forceRefresh);
         if (StringUtils.isNotEmpty(t)) {
-            return TranscriptParser.parse(t, transcriptType);
+            Transcript transcript = parseTranscript(t, transcriptType);
+            if (transcript != null) {
+                cacheTranscript(cacheKey, transcript);
+            }
+            return transcript;
         }
         return null;
+    }
+
+    private static String cacheKey(FeedMedia media) {
+        String fileUrl = media.getTranscriptFileUrl();
+        long lastModified = 0;
+        if (fileUrl != null) {
+            File file = new File(fileUrl);
+            if (file.exists()) {
+                lastModified = file.lastModified();
+            }
+        }
+        return media.getId() + "|" + media.getItem().getTranscriptUrl() + "|" + lastModified;
+    }
+
+    private static synchronized Transcript getCachedTranscript(String key) {
+        return TRANSCRIPT_CACHE.get(key);
+    }
+
+    private static synchronized void cacheTranscript(String key, Transcript transcript) {
+        TRANSCRIPT_CACHE.put(key, transcript);
+        if (TRANSCRIPT_CACHE.size() > MAX_CACHED_TRANSCRIPTS) {
+            Iterator<String> iterator = TRANSCRIPT_CACHE.keySet().iterator();
+            if (iterator.hasNext()) {
+                iterator.next();
+                iterator.remove();
+            }
+        }
+    }
+
+    private static Transcript parseTranscript(String text, String transcriptType) {
+        Transcript transcript = TranscriptParser.parse(text, transcriptType);
+        if (transcript != null && !transcript.isBilingual()) {
+            transcript.setBilingual(hasBilingualSegments(transcript));
+        }
+        return transcript;
+    }
+
+    private static boolean hasBilingualSegments(Transcript transcript) {
+        int bilingualSegments = 0;
+        for (int i = 0; i < transcript.getSegmentCount(); i++) {
+            if (TranscriptTextUtils.languageSplitIndex(transcript.getSegmentAt(i).getWords()) >= 0) {
+                bilingualSegments++;
+            }
+        }
+        return bilingualSegments > 0 && bilingualSegments * 2 > transcript.getSegmentCount();
     }
 
     public static void storeTranscript(FeedMedia media, String transcript) {
@@ -106,7 +178,7 @@ public class TranscriptUtils {
                 ostream.close();
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            Log.e(TAG, "Unable to store transcript file", e);
         } finally {
             IOUtils.closeQuietly(ostream);
         }
