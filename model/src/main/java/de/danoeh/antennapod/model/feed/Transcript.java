@@ -1,10 +1,11 @@
 package de.danoeh.antennapod.model.feed;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Set;
 
 public class Transcript {
-    private Set<String> speakers;
+    private Set<String> speakers = Collections.emptySet();
     private final ArrayList<TranscriptSegment> segments = new ArrayList<>();
     private boolean bilingual = false;
 

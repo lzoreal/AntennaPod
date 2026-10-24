@@ -47,7 +47,6 @@ import de.danoeh.antennapod.ui.episodes.TimeSpeedConverter;
 import de.danoeh.antennapod.ui.screen.playback.MediaPlayerErrorDialog;
 import de.danoeh.antennapod.ui.screen.playback.PlayButton;
 import de.danoeh.antennapod.ui.screen.playback.SleepTimerDialog;
-import de.danoeh.antennapod.ui.screen.playback.TranscriptDialogFragment;
 import de.danoeh.antennapod.ui.screen.playback.TranscriptPageFragment;
 import de.danoeh.antennapod.ui.screen.playback.VariableSpeedDialog;
 import de.danoeh.antennapod.ui.transcript.TranscriptFloatingWindowService;
@@ -590,16 +589,8 @@ public class AudioPlayerFragment extends Fragment implements
         if (disposable != null) {
             disposable.dispose();
         }
-        if (isImmersiveMode && getActivity() != null) {
-            View decorView = getActivity().getWindow().getDecorView();
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                WindowInsetsController controller = decorView.getWindowInsetsController();
-                if (controller != null) {
-                    controller.show(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
-                }
-            } else {
-                decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
-            }
+        if (isImmersiveMode) {
+            exitImmersiveMode();
         }
     }
 

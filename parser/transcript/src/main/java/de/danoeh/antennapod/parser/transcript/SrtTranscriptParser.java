@@ -75,15 +75,14 @@ public class SrtTranscriptParser {
                 } while (iter.hasNext());
             }
 
-            if (body.indexOf(": ") != -1) {
-                String[] parts = body.toString().trim().split(":");
-                if (parts.length < 2) {
-                    continue;
-                }
+            int colon = body.indexOf(": ");
+            String candidateSpeaker = colon > 0 ? body.substring(0, colon).strip() : "";
+            if (!candidateSpeaker.isEmpty() && candidateSpeaker.length() <= 40
+                    && Character.isLetter(candidateSpeaker.charAt(0))) {
                 prevSpeaker = speaker;
-                speaker = parts[0];
+                speaker = candidateSpeaker;
                 speakers.add(speaker);
-                body = new StringBuilder(parts[1].strip());
+                body = new StringBuilder(body.substring(colon + 2).strip());
                 if (StringUtils.isNotEmpty(prevSpeaker) && !StringUtils.equals(speaker, prevSpeaker)) {
                     if (StringUtils.isNotEmpty(segmentBody)) {
                         transcript.addSegment(new TranscriptSegment(spanStartTimecode,
