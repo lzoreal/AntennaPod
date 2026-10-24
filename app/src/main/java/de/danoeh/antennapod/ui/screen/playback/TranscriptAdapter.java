@@ -36,7 +36,6 @@ import org.greenrobot.eventbus.ThreadMode;
 import org.jsoup.internal.StringUtil;
 
 public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder> {
-    private static final int PAST_SENTENCE_ALPHA = 0xA6;
     private static final int FUTURE_SENTENCE_ALPHA = 0x8C;
     private static final Object SENTENCE_HIGHLIGHT_PAYLOAD = new Object();
     private static final Object SEGMENT_HIGHLIGHT_PAYLOAD = new Object();
@@ -287,14 +286,9 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             if (start >= end) {
                 continue;
             }
-            int color;
-            if (i == sentence) {
-                color = highlightTextColor;
-            } else if (i < sentence) {
-                color = ColorUtils.setAlphaComponent(highlightTextColor, PAST_SENTENCE_ALPHA);
-            } else {
-                color = ColorUtils.setAlphaComponent(highlightTextColor, FUTURE_SENTENCE_ALPHA);
-            }
+            int color = i == sentence
+                    ? highlightTextColor
+                    : ColorUtils.setAlphaComponent(highlightTextColor, FUTURE_SENTENCE_ALPHA);
             graded.setSpan(new ForegroundColorSpan(color), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
             if (i == sentence) {
                 graded.setSpan(new StyleSpan(Typeface.BOLD), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
