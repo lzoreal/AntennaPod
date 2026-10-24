@@ -10,6 +10,7 @@ import android.text.style.ForegroundColorSpan;
 import android.text.style.StyleSpan;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import androidx.annotation.NonNull;
@@ -24,7 +25,8 @@ import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.ui.common.Converter;
 import de.danoeh.antennapod.ui.transcript.TranscriptTextUtils;
 import de.danoeh.antennapod.ui.transcript.TranscriptViewholder;
-import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -48,7 +50,9 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     private float lastTouchX = 0;
     private float lastTouchY = 0;
     private boolean sentencePerLine = UserPreferences.isTranscriptSentencePerLine();
-    private final Map<TranscriptSegment, DisplayInfo> displayCache = new HashMap<>();
+    private static final int MAX_DISPLAY_CACHE_SIZE = 64;
+    private final Map<TranscriptSegment, DisplayInfo> displayCache =
+            new LinkedHashMap<>(16, 0.75f, true);
     private final int highlightTextColor;
     private final int normalTextColor;
 
@@ -127,7 +131,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
 
         TranscriptSegment seg = media.getTranscript().getSegmentAt(position);
         holder.viewContent.setOnTouchListener((v, event) -> {
-            if (event.getAction() == android.view.MotionEvent.ACTION_DOWN) {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 lastTouchX = event.getX();
                 lastTouchY = event.getY();
             }
@@ -221,6 +225,13 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         }
         DisplayInfo info = new DisplayInfo(text, split, primaryLength, primaryStarts, translationStarts);
         displayCache.put(segment, info);
+        if (displayCache.size() > MAX_DISPLAY_CACHE_SIZE) {
+            Iterator<TranscriptSegment> iterator = displayCache.keySet().iterator();
+            if (iterator.hasNext()) {
+                iterator.next();
+                iterator.remove();
+            }
+        }
         return info;
     }
 

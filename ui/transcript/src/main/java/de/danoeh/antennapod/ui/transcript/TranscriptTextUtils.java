@@ -73,13 +73,13 @@ public final class TranscriptTextUtils {
                 other++;
             }
         }
-        if (latin == 0 && cjk == 0 && other == 0) {
-            return -1;
+        if (latin == 0 && cjk == 0) {
+            return other > 0 ? 2 : -1;
         }
-        if (cjk > latin && cjk >= other) {
+        if (cjk >= latin && cjk >= other) {
             return 1;
         }
-        if (latin > cjk && latin >= other) {
+        if (latin >= cjk && latin >= other) {
             return 0;
         }
         return 2;

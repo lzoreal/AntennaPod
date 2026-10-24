@@ -24,11 +24,13 @@ import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
 
+import de.danoeh.antennapod.event.PlayerStatusEvent;
 import de.danoeh.antennapod.event.playback.PlaybackPositionEvent;
 import de.danoeh.antennapod.model.feed.FeedMedia;
 import de.danoeh.antennapod.model.feed.Transcript;
 import de.danoeh.antennapod.model.feed.TranscriptSegment;
 import de.danoeh.antennapod.storage.database.DBReader;
+import de.danoeh.antennapod.storage.preferences.PlaybackPreferences;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.ui.appstartintent.MainActivityStarter;
 import io.reactivex.rxjava3.core.Observable;
@@ -53,6 +55,7 @@ public class TranscriptFloatingWindowService extends Service {
     private long lastSentenceSegmentStart = -1;
     private int lastSentenceIndex = -1;
     private long lastPlaybackPosition = -1;
+    private boolean playing;
     private final SharedPreferences.OnSharedPreferenceChangeListener languageModeListener =
             (sharedPreferences, key) -> {
                 if (UserPreferences.PREF_TRANSCRIPT_LANGUAGE_MODE.equals(key)) {
@@ -85,6 +88,8 @@ public class TranscriptFloatingWindowService extends Service {
     public void onCreate() {
         super.onCreate();
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        playing = PlaybackPreferences.getCurrentPlayerStatus()
+                == PlaybackPreferences.PLAYER_STATUS_PLAYING;
         EventBus.getDefault().register(this);
         UserPreferences.registerFloatingTranscriptListener(languageModeListener);
     }
@@ -270,6 +275,16 @@ public class TranscriptFloatingWindowService extends Service {
         updateTranscript(false);
     }
 
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onPlayerStatusEvent(PlayerStatusEvent event) {
+        boolean playingNow = PlaybackPreferences.getCurrentPlayerStatus()
+                == PlaybackPreferences.PLAYER_STATUS_PLAYING;
+        if (playingNow != playing) {
+            playing = playingNow;
+            updateTranscript(true);
+        }
+    }
+
     private void updateTranscript(boolean forceUpdate) {
         if (lastPlaybackPosition < 0 || transcript == null
                 || transcript.getSegmentCount() == 0 || tvTranscript == null) {
@@ -328,7 +343,7 @@ public class TranscriptFloatingWindowService extends Service {
             }
             tvTranscript.setText(text);
             tvTranscript.setVisibility(View.VISIBLE);
-            tvTranscript.startAutoScroll(remainingMs, windowWidth);
+            startAutoScrollIfPlaying(tvTranscript, remainingMs);
         } else {
             tvTranscript.stopAutoScroll();
             tvTranscript.setVisibility(View.GONE);
@@ -355,7 +370,15 @@ public class TranscriptFloatingWindowService extends Service {
         tvTranscriptTranslation.setText(translation.substring(translationStarts[translationIndex],
                 translationStarts[translationIndex + 1]).trim());
         tvTranscriptTranslation.setVisibility(View.VISIBLE);
-        tvTranscriptTranslation.startAutoScroll(remainingMs, windowWidth);
+        startAutoScrollIfPlaying(tvTranscriptTranslation, remainingMs);
+    }
+
+    private void startAutoScrollIfPlaying(ScrollTextView view, long remainingMs) {
+        if (playing) {
+            view.startAutoScroll(remainingMs, windowWidth);
+        } else {
+            view.stopAutoScroll();
+        }
     }
 
     private void hideTranscript() {

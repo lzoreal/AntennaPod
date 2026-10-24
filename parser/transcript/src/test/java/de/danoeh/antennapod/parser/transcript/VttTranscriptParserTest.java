@@ -5,6 +5,7 @@ import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import de.danoeh.antennapod.model.feed.Transcript;
@@ -226,6 +227,33 @@ public class VttTranscriptParserTest {
                 """;
         Transcript result = VttTranscriptParser.parse(mostlySingleLanguage);
         assertFalse(result.isBilingual());
+    }
+
+    @Test
+    public void testSkipsCueWithInvalidTiming() {
+        String vtt = "WEBVTT\n\n"
+                + "00:00:bad --> 00:00:02.000\n"
+                + "Broken cue\n\n"
+                + "00:00:03.000 --> 00:00:10.000\n"
+                + "Valid cue";
+        Transcript result = VttTranscriptParser.parse(vtt);
+
+        assertNotNull(result);
+        assertEquals("Valid cue", result.getSegmentAt(0).getWords());
+    }
+
+    @Test
+    public void testSortsCuesByStartTime() {
+        String vtt = "WEBVTT\n\n"
+                + "00:00:05.000 --> 00:00:10.000\n"
+                + "Second cue\n\n"
+                + "00:00:00.000 --> 00:00:04.000\n"
+                + "First cue";
+        Transcript result = VttTranscriptParser.parse(vtt);
+
+        assertNotNull(result);
+        assertEquals("First cue", result.getSegmentAt(0).getWords());
+        assertEquals("Second cue", result.getSegmentAt(1).getWords());
     }
 
     @Test

@@ -156,6 +156,15 @@ public class TranscriptDialogFragment extends DialogFragment
     }
 
     private void loadMediaInfo(boolean forceRefresh) {
+        if (!forceRefresh && media instanceof FeedMedia && transcript != null
+                && adapter != null && adapter.getItemCount() > 0
+                && ((FeedMedia) media).getId()
+                == PlaybackPreferences.getCurrentlyPlayingFeedMediaId()) {
+            if (viewBinding != null) {
+                viewBinding.progLoading.setVisibility(View.GONE);
+            }
+            return;
+        }
         if (disposable != null) {
             disposable.dispose();
         }
@@ -207,8 +216,15 @@ public class TranscriptDialogFragment extends DialogFragment
         long offset = UserPreferences.getTranscriptTimeOffset(((FeedMedia) media).getId());
         long position = Math.max(0, ((FeedMedia) media).getPosition() - offset);
         int initialPosition = loadedTranscript.findSegmentIndexBefore(position);
+        long initialMediaId = ((FeedMedia) media).getId();
         adapter.setHighlightPosition(initialPosition);
-        scrollToPosition(initialPosition);
+        viewBinding.transcriptList.post(() -> {
+            if (viewBinding != null && isAdded() && media instanceof FeedMedia
+                    && ((FeedMedia) media).getId() == initialMediaId
+                    && initialPosition < adapter.getItemCount()) {
+                scrollToPosition(initialPosition);
+            }
+        });
 
         View btnToggleTranslation = viewBinding.getRoot().findViewById(R.id.btnToggleTranslation);
         if (btnToggleTranslation != null) {
