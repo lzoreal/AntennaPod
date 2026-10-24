@@ -131,9 +131,9 @@ public abstract class UserPreferences {
     private static final String PREF_TRANSCRIPT_TIME_OFFSET_MEDIA = "prefTranscriptTimeOffsetMedia";
     public static final String PREF_TRANSCRIPT_TIME_OFFSETS = "prefTranscriptTimeOffsets";
     private static final String PREF_TRANSCRIPT_FONT_SIZE = "prefTranscriptFontSize";
-    private static final String PREF_TRANSCRIPT_LINE_SPACING = "prefTranscriptLineSpacing";
-    private static final String PREF_TRANSCRIPT_SIDE_MARGINS = "prefTranscriptSideMargins";
-    private static final String PREF_TRANSCRIPT_VERTICAL_SPACING = "prefTranscriptVerticalSpacing";
+    private static final String PREF_TRANSCRIPT_LINE_SPACING = "prefTranscriptLayoutLineSpacing";
+    private static final String PREF_TRANSCRIPT_SIDE_MARGINS = "prefTranscriptLayoutSideMargins";
+    private static final String PREF_TRANSCRIPT_VERTICAL_SPACING = "prefTranscriptLayoutVerticalSpacing";
     private static final String PREF_TRANSCRIPT_SENTENCE_PER_LINE = "prefTranscriptSentencePerLine";
     public static final String PREF_TRANSCRIPT_LANGUAGE_MODE = "prefTranscriptLanguageMode";
     public static final int TRANSCRIPT_LANGUAGE_MODE_BOTH = 0;

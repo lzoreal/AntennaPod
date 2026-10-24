@@ -175,9 +175,9 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 | `prefTranscriptLanguageMode` | int/0 | 0 双语、1 仅原文、2 仅译文 |
 | `prefTranscriptSentencePerLine` | bool/true | 逐句成行 |
 | `prefTranscriptFontSize` | int/0 | 字号步进（clamp -2..3） |
-| `prefTranscriptLineSpacing` | int/0 | 行距档位 0=1.0×、1=1.15×、2=1.3× |
-| `prefTranscriptSideMargins` | int/1 | 左右边距 16/24/32dp |
-| `prefTranscriptVerticalSpacing` | int/1 | 上下留白 4/8/16dp（含列表首尾 padding） |
+| `prefTranscriptLayoutLineSpacing` | int/0 | 行距档位 0=1.0×、1=1.15×、2=1.3× |
+| `prefTranscriptLayoutSideMargins` | int/1 | 左右边距 16/24/32dp |
+| `prefTranscriptLayoutVerticalSpacing` | int/1 | 上下留白 4/8/16dp（含列表首尾 padding） |
 | `prefTranscriptTimeOffsets` | string JSON | mediaId → 偏移毫秒（当前实现） |
 | `prefTranscriptTimeOffset` + `prefTranscriptTimeOffsetMedia` | long | 旧单槽值，读取时迁移到上表 |
 

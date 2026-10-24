@@ -66,6 +66,19 @@ public class UserPreferencesTest {
     }
 
     @Test
+    public void testLayoutKeysFromOtherBuildsAreIgnored() {
+        UserPreferences.getPreferences().edit()
+                .putInt("prefTranscriptLineSpacing", 0)
+                .putInt("prefTranscriptSideMargins", 0)
+                .putInt("prefTranscriptVerticalSpacing", 0)
+                .commit();
+
+        assertEquals(1.0f, UserPreferences.getTranscriptLineSpacingMultiplier(), 0.001f);
+        assertEquals(24, UserPreferences.getTranscriptSideMarginsDp());
+        assertEquals(8, UserPreferences.getTranscriptVerticalSpacingDp());
+    }
+
+    @Test
     public void testLegacyTranscriptOffsetIsMigrated() {
         SharedPreferences preferences = UserPreferences.getPreferences();
         preferences.edit()
