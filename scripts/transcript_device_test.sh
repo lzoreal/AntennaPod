@@ -86,6 +86,45 @@ BACKUP_OK=0
 record_pass() { printf 'PASS  %s\n' "$1" | tee -a "$RESULTS"; }
 record_fail() { printf 'FAIL  %s\n' "$1" | tee -a "$RESULTS"; FAILED=1; }
 
+wake_device() {
+  local quiet="${1:-}"
+  local before
+  before="$(adb_sh dumpsys power 2>/dev/null | tr -d '\r' | grep -m1 -oE 'mWakefulness=[A-Za-z]+' || true)"
+  adb_sh input keyevent KEYCODE_WAKEUP >/dev/null 2>&1
+  sleep 1
+  adb_sh wm dismiss-keyguard >/dev/null 2>&1
+  # MIUI 的 AOD 只认手势：KEYCODE_WAKEUP 可能只点亮表盘（截图 ~30KB），上滑一次并等动画结束
+  local size
+  size="$(adb_sh wm size 2>/dev/null | tr -d '\r' | grep -oE '[0-9]+x[0-9]+' | tail -1)"
+  if [ -n "$size" ]; then
+    adb_sh input swipe "$(( ${size%x*} / 2 ))" "$(( ${size#*x} * 3 / 4 ))" \
+      "$(( ${size%x*} / 2 ))" "$(( ${size#*x} / 4 ))" 150 >/dev/null 2>&1
+    sleep 3
+  fi
+  local state
+  state="$(adb_sh dumpsys power 2>/dev/null | tr -d '\r' | grep -m1 -oE 'mWakefulness=[A-Za-z]+' || true)"
+  if [ "$state" != "mWakefulness=Awake" ]; then
+    record_fail "设备无法唤醒（${state:-未知}）：请手动点亮屏幕后重跑"
+    return 1
+  fi
+  if adb_sh dumpsys window 2>/dev/null | tr -d '\r' | grep -q "isKeyguardShowing=true"; then
+    record_fail "设备仍在锁屏（isKeyguardShowing=true）：请手动解锁屏幕后重跑"
+    return 1
+  fi
+  [ -n "$quiet" ] || record_pass "设备屏幕已点亮且未锁屏（唤醒前 ${before:-未知}）"
+  return 0
+}
+
+capture_screen() {
+  local out="$1" size
+  "${ADB[@]}" exec-out screencap -p > "$out"
+  size="$(wc -c < "$out" | tr -d ' ')"
+  # 息屏/Doze 只返回全黑帧（~19KB），AOD 表盘 ~30KB，真实界面截图数百 KB 起
+  [ "${size:-0}" -ge 60000 ] && return 0
+  record_fail "截图全黑（${size:-0} 字节）：$out，屏幕没有真正亮起来，请手动解锁后重跑"
+  return 1
+}
+
 ui_nodes() { sed 's/></>\n</g' "$1"; }
 
 dump_ui() {
@@ -198,6 +237,7 @@ preflight() {
   MSYS_NO_PATHCONV=1 "${ADB[@]}" exec-out run-as "$PKG" ls databases >/dev/null 2>&1 \
     || abort "run-as $PKG 失败：需要 debuggable 构建且设备已授权 USB 调试"
   [ -f "$VTT_DIR/$VTT_FILE" ] || abort "找不到 VTT 文件: $VTT_DIR/$VTT_FILE"
+  wake_device || abort "设备屏幕不可用，无法进行 UI 验证"
   record_pass "前置检查: 设备、包、run-as、VTT 文件均就绪"
 }
 
@@ -360,6 +400,8 @@ launch_page() {
     --ez open_player true --ez open_transcript true)
   adb_sh am force-stop "$PKG"
   "${ADB[@]}" logcat -b all -c
+  # 安装与备份阶段耗时较长，屏幕可能已重新熄灭；息屏时 am start 与 input 全部无效
+  wake_device || return 1
   # 冷启动时播放器还没 attach，底部抽屉处于锁定态，第一次 start 只负责恢复播放上下文
   adb_sh am start "${intent[@]}" > "$WORK/start1.txt" 2>&1 || abort "启动 Activity 失败"
   sleep 6
@@ -369,7 +411,7 @@ launch_page() {
   # 第二次走 onNewIntent -> handleNavIntent，此时抽屉已解锁，才会真正展开并切到转录页
   adb_sh am start "${intent[@]}" > "$WORK/start2.txt" 2>&1 || abort "二次启动 Activity 失败"
   sleep "$CAPTURE_WAIT"
-  "${ADB[@]}" exec-out screencap -p > "$WORK/01_transcript_page.png"
+  capture_screen "$WORK/01_transcript_page.png" || return 1
   dump_ui "$WORK/01_transcript_page.xml" || record_fail "转录页 UI dump 为空"
   "${ADB[@]}" logcat -d -v threadtime -b all > "$WORK/transcript.log"
 }
@@ -420,11 +462,13 @@ check_floating() {
 
   # uiautomator 只能 dump 当前活动窗口，悬浮窗是另一个 window，所以用服务状态做自动判定
   if floating_service_running; then
-    "${ADB[@]}" exec-out screencap -p > "$WORK/04_floating.png"
+    capture_screen "$WORK/04_floating.png"
     record_pass "悬浮窗服务已在运行（偏好已是开启状态，不再点菜单切换）"
     return
   fi
 
+  # 点击路径要求屏幕点亮，息屏时 input tap 会被丢弃
+  wake_device quiet || return
   dump_ui "$WORK/02_floating_before.xml" || { record_fail "悬浮窗：首次 UI dump 为空"; return; }
   tap_node "$WORK/02_floating_before.xml" 'overflow_menu_button|更多选项|More options' "打开溢出菜单" \
     || return
@@ -432,7 +476,7 @@ check_floating() {
   dump_ui "$WORK/03_menu_items.xml" || { record_fail "悬浮窗：菜单项 dump 为空"; return; }
   tap_node "$WORK/03_menu_items.xml" 'Floating transcript|悬浮' "开启悬浮转录" || return
   sleep 4
-  "${ADB[@]}" exec-out screencap -p > "$WORK/04_floating.png"
+  capture_screen "$WORK/04_floating.png"
   if floating_service_running; then
     record_pass "悬浮窗服务已启动（文字内容与间距看 $WORK/04_floating.png）"
   else
@@ -465,7 +509,7 @@ prepare_db
 start_server
 push_db
 install_app
-launch_page
+launch_page || abort "转录页取证中止"
 check_page
 check_floating
 restore_device
