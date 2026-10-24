@@ -1,6 +1,9 @@
 package de.danoeh.antennapod.ui.screen.playback;
 
+import android.content.Context;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.Layout;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -15,10 +18,14 @@ import androidx.annotation.Nullable;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
+import androidx.media3.session.MediaController;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.LinearSmoothScroller;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.recyclerview.widget.SimpleItemAnimator;
 
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 import de.danoeh.antennapod.R;
 import de.danoeh.antennapod.databinding.TranscriptPageFragmentBinding;
 import de.danoeh.antennapod.event.FeedItemEvent;
@@ -43,6 +50,7 @@ import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.concurrent.ExecutionException;
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
@@ -63,11 +71,33 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private boolean immersiveMode = false;
     private int immersiveTopInset = 0;
     private static final long FOLLOW_SCROLL_INTERVAL_MS = 300;
+    private static final long HIGHLIGHT_UPDATE_INTERVAL_MS = 250;
     private static final int FONT_SIZE_MIN_STEP = -2;
     private static final int FONT_SIZE_MAX_STEP = 3;
     private long lastFollowScrollTime = 0;
     private boolean segmentLooping = false;
     private int loopSegmentIndex = -1;
+    private final Handler highlightHandler = new Handler(Looper.getMainLooper());
+    private ListenableFuture<MediaController> controllerFuture;
+    private MediaController mediaController;
+    private boolean highlightTickerActive = false;
+    private final Runnable highlightTicker = new Runnable() {
+        @Override
+        public void run() {
+            if (!highlightTickerActive) {
+                return;
+            }
+            MediaController controller = mediaController;
+            if (controller != null && controller.isConnected() && controller.isPlaying()) {
+                long position = controller.getCurrentPosition();
+                if (adapter != null) {
+                    adapter.updatePlaybackPosition(position);
+                }
+                handlePlaybackPosition(position);
+            }
+            highlightHandler.postDelayed(this, HIGHLIGHT_UPDATE_INTERVAL_MS);
+        }
+    };
 
     @Nullable
     @Override
@@ -79,6 +109,10 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         LinearLayoutManager layoutManager = new LinearLayoutManager(getContext());
         viewBinding.recyclerView.setLayoutManager(layoutManager);
         viewBinding.recyclerView.setAdapter(adapter);
+        RecyclerView.ItemAnimator animator = viewBinding.recyclerView.getItemAnimator();
+        if (animator instanceof SimpleItemAnimator) {
+            ((SimpleItemAnimator) animator).setSupportsChangeAnimations(false);
+        }
 
         viewBinding.recyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
@@ -136,6 +170,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     public void onStart() {
         super.onStart();
         EventBus.getDefault().register(this);
+        connectPlaybackController();
         if (adapter != null
                 && adapter.getLanguageMode() != UserPreferences.getTranscriptLanguageMode()) {
             adapter.setLanguageMode(UserPreferences.getTranscriptLanguageMode());
@@ -145,12 +180,59 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     }
 
     @Override
+    public void onResume() {
+        super.onResume();
+        highlightTickerActive = true;
+        highlightHandler.post(highlightTicker);
+    }
+
+    @Override
+    public void onPause() {
+        highlightTickerActive = false;
+        highlightHandler.removeCallbacks(highlightTicker);
+        super.onPause();
+    }
+
+    @Override
     public void onStop() {
         super.onStop();
         if (disposable != null) {
             disposable.dispose();
         }
+        disconnectPlaybackController();
         EventBus.getDefault().unregister(this);
+    }
+
+    private void connectPlaybackController() {
+        Context context = getContext();
+        if (context == null) {
+            return;
+        }
+        ListenableFuture<MediaController> future = PlaybackController.openMedia3Controller(context);
+        controllerFuture = future;
+        future.addListener(() -> {
+            if (!isAdded() || future.isCancelled()) {
+                return;
+            }
+            try {
+                mediaController = future.get();
+            } catch (ExecutionException | InterruptedException e) {
+                Log.e(TAG, "Error getting media controller", e);
+            }
+        }, MoreExecutors.directExecutor());
+    }
+
+    private void disconnectPlaybackController() {
+        highlightTickerActive = false;
+        highlightHandler.removeCallbacks(highlightTicker);
+        if (mediaController != null) {
+            mediaController.release();
+            mediaController = null;
+        }
+        if (controllerFuture != null) {
+            MediaController.releaseFuture(controllerFuture);
+            controllerFuture = null;
+        }
     }
 
     @Override
@@ -334,15 +416,19 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onPlaybackPositionEvent(PlaybackPositionEvent event) {
-        if (event.getPosition() >= 0) {
-            lastPositionMs = event.getPosition();
+        handlePlaybackPosition(event.getPosition());
+    }
+
+    private void handlePlaybackPosition(long position) {
+        if (position >= 0) {
+            lastPositionMs = position;
         }
         if (currentMedia == null || currentMedia.getTranscript() == null || viewBinding == null) {
             return;
         }
 
-        if (segmentLooping && event.getPosition() >= 0) {
-            applySegmentLoop(event.getPosition());
+        if (segmentLooping && position >= 0) {
+            applySegmentLoop(position);
         }
 
         int pos = currentMedia.getTranscript().findSegmentIndexBefore(
