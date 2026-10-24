@@ -24,12 +24,67 @@ public final class TranscriptTextUtils {
         return newline < 0 ? text.length() : newline;
     }
 
-    public static int bilingualSplit(String text) {
-        return text.lastIndexOf('\n');
+    public static int languageSplitIndex(String text) {
+        int firstBreak = text.indexOf('\n');
+        if (firstBreak < 0) {
+            return -1;
+        }
+        String[] lines = text.split("\n");
+        int firstScript = -1;
+        for (String line : lines) {
+            firstScript = scriptOf(line);
+            if (firstScript >= 0) {
+                break;
+            }
+        }
+        if (firstScript < 0) {
+            return firstBreak;
+        }
+        for (int k = lines.length - 1; k >= 0; k--) {
+            if (scriptOf(lines[k]) == firstScript) {
+                return k == lines.length - 1 ? -1 : nthNewline(text, k);
+            }
+        }
+        return firstBreak;
+    }
+
+    private static int nthNewline(String text, int n) {
+        int cursor = -1;
+        for (int i = 0; i <= n; i++) {
+            cursor = text.indexOf('\n', cursor + 1);
+        }
+        return cursor;
+    }
+
+    private static int scriptOf(String line) {
+        int latin = 0;
+        int cjk = 0;
+        int other = 0;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (!Character.isLetter(c)) {
+                continue;
+            }
+            if (Character.UnicodeScript.of(c) == Character.UnicodeScript.LATIN) {
+                latin++;
+            } else if ((c >= '\u3040' && c <= '\u9fff') || (c >= '\uac00' && c <= '\ud7af')) { // CJK and Hangul
+                cjk++;
+            } else {
+                other++;
+            }
+        }
+        if (cjk > 0) {
+            return 1;
+        }
+        if (latin > 0) {
+            return 0;
+        }
+        return other > 0 ? 2 : -1;
     }
 
     public static int charIndexAt(String text, float progress) {
-        return Math.round(progress * primaryLength(text));
+        int split = languageSplitIndex(text);
+        return Math.round(progress * (split < 0 ? text.length() : split));
     }
 
     public static int[] chunkStarts(String text) {
@@ -91,8 +146,22 @@ public final class TranscriptTextUtils {
     }
 
     public static String splitIntoSentences(String text) {
-        int length = primaryLength(text);
-        int[] starts = chunkStarts(text);
+        String primary = text;
+        String translation = "";
+        int split = languageSplitIndex(text);
+        if (split >= 0) {
+            primary = text.substring(0, split);
+            translation = text.substring(split + 1);
+        }
+        String result = splitSentencesInBlock(primary);
+        if (!translation.isEmpty()) {
+            result = result + "\n" + translation;
+        }
+        return result;
+    }
+
+    private static String splitSentencesInBlock(String text) {
+        int[] starts = chunkStarts(text, text.length());
         if (starts.length < 3) {
             return text;
         }
@@ -106,9 +175,6 @@ public final class TranscriptTextUtils {
                 result.append('\n');
             }
             result.append(line);
-        }
-        if (length < text.length()) {
-            result.append(text.substring(length));
         }
         return result.toString();
     }

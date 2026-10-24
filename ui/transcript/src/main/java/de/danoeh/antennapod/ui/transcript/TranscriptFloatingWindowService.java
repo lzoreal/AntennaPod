@@ -242,17 +242,18 @@ public class TranscriptFloatingWindowService extends Service {
         }
 
         String words = segment.getWords();
-        boolean bilingual = segment.getTranslationLine() >= 0 && words.indexOf('\n') >= 0;
-        int primaryLength = bilingual
-                ? TranscriptTextUtils.bilingualSplit(words)
-                : TranscriptTextUtils.primaryLength(words);
-        int[] sentenceStarts = TranscriptTextUtils.chunkStarts(words, primaryLength);
+        int split = segment.getTranslationLine() >= 0
+                ? TranscriptTextUtils.languageSplitIndex(words) : -1;
+        boolean bilingual = split >= 0;
+        String primaryText = bilingual ? words.substring(0, split) : words;
+        int primaryLength = primaryText.length();
+        int[] sentenceStarts = TranscriptTextUtils.chunkStarts(primaryText, primaryLength);
         if (primaryLength <= 0 || sentenceStarts.length < 2) {
             hideTranscript();
             return;
         }
 
-        int sentenceIndex = TranscriptTextUtils.sentenceIndexAt(words,
+        int sentenceIndex = TranscriptTextUtils.sentenceIndexAt(primaryText,
                 TranscriptTextUtils.progressAt(segment, position), primaryLength);
         boolean isNewSentence = segment.getStartTime() != lastSentenceSegmentStart
                 || sentenceIndex != lastSentenceIndex;
@@ -263,7 +264,7 @@ public class TranscriptFloatingWindowService extends Service {
         lastSentenceSegmentStart = segment.getStartTime();
         lastSentenceIndex = sentenceIndex;
         long sentenceEndTime = sentenceIndex + 2 < sentenceStarts.length
-                ? TranscriptTextUtils.sentenceStartTime(segment, words,
+                ? TranscriptTextUtils.sentenceStartTime(segment, primaryText,
                         sentenceIndex + 1, primaryLength)
                 : segment.getEndTime();
         long remainingMs = sentenceEndTime + offset - lastPlaybackPosition;
@@ -275,7 +276,7 @@ public class TranscriptFloatingWindowService extends Service {
                 || !showTranslation;
 
         if (showPrimary) {
-            String text = words.substring(sentenceStarts[sentenceIndex],
+            String text = primaryText.substring(sentenceStarts[sentenceIndex],
                     sentenceStarts[sentenceIndex + 1]).trim();
             if (segment.getSpeaker() != null && !segment.getSpeaker().isEmpty()) {
                 text = segment.getSpeaker() + ": " + text;
@@ -288,17 +289,17 @@ public class TranscriptFloatingWindowService extends Service {
             tvTranscript.setVisibility(View.GONE);
         }
 
-        updateTranslationView(words, primaryLength, sentenceIndex, showTranslation, remainingMs);
+        updateTranslationView(words, split, sentenceIndex, showTranslation, remainingMs);
     }
 
-    private void updateTranslationView(String words, int primaryLength, int sentenceIndex,
+    private void updateTranslationView(String words, int languageSplit, int sentenceIndex,
                                        boolean showTranslation, long remainingMs) {
         if (!showTranslation) {
             tvTranscriptTranslation.stopAutoScroll();
             tvTranscriptTranslation.setVisibility(View.GONE);
             return;
         }
-        String translation = words.substring(primaryLength + 1);
+        String translation = words.substring(languageSplit + 1);
         int[] translationStarts = TranscriptTextUtils.chunkStarts(translation, translation.length());
         if (translationStarts.length < 2) {
             tvTranscriptTranslation.stopAutoScroll();
