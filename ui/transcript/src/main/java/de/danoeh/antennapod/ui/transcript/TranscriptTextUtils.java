@@ -1,9 +1,7 @@
 package de.danoeh.antennapod.ui.transcript;
 
 import de.danoeh.antennapod.model.feed.TranscriptSegment;
-
-import java.util.ArrayList;
-import java.util.List;
+import de.danoeh.antennapod.parser.transcript.TranscriptSentenceUtils;
 
 public final class TranscriptTextUtils {
 
@@ -20,195 +18,50 @@ public final class TranscriptTextUtils {
     }
 
     public static int primaryLength(String text) {
-        int newline = text.indexOf('\n');
-        return newline < 0 ? text.length() : newline;
+        return TranscriptSentenceUtils.primaryLength(text);
     }
 
     public static int languageSplitIndex(String text) {
-        int firstBreak = text.indexOf('\n');
-        if (firstBreak < 0) {
-            return -1;
-        }
-        String[] lines = text.split("\n");
-        int firstScript = -1;
-        for (String line : lines) {
-            firstScript = scriptOf(line);
-            if (firstScript >= 0) {
-                break;
-            }
-        }
-        if (firstScript < 0) {
-            return firstBreak;
-        }
-        for (int k = lines.length - 1; k >= 0; k--) {
-            if (scriptOf(lines[k]) == firstScript) {
-                return k == lines.length - 1 ? -1 : nthNewline(text, k);
-            }
-        }
-        return firstBreak;
-    }
-
-    private static int nthNewline(String text, int n) {
-        int cursor = -1;
-        for (int i = 0; i <= n; i++) {
-            cursor = text.indexOf('\n', cursor + 1);
-        }
-        return cursor;
-    }
-
-    private static int scriptOf(String line) {
-        int latin = 0;
-        int cjk = 0;
-        int other = 0;
-        for (int i = 0; i < line.length(); i++) {
-            char c = line.charAt(i);
-            if (!Character.isLetter(c)) {
-                continue;
-            }
-            if (Character.UnicodeScript.of(c) == Character.UnicodeScript.LATIN) {
-                latin++;
-            } else if ((c >= '\u3040' && c <= '\u9fff') || (c >= '\uac00' && c <= '\ud7af')) { // CJK and Hangul
-                cjk++;
-            } else {
-                other++;
-            }
-        }
-        if (latin == 0 && cjk == 0) {
-            return other > 0 ? 2 : -1;
-        }
-        if (cjk >= latin && cjk >= other) {
-            return 1;
-        }
-        if (latin >= cjk && latin >= other) {
-            return 0;
-        }
-        return 2;
+        return TranscriptSentenceUtils.languageSplitIndex(text);
     }
 
     public static int charIndexAt(String text, float progress) {
-        int split = languageSplitIndex(text);
-        return Math.round(progress * (split < 0 ? text.length() : split));
+        return TranscriptSentenceUtils.charIndexAt(text, progress);
     }
 
     public static int[] chunkStarts(String text) {
-        return chunkStarts(text, primaryLength(text));
+        return TranscriptSentenceUtils.chunkStarts(text);
     }
 
     public static int[] chunkStarts(String text, int length) {
-        List<Integer> starts = new ArrayList<>();
-        starts.add(0);
-        int last = 0;
-        for (int i = 0; i < length; i++) {
-            if (!isSentenceEnd(text, i, length)) {
-                continue;
-            }
-            int boundary = i + 1;
-            while (boundary < length && isTrailingChar(text.charAt(boundary))) {
-                boundary++;
-            }
-            if (boundary > last) {
-                starts.add(boundary);
-                last = boundary;
-            }
-        }
-        if (length > last) {
-            starts.add(length);
-        }
-        int[] result = new int[starts.size()];
-        for (int i = 0; i < result.length; i++) {
-            result[i] = starts.get(i);
-        }
-        return result;
+        return TranscriptSentenceUtils.chunkStarts(text, length);
     }
 
     public static int sentenceIndexAt(String text, float progress, int length) {
-        return sentenceIndexAt(chunkStarts(text, length), progress, length);
+        return TranscriptSentenceUtils.sentenceIndexAt(text, progress, length);
     }
 
     public static int sentenceIndexAt(int[] starts, float progress, int length) {
-        int charIndex = Math.round(progress * length);
-        int index = 0;
-        for (int i = 1; i + 1 < starts.length; i++) {
-            if (starts[i] <= charIndex) {
-                index = i;
-            }
-        }
-        return index;
+        return TranscriptSentenceUtils.sentenceIndexAt(starts, progress, length);
+    }
+
+    public static long sentenceEndTime(TranscriptSegment segment, String text, int sentenceIndex, int length) {
+        return TranscriptSentenceUtils.sentenceEndTime(segment, text, sentenceIndex, length);
+    }
+
+    public static long sentenceEndTime(TranscriptSegment segment, int[] starts, int sentenceIndex) {
+        return TranscriptSentenceUtils.sentenceEndTime(segment, starts, sentenceIndex);
     }
 
     public static long sentenceStartTime(TranscriptSegment segment, String text, int sentenceIndex, int length) {
-        return sentenceStartTime(segment, chunkStarts(text, length), sentenceIndex);
+        return TranscriptSentenceUtils.sentenceStartTime(segment, text, sentenceIndex, length);
     }
 
     public static long sentenceStartTime(TranscriptSegment segment, int[] starts, int sentenceIndex) {
-        int count = starts.length - 1;
-        if (count <= 1) {
-            return segment.getStartTime();
-        }
-        int index = Math.max(0, Math.min(sentenceIndex, count - 1));
-        long duration = segment.getEndTime() - segment.getStartTime();
-        return segment.getStartTime() + duration * index / count;
-    }
-
-    private static boolean isTrailingChar(char c) {
-        return c == '"' || c == '\'' || c == '”' || c == '’' || c == '!' || c == '?' || c == ')'
-                || c == '）' || c == ']' || c == '】' || c == '」' || c == '』' || c == '》'
-                || c == '。' || c == '！' || c == '？' || c == '…';
+        return TranscriptSentenceUtils.sentenceStartTime(segment, starts, sentenceIndex);
     }
 
     public static String splitIntoSentences(String text) {
-        String primary = text;
-        String translation = "";
-        int split = languageSplitIndex(text);
-        if (split >= 0) {
-            primary = text.substring(0, split);
-            translation = text.substring(split + 1);
-        }
-        String result = splitSentencesInBlock(primary);
-        if (!translation.isEmpty()) {
-            result = result + "\n" + splitSentencesInBlock(translation);
-        }
-        return result;
-    }
-
-    private static String splitSentencesInBlock(String text) {
-        int[] starts = chunkStarts(text, text.length());
-        if (starts.length < 3) {
-            return text;
-        }
-        StringBuilder result = new StringBuilder();
-        for (int i = 0; i + 1 < starts.length; i++) {
-            String line = text.substring(starts[i], starts[i + 1]).trim();
-            if (line.isEmpty()) {
-                continue;
-            }
-            if (result.length() > 0) {
-                result.append('\n');
-            }
-            result.append(line);
-        }
-        return result.toString();
-    }
-
-    private static boolean isSentenceEnd(String text, int index, int length) {
-        char c = text.charAt(index);
-        if (c == '。' || c == '！' || c == '？' || c == '…') {
-            return true;
-        }
-        if (c == '!' || c == '?') {
-            return true;
-        }
-        if (c != '.') {
-            return false;
-        }
-        if (index > 0 && Character.isDigit(text.charAt(index - 1))) {
-            return false;
-        }
-        if (index + 1 >= length) {
-            return true;
-        }
-        char next = text.charAt(index + 1);
-        return Character.isWhitespace(next) || Character.isSpaceChar(next)
-                || next == '"' || next == '”' || next == '\'';
+        return TranscriptSentenceUtils.splitIntoSentences(text);
     }
 }

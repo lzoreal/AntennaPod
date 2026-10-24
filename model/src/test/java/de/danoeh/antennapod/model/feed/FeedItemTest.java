@@ -3,12 +3,18 @@ package de.danoeh.antennapod.model.feed;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
 import static de.danoeh.antennapod.model.feed.FeedItemMother.anyFeedItemWithImage;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 
 public class FeedItemTest {
 
@@ -54,6 +60,55 @@ public class FeedItemTest {
         changedFeedItem.setPubDate(changedDate);
         original.updateFromOther(changedFeedItem);
         assertEquals(changedDate.getTime(), original.getPubDate().getTime());
+    }
+
+    @Test
+    public void testUpdateFromOther_transcriptUrlChanged_clearsParsedTranscript() {
+        original.setTranscriptUrl("text/vtt", "https://example.com/old.vtt");
+        original.setTranscript(new Transcript());
+        changedFeedItem.setTranscriptUrl("text/vtt", "https://example.com/new.vtt");
+
+        original.updateFromOther(changedFeedItem);
+
+        assertEquals("https://example.com/new.vtt", original.getTranscriptUrl());
+        assertEquals("text/vtt", original.getTranscriptType());
+        assertNull(original.getTranscript());
+    }
+
+    @Test
+    public void testUpdateFromOther_transcriptUrlUnchanged_keepsParsedTranscript() {
+        Transcript transcript = new Transcript();
+        original.setTranscriptUrl("text/vtt", "https://example.com/same.vtt");
+        original.setTranscript(transcript);
+        changedFeedItem.setTranscriptUrl("text/vtt", "https://example.com/same.vtt");
+
+        original.updateFromOther(changedFeedItem);
+
+        assertSame(transcript, original.getTranscript());
+    }
+
+    @Test
+    public void testUpdateFromOther_transcriptTypeChanged_clearsParsedTranscript() {
+        original.setTranscriptUrl("text/vtt", "https://example.com/same.vtt");
+        original.setTranscript(new Transcript());
+        changedFeedItem.setTranscriptUrl("application/json", "https://example.com/same.vtt");
+
+        original.updateFromOther(changedFeedItem);
+
+        assertEquals("application/json", original.getTranscriptType());
+        assertNull(original.getTranscript());
+    }
+
+    @Test
+    public void testSerializationIgnoresParsedTranscript() throws Exception {
+        original.setTranscript(new Transcript());
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        new ObjectOutputStream(bytes).writeObject(original);
+
+        FeedItem restored = (FeedItem) new ObjectInputStream(
+                new ByteArrayInputStream(bytes.toByteArray())).readObject();
+
+        assertNull(restored.getTranscript());
     }
 
     /**

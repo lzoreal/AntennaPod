@@ -173,7 +173,7 @@ public class VttTranscriptParserTest {
     }
 
     @Test
-    public void testBilingualKeepsTranslationLine() {
+    public void testBilingualKeepsTranslationText() {
         String bilingual = """
                 WEBVTT
 
@@ -187,13 +187,11 @@ public class VttTranscriptParserTest {
                 """;
         Transcript result = VttTranscriptParser.parse(bilingual);
         assertTrue(result.isBilingual());
-        assertEquals(1, result.getSegmentAt(0).getTranslationLine());
-        assertEquals(1, result.getSegmentAt(1).getTranslationLine());
         assertEquals("This is the first sentence\n这是第一句", result.getSegmentAt(0).getWords());
     }
 
     @Test
-    public void testNotBilingualWithoutTranslationLine() {
+    public void testNotBilingualWithoutTranslationText() {
         String singleLanguage = """
                 WEBVTT
 
@@ -203,7 +201,6 @@ public class VttTranscriptParserTest {
                 """;
         Transcript result = VttTranscriptParser.parse(singleLanguage);
         assertFalse(result.isBilingual());
-        assertEquals(-1, result.getSegmentAt(0).getTranslationLine());
         assertEquals("This is the first sentence continued on a second line",
                 result.getSegmentAt(0).getWords());
     }
@@ -274,7 +271,6 @@ public class VttTranscriptParserTest {
         assertEquals(2, result.getSegmentCount());
         assertEquals("This is the first sentence\n这是第一句",
                 result.getSegmentAt(0).getWords());
-        assertEquals(1, result.getSegmentAt(0).getTranslationLine());
         assertEquals(0, result.getSegmentAt(0).getStartTime());
         assertEquals(4000, result.getSegmentAt(0).getEndTime());
         assertEquals(4000, result.getSegmentAt(1).getStartTime());
@@ -296,10 +292,26 @@ public class VttTranscriptParserTest {
         assertEquals(2, result.getSegmentCount());
         assertEquals("First sentence.\n第一句。", result.getSegmentAt(0).getWords());
         assertEquals("Second sentence.\n第二句。 第三句。", result.getSegmentAt(1).getWords());
-        assertEquals(1, result.getSegmentAt(0).getTranslationLine());
-        assertEquals(1, result.getSegmentAt(1).getTranslationLine());
         assertEquals(0, result.getSegmentAt(0).getStartTime());
         assertEquals(4687, result.getSegmentAt(1).getStartTime());
+        assertEquals(10000, result.getSegmentAt(1).getEndTime());
+    }
+
+    @Test
+    public void testNumberedSentenceEndSplitsIntoSentencePairs() {
+        String vtt = "WEBVTT\n\n"
+                + "00:00:00.000 --> 00:00:10.000\n"
+                + "At least 38. It is precise.\n"
+                + "至少 38 位。非常精确。";
+        Transcript result = VttTranscriptParser.parse(vtt);
+
+        assertNotNull(result);
+        assertTrue(result.isBilingual());
+        assertEquals(2, result.getSegmentCount());
+        assertEquals("At least 38.\n至少 38 位。", result.getSegmentAt(0).getWords());
+        assertEquals("It is precise.\n非常精确。", result.getSegmentAt(1).getWords());
+        assertEquals(4444, result.getSegmentAt(0).getEndTime());
+        assertEquals(4444, result.getSegmentAt(1).getStartTime());
         assertEquals(10000, result.getSegmentAt(1).getEndTime());
     }
 

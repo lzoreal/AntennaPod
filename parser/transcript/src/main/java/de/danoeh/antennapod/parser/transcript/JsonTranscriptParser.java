@@ -40,7 +40,7 @@ public class JsonTranscriptParser {
                 segmentEndTime = endTime;
                 startTime = Double.valueOf(jsonObject.optDouble("startTime", -1) * 1000L).longValue();
                 endTime = Double.valueOf(jsonObject.optDouble("endTime", -1) * 1000L).longValue();
-                if (startTime < 0 || endTime < 0) {
+                if (startTime < 0 || endTime <= startTime) {
                     continue;
                 }
                 if (segmentStartTime == -1L) {
@@ -49,7 +49,7 @@ public class JsonTranscriptParser {
                 duration += endTime - startTime;
 
                 prevSpeaker = speaker;
-                speaker = jsonObject.optString("speaker");
+                speaker = jsonObject.isNull("speaker") ? "" : jsonObject.optString("speaker");
                 if (StringUtils.isEmpty(speaker) && StringUtils.isNotEmpty(prevSpeaker)) {
                     speaker = prevSpeaker;
                 }

@@ -67,6 +67,7 @@ import de.danoeh.antennapod.activity.MainActivity;
 import de.danoeh.antennapod.ui.common.Converter;
 import de.danoeh.antennapod.ui.screen.feed.preferences.SkipPreferenceDialog;
 import de.danoeh.antennapod.event.FeedItemEvent;
+import de.danoeh.antennapod.event.FeedListUpdateEvent;
 import de.danoeh.antennapod.event.PlayerErrorEvent;
 import de.danoeh.antennapod.event.PlayerStatusEvent;
 import de.danoeh.antennapod.event.playback.BufferUpdateEvent;
@@ -493,6 +494,16 @@ public class AudioPlayerFragment extends Fragment implements
         if (event.items.isEmpty()) {
             updatePosition(new PlaybackPositionEvent(currentMedia.getPosition(),
                     currentMedia.getDuration()));
+        }
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onFeedListUpdate(FeedListUpdateEvent event) {
+        if (currentMedia == null || currentMedia.getItem() == null) {
+            return;
+        }
+        if (event.contains(currentMedia.getItem().getFeedId())) {
+            loadMediaInfo(false);
         }
     }
 
