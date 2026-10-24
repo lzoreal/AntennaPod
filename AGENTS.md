@@ -53,3 +53,8 @@ When creating an issue, always follow one of the issue templates in `.github/ISS
 Apply the corresponding labels that are marked in the issue template yaml file.
 Always mention in the technical info box that the issue was AI generated.
 If you do not follow these, the issue gets closed automatically.
+
+# Transcript Feature
+Before touching any transcript path (player page, video dialog, floating window, parsers, local cache), read `docs/transcript-handover.md` and start from its §0 quick-start table.
+Update that document in the same commit as the code: the affected §1 capability, the §3 code-map anchors (re-grep them, line numbers rot), the §5 test notes, and after an on-device run the §5.2 result line with the commit and date.
+Never leave the document's baseline commit behind the branch it describes.
