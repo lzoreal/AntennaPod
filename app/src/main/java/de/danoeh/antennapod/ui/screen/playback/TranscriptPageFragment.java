@@ -21,6 +21,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import de.danoeh.antennapod.R;
 import de.danoeh.antennapod.databinding.TranscriptPageFragmentBinding;
+import de.danoeh.antennapod.event.FeedItemEvent;
 import de.danoeh.antennapod.event.PlayerStatusEvent;
 import de.danoeh.antennapod.event.playback.PlaybackPositionEvent;
 import de.danoeh.antennapod.model.feed.FeedMedia;
@@ -147,6 +148,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     public void onDestroyView() {
         super.onDestroyView();
         viewBinding = null;
+        adapter = null;
     }
 
     private void loadTranscript() {
@@ -156,15 +158,11 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
         long currentMediaId = PlaybackPreferences.getCurrentlyPlayingFeedMediaId();
         if (viewBinding != null && currentMedia != null && currentMedia.getId() == currentMediaId
-                && adapter.getItemCount() > 0) {
+                && adapter != null && adapter.getItemCount() > 0) {
             viewBinding.progLoading.setVisibility(View.GONE);
             viewBinding.emptyView.setVisibility(View.GONE);
             viewBinding.recyclerView.setVisibility(View.VISIBLE);
             if (!userScrolling) {
-                if (PlaybackPreferences.getCurrentPlayerStatus()
-                        != PlaybackPreferences.PLAYER_STATUS_PLAYING) {
-                    lastPositionMs = Math.max(0, currentMedia.getPosition());
-                }
                 long offset = UserPreferences.getTranscriptTimeOffset(currentMedia.getId());
                 int pos = currentMedia.getTranscript().findSegmentIndexBefore(lastPositionMs - offset);
                 adapter.setHighlightPosition(pos, lastPositionMs - offset);
@@ -272,6 +270,16 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     public void onPlayerStatusEvent(PlayerStatusEvent event) {
         long mediaId = PlaybackPreferences.getCurrentlyPlayingFeedMediaId();
         if (currentMedia == null || currentMedia.getId() != mediaId) {
+            loadTranscript();
+        }
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onFeedItemEvent(FeedItemEvent event) {
+        if (currentMedia == null) {
+            return;
+        }
+        if (FeedItemEvent.indexOfItemWithId(event.items, currentMedia.getItemId()) != -1) {
             loadTranscript();
         }
     }

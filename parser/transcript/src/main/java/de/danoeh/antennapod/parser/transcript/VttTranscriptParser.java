@@ -8,6 +8,7 @@ import org.jsoup.Jsoup;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -57,7 +58,7 @@ public class VttTranscriptParser {
 
             Timings timings = parseCueTimings(line);
             if (timings == null) {
-                return null;
+                continue;
             }
 
             List<String> payloadLines = parseCuePayloadLines(iterator);
@@ -85,6 +86,7 @@ public class VttTranscriptParser {
         }
 
         int bilingualCues = 0;
+        cues.sort(Comparator.comparingLong(Cue::start));
         for (Cue cue : cues) {
             if (cue.lines().size() > 1 && hasDifferentScripts(cue.lines())) {
                 bilingualCues++;
@@ -149,7 +151,7 @@ public class VttTranscriptParser {
         }
         long start = parseTimestamp(timestamps[0].trim());
         long end = parseTimestamp(timestamps[1].trim().split("[ \t]")[0]);
-        if (start == -1 || end == -1) {
+        if (start == -1 || end == -1 || end <= start) {
             return null;
         }
         return new Timings(start, end);
@@ -188,13 +190,13 @@ public class VttTranscriptParser {
                 other++;
             }
         }
-        if (latin == 0 && cjk == 0 && other == 0) {
-            return SCRIPT_UNKNOWN;
+        if (latin == 0 && cjk == 0) {
+            return other > 0 ? SCRIPT_OTHER : SCRIPT_UNKNOWN;
         }
-        if (cjk > latin && cjk >= other) {
+        if (cjk >= latin && cjk >= other) {
             return SCRIPT_CJK;
         }
-        if (latin > cjk && latin >= other) {
+        if (latin >= cjk && latin >= other) {
             return SCRIPT_LATIN;
         }
         return SCRIPT_OTHER;

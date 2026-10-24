@@ -6,7 +6,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InterruptedIOException;
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -23,7 +23,8 @@ import org.apache.commons.lang3.StringUtils;
 public class TranscriptUtils {
     private static final String TAG = "Transcript";
     private static final int MAX_CACHED_TRANSCRIPTS = 8;
-    private static final Map<String, Transcript> TRANSCRIPT_CACHE = new LinkedHashMap<>();
+    private static final Map<String, Transcript> TRANSCRIPT_CACHE =
+            new LinkedHashMap<>(16, 0.75f, true);
 
     public static String loadTranscriptFromUrl(String url, boolean forceRefresh) throws InterruptedIOException {
         if (forceRefresh) {
@@ -87,7 +88,7 @@ public class TranscriptUtils {
             File transcriptFile = new File(media.getTranscriptFileUrl());
             try {
                 if (transcriptFile.exists()) {
-                    String t = FileUtils.readFileToString(transcriptFile, (String) null);
+                    String t = FileUtils.readFileToString(transcriptFile, StandardCharsets.UTF_8);
                     if (StringUtils.isNotEmpty(t)) {
                         Transcript transcript = parseTranscript(t, transcriptType);
                         if (transcript != null) {
@@ -104,7 +105,7 @@ public class TranscriptUtils {
 
         String transcriptUrl = media.getItem().getTranscriptUrl();
         if (transcriptUrl == null) {
-            return null;
+            return fallbackToCache(media, cacheKey, forceRefresh);
         }
         String t = loadTranscriptFromUrl(transcriptUrl, forceRefresh);
         if (StringUtils.isNotEmpty(t)) {
@@ -114,7 +115,18 @@ public class TranscriptUtils {
             }
             return transcript;
         }
-        return null;
+        return fallbackToCache(media, cacheKey, forceRefresh);
+    }
+
+    private static Transcript fallbackToCache(FeedMedia media, String cacheKey, Boolean forceRefresh) {
+        if (!forceRefresh) {
+            return null;
+        }
+        Transcript cached = getCachedTranscript(cacheKey);
+        if (cached != null) {
+            media.setTranscript(cached);
+        }
+        return cached;
     }
 
     private static String cacheKey(FeedMedia media) {
@@ -126,7 +138,8 @@ public class TranscriptUtils {
                 lastModified = file.lastModified();
             }
         }
-        return media.getId() + "|" + media.getItem().getTranscriptUrl() + "|" + lastModified;
+        return media.getId() + "|" + media.getItem().getTranscriptType() + "|"
+                + media.getItem().getTranscriptUrl() + "|" + lastModified;
     }
 
     private static synchronized Transcript getCachedTranscript(String key) {
@@ -153,13 +166,12 @@ public class TranscriptUtils {
     }
 
     private static boolean hasBilingualSegments(Transcript transcript) {
-        int bilingualSegments = 0;
         for (int i = 0; i < transcript.getSegmentCount(); i++) {
             if (TranscriptTextUtils.languageSplitIndex(transcript.getSegmentAt(i).getWords()) >= 0) {
-                bilingualSegments++;
+                return true;
             }
         }
-        return bilingualSegments > 0 && bilingualSegments * 2 > transcript.getSegmentCount();
+        return false;
     }
 
     public static void storeTranscript(FeedMedia media, String transcript) {
@@ -174,7 +186,7 @@ public class TranscriptUtils {
             }
             if (transcriptFile.createNewFile()) {
                 ostream = new FileOutputStream(transcriptFile);
-                ostream.write(transcript.getBytes(Charset.forName("UTF-8")));
+                ostream.write(transcript.getBytes(StandardCharsets.UTF_8));
                 ostream.close();
             }
         } catch (IOException e) {
