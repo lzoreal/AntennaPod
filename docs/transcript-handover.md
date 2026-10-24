@@ -14,7 +14,7 @@
 | 改本地缓存/文件 | `:ui:transcript` 的 `TranscriptUtils` |
 | 跑相关单测 | `./gradlew --console=plain :parser:transcript:test :model:test :ui:transcript:test :storage:preferences:test :app:test` |
 | 编译 | `./gradlew :app:assembleDebug` |
-| 真机验证（自动） | `bash scripts/transcript_device_test.sh`（见 §5.2） |
+| 真机验证（自动） | `bash scripts/transcript-tests/run.sh <场景>`（见 §5.2） |
 
 阅读顺序建议：§3 代码地图 → §4 数据/配置约定 → §1 功能总览 → §6 坑速查 → §7 未完成项。
 
@@ -199,16 +199,29 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 
 ### 5.2 真机自动验证脚本
 
-[scripts/transcript_device_test.sh](file:///D:/AntennaPod/scripts/transcript_device_test.sh)（Git Bash，仓库根目录运行；`--help` 列出全部参数）。
+[scripts/transcript-tests/](file:///D:/AntennaPod/scripts/transcript-tests/)（Git Bash，仓库根目录运行）：共用底座 `lib.sh` + 单功能场景 + `run.sh`。
+`scripts/transcript_device_test.sh` 保留为兼容入口，等价于 `run.sh all`。
+
+单功能场景（推荐：只改到哪个功能就跑哪个）：
 
 ```bash
-bash scripts/transcript_device_test.sh \
-  --vtt-dir "D:/MyTranscript/site/the-rest-is-history/transcripts/zh" \
-  --vtt-file "1._Greatness.vtt" \
-  --media-id 1 --position 5000
+bash scripts/transcript-tests/run.sh --list      # 列出场景
+bash scripts/transcript-tests/run.sh layout      # 只跑排版面板
+bash scripts/transcript-tests/run.sh smoke layout offset
+bash scripts/transcript-tests/scenarios/30_layout_panel.sh   # 单场景脚本，自带备份/恢复
 ```
 
-脚本按「备份设备 → 注入测试 DB/偏好 → 本地 HTTP + `adb reverse` 提供 VTT → 重启并断言 → 还原设备」执行；任一步失败或 `INT`/`TERM` 都会先恢复设备。参数与各阶段细节见 `--help` 及脚本内注释。
+| 场景 | 文件 | 断言 |
+|---|---|---|
+| smoke | `scenarios/00_smoke.sh` | 转录页打开、无崩溃、双语行、本地下载 |
+| highlight | `scenarios/10_highlight_follow.sh` | 一条 cue 一行（可见行数 ≤3）、首行双语、高亮截图 |
+| layout | `scenarios/30_layout_panel.sh` | Aa 面板四行齐全、默认 1×/24dp/标准、调节到 1.15×/32dp、重置 |
+| offset | `scenarios/40_offset_loop.sh` | 重置为 0、+30 秒、再重置 |
+| floating | `scenarios/50_floating_window.sh` | 悬浮窗菜单开关、服务状态、截图 |
+
+一次运行（`run.sh all` 或兼容入口）只做一次备份/安装/启动，然后按顺序跑选中场景；单独跑场景脚本会自己完成整套准备与恢复。三档句色、当前句居中这类像素效果仍以截图人工确认为准。
+
+脚本按「备份设备 → 注入测试 DB/偏好 → 本地 HTTP + `adb reverse` 提供 VTT → 重启并断言 → 还原设备」执行；任一步失败或 `INT`/`TERM` 都会先恢复设备。参数见 `run.sh --help` 或任一场景脚本的 `--help`。
 
 自动断言：转录页存在双语逐句行、无 `FATAL EXCEPTION`、悬浮窗服务在运行；截图小于 60 KB 直接判黑屏失败，不产出假 PASS。MIUI 唤醒/AOD 的成因与处理见 §6。
 
