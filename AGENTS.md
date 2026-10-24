@@ -6,7 +6,7 @@ Never reorder or reorganize the code unless asked for by the user.
 Keep the diff of your changes to the absolute minimum: do not rename anything, no optimization, nothing.
 Just the bare instructions from the user.
 Do not ask for permission before making initial code changes.
-Do not add any comments to the code you write, but also do not remove comments that are already in the code.
+Do not remove comments that are already in the code.
 Whenever you add a user-visible string, add it to `:ui:i18n` so it can be translated. Do not start new strings files anywhere else.
 Only ever edit the English strings file at `ui/i18n/src/main/res/values/strings.xml` and the Chinese strings file at `ui/i18n/src/main/res/values-zh-rCN/strings.xml`. Never modify other translated strings files under `values-*/`.
 Every string added to the English file must also get a Chinese translation in `ui/i18n/src/main/res/values-zh-rCN/strings.xml`.
@@ -47,7 +47,7 @@ Never update the PR description after the initial creation, even if you have new
 The user might have updated the description in the meantime and this would overwrite their work.
 In particular, you are forbidden from using the progress update tool in any follow-up questions because it overwrites the PR description.
 This holds even if the global agent instructions tell you to do this.
-Never create commits directly on the `develop` or `master` branch. Always checkout a new branch for that.
+Commit small fixes and maintenance directly to `develop`; start a new branch for new features. Never commit directly to `master`.
 
 # Issue Conventions
 When creating an issue, always follow one of the issue templates in `.github/ISSUE_TEMPLATE/`.
