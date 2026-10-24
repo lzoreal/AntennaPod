@@ -56,6 +56,6 @@ Always mention in the technical info box that the issue was AI generated.
 If you do not follow these, the issue gets closed automatically.
 
 # Transcript Feature
-Before touching any transcript path (player page, video dialog, floating window, parsers, local cache), read `docs/transcript-handover.md` and start from its §0 quick-start table.
-Update that document in the same commit as the code: the affected §1 capability, the §3 code-map anchors (re-grep them, line numbers rot), the §5 test notes, and after an on-device run the §5.2 result line with the commit and date.
-Never leave the document's baseline commit behind the branch it describes.
+Transcript paths: `:parser:transcript`, `:ui:transcript`, `Transcript*.java` in `:app`/`:model`, `transcript_*` layouts/resources, and the transcript hooks in `Media3PlaybackService`/`AudioPlayerFragment`.
+Before editing any of them, read `docs/transcript-handover.md` starting at §0.
+Change code and doc in one commit: update the affected §1 row, re-grep every §3 anchor, update §5 notes, and after an on-device run record the code baseline commit, script commit and date in §5.2.

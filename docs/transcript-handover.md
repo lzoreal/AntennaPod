@@ -1,7 +1,7 @@
 # AntennaPod 转录（Transcript）功能交接文档
 
 > 面向对象：接手这个 fork 转录功能的下一个 agent / 开发者。
-> 基线：分支 `transcript-regression-hardening`，分支头/文档基线提交 `35cf3c35e`（2026-10-24，交接文档 + 真机脚本），转录功能代码基线提交 `7e2b4e5b9`（2026-10-24），上游基线提交 `bbe756414`（Merge develop，2026-10-13）。
+> 基线：分支 `transcript-regression-hardening`；转录功能代码基线提交 `7e2b4e5b9`（2026-10-24）；交接文档与真机脚本自 `35cf3c35e`（2026-10-24）起，后续修订以 `git log -- docs/transcript-handover.md` 为准；上游基线提交 `bbe756414`（Merge develop，2026-10-13）。
 > 全量单测在代码基线 `7e2b4e5b9` 上已跑通：`./gradlew --console=plain test` → `BUILD SUCCESSFUL`，3666 个任务，0 失败。
 
 ## 0. 30 秒上手
@@ -102,34 +102,18 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 | `FeedListUpdateEvent` | feed 更新（`contains(long)` 判定） | 转录页、弹窗、`AudioPlayerFragment`、悬浮窗 | 重新加载媒体信息/转录，菜单可见性刷新 |
 | `PlayerStatusEvent` | 播放状态 | 转录页、弹窗、悬浮窗 | 跟随/滚动/暂停语义 |
 
-## 2. 提交时间线（作者 `wenhao`，截至 `35cf3c35e` 共 26 个提交）
+## 2. 提交历史
 
-| SHA | 日期 | 主题 | 要点 |
-|---|---|---|---|
-| `fdddd12ef` | 2026-08-18 | transcript_page | 新建音频播放器转录页 `TranscriptPageFragment` + 布局，`AudioPlayerFragment` 接入 |
-| `f70eeacf6` | 2026-08-18 | transcript_page | Adapter 绑定与滚动细节 |
-| `92e6fb82f` | 2026-08-19 | 悬浮窗 transcript | 新建 `:ui:transcript` 模块、`TranscriptFloatingWindowService`(256 行)、`ScrollTextView`、悬浮窗偏好与字符串 |
-| `3069aa9df` | 2026-08-21 | 双语vtt | VTT 多行 cue 合并为 `primary\ntranslation`，`Transcript.isBilingual`，弹窗/页面布局调整 |
-| `0792497f4` | 2026-08-21 | 沉浸模式 | 播放器沉浸模式、翻译菜单项、全屏图标 |
-| `2b24e787a` | 2026-08-21 | 修复动态取色导致非高亮脚本消失 | 高亮改用固定色 + alpha，不再用主题动态取色 |
-| `867088d88` | 2026-08-21 | 播放暂停同一文件不再刷新字幕；长字幕显示优化 | 幂等加载 + proguard keep 规则 |
-| `3164027b6`/`7f4eaa113`/`bbe756414` | 09-11 ~ 10-13 | Merge develop | 上游同步（无功能改动） |
-| `a77c90ce7` | 2026-10-22 | op | 新增 `TranscriptTextUtils`（分句/语言边界/句子时间映射）、偏移控制条布局 |
-| `8d8f5616f` | 2026-10-22 | op | 时间偏移偏好、播放服务启停悬浮窗、菜单重构、悬浮窗精简 |
-| `9df9271a4` | 2026-10-22 | 分级高亮 | Adapter 分级高亮（当前句/当前段/其他），句子级索引 |
-| `fa8e29b85` | 2026-10-23 | fix correctness, harden playback integration, add tests | 首轮系统性正确性修复 + 单测起步 |
-| `2ff80e94d` | 2026-10-23 | 统一控制条按钮样式，文字按钮换图标 | `ic_transcript_*` 图标 |
-| `3128fe4a9` | 2026-10-24 | 悬浮窗只显示当前句 | 句子级裁剪 + 时间估算 |
-| `c96ae59e4` | 2026-10-24 | 控制条打磨 + 悬浮窗双语 | 主/译双 `ScrollTextView` |
-| `1a6e5d07e` | 2026-10-24 | 滚动暂停跟随、悬浮窗点击回页、细粒度偏移 | `userScrolling`、细调按钮 |
-| `c6aae3a20` | 2026-10-24 | 短滚动返回后位置错误 | 以 `PlaybackPositionEvent` 为准，不再读页面缓存 position |
-| `f5f9f61ff` | 2026-10-24 | 统一按文字体系判定的语言边界 | `scriptOf`/`languageSplitIndex` 合并为一套 |
-| `db72bb0ee` | 2026-10-24 | 高亮、悬浮窗、解析器边界用例 | 生命周期与解析修复 |
-| `e0d5702bd` | 2026-10-24 | 悬浮窗/解析/双语加固 | 交替双语、乱序 cue、缓存 |
-| `d2ea9742e` | 2026-10-24 | 位置、解析、悬浮窗 bug | 句子时间、偏移 |
-| `bc5d42b06` | 2026-10-24 | 逐句双语配对模式 + 悬浮窗控件 | `addSentencePairs` 1:1 配对、锁定/关闭自动隐藏 |
-| `7e2b4e5b9` | 2026-10-24 | harden parsing, caching, refresh and floating window | 转录代码最新提交：竞态、`.source`、按媒体偏移、`FeedListUpdateEvent`、5MB、原子写入、共享分句工具、悬浮窗句子缓存等（提交信息按文件详述） |
-| `35cf3c35e` | 2026-10-24 | add handover doc and on-device verification script | 本文档、`scripts/transcript_device_test.sh`、真机验证结果 |
+完整列表：`git log --author=wenhao --oneline`。下表只保留影响当前实现的关键节点。
+
+| 日期 | 节点 | 影响 |
+|---|---|---|
+| 2026-08-18 ~ 08-19 | `fdddd12ef`/`f70eeacf6`/`92e6fb82f` | 转录页、Adapter/滚动、`:ui:transcript` 模块与悬浮窗 |
+| 2026-08-21 | `3069aa9df`/`0792497f4`/`2b24e787a`/`867088d88` | 双语 VTT、沉浸模式、固定高亮色、幂等加载 |
+| 2026-09-11 ~ 10-13 | `3164027b6`/`7f4eaa113`/`bbe756414` | 上游 develop 合并 |
+| 2026-10-22 ~ 10-23 | `a77c90ce7`/`8d8f5616f`/`9df9271a4`/`2ff80e94d`/`fa8e29b85` | 共享分句工具、偏移、分级高亮、图标、正确性修复与单测起步 |
+| 2026-10-24 | `3128fe4a9` ~ `7e2b4e5b9` | 当前句悬浮窗、双语配对、细粒度偏移、解析/缓存/刷新加固 |
+| 2026-10-24 | `35cf3c35e` | 交接文档与真机脚本 |
 
 ## 3. 代码地图
 
@@ -211,7 +195,7 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 
 ### 5.2 真机自动验证脚本
 
-[scripts/transcript_device_test.sh](file:///D:/AntennaPod/scripts/transcript_device_test.sh)（Git Bash 运行，从仓库根目录调用）。
+[scripts/transcript_device_test.sh](file:///D:/AntennaPod/scripts/transcript_device_test.sh)（Git Bash，仓库根目录运行；`--help` 列出全部参数）。
 
 ```bash
 bash scripts/transcript_device_test.sh \
@@ -220,30 +204,15 @@ bash scripts/transcript_device_test.sh \
   --media-id 1 --position 5000
 ```
 
-执行内容（任一步失败即恢复设备后退出；`INT`/`TERM` 也触发恢复）：
+脚本按「备份设备 → 注入测试 DB/偏好 → 本地 HTTP + `adb reverse` 提供 VTT → 重启并断言 → 还原设备」执行；任一步失败或 `INT`/`TERM` 都会先恢复设备。参数与各阶段细节见 `--help` 及脚本内注释。
 
-1. `preflight`：设备、包、`run-as`、VTT 文件存在性；`wake_device` 用 `KEYCODE_WAKEUP` + `wm dismiss-keyguard` + 一次上滑手势点亮并解锁屏幕，再断言 `mWakefulness=Awake` 且 `isKeyguardShowing` 不为 `true`。MIUI 上只发 `KEYCODE_WAKEUP` 可能只点亮 AOD 表盘（`mWakefulness` 已经是 `Awake`、`mScreenState=ON`，但屏幕上根本没有 App），上滑手势才是决定性的那一步。
-2. `snapshot_state`：记录现有 `adb reverse`、`wifi_on`、`mobile_data`。
-3. `backup_device`：`force-stop` 后用 `adb exec-out` 备份主库 + 实际存在的 `-journal/-wal/-shm` + 偏好；`integrity_check`；若未给 `--media-id` 则从偏好的 `currentlyPlayingMedia` 推断。
-4. `prepare_db`：复制备份，改 `FeedItems.podcastindex_transcript_url/type` 指向 `http://127.0.0.1:<port>/<vtt>`，可选重置 `FeedMedia.position`，打印 before/after。
-5. `start_server`：后台 `python -m http.server --bind 127.0.0.1`，本机自测可访问，再 `adb reverse`（若测试前已有同端口转发则不重复添加、结束时也不删除）；`--isolate-network` 时关闭 Wi-Fi/移动数据。
-6. `push_db`：`adb exec-in run-as ... "cat > databases/Antennapod.db"` 写入（**不能**用 `adb shell ... >`，会产出 malformed 镜像），删除遗留侧车文件，回读校验 URL。
-7. `install_app`：`gradlew -p <repo> --console=plain :app:installPlayDebug`（`--skip-install` 跳过）。
-8. `launch_page`：先 `wake_device`（备份+编译耗时足以让屏幕重新息屏），再 `am start ... --ez open_player true --ez open_transcript true` 冷启动一次（只负责恢复播放上下文），`KEYCODE_MEDIA_PLAY` 起播，再 `am start` 同一 intent 走 `onNewIntent` 才会真正展开抽屉并切到转录页；随后 `capture_screen` 抓图、`uiautomator dump`、`logcat -d`。唤醒失败或截图全黑直接中止，不给 `check_page` 留假 PASS 的机会。
-   `capture_screen` 会检查截图字节数：息屏时 `screencap` 仍“成功”，只是帧内容为黑（1080×2400 全黑约 19 KB，MIUI AOD 表盘约 30 KB，真实界面数百 KB 起），低于 60 KB 直接判 FAIL。**脚本不猜锁屏密码、也不反复重试**：`wake_device` 只发一次 `KEYCODE_WAKEUP` + `wm dismiss-keyguard` + 上滑，仍亮不起来就停下来报错，由人手动解锁后重跑。
-9. `check_page`：无 `FATAL EXCEPTION`；dump 中至少 1 个 `:id/content` 行（转录行专属 id，别用 `recyclerView`/`android:id/content`，首页也有）；至少 1 行同时含拉丁与 CJK 文本（双语断言）；日志有 `Done Downloading transcript`。
-10. `check_floating`：检查/尝试授予 `SYSTEM_ALERT_WINDOW`；用 `dumpsys activity services` 判断 `TranscriptFloatingWindowService` 是否在跑（悬浮窗是独立 window，`uiautomator dump` 看不到它，只能靠截图人工核对）；未运行时才走溢出菜单 → “悬浮窗transcript/Floating transcript” 的点击路径，再截图。
-11. `restore_device`：还原数据库（含侧车）与偏好、确认无 `127.0.0.1` 残留、按需移除端口转发、停掉本地服务、按原值恢复网络开关、重启应用。
-12. 产物：`~/.qoder-cn/tmp/transcript-ondevice/run-<时间戳>/`（`results.txt`、`01_transcript_page.png`、`04_floating.png`、`transcript.log`、各阶段 UI dump 与数据库副本）。
+自动断言：转录页存在双语逐句行、无 `FATAL EXCEPTION`、悬浮窗服务在运行；截图小于 60 KB 直接判黑屏失败，不产出假 PASS。MIUI 唤醒/AOD 的成因与处理见 §6。
 
-其他用法：
-- 只恢复：`bash scripts/transcript_device_test.sh --restore-only --work <目录>`。
-- 保留现场继续手测：`--keep`（脚本会打印后续恢复命令）。
-- 多设备：`--serial <序列号>`。
+产物：`~/.qoder-cn/tmp/transcript-ondevice/run-<时间戳>/`（`results.txt`、`01_transcript_page.png`、`04_floating.png`、`transcript.log`、各阶段 UI dump 与数据库副本）。
 
-2026-10-25 在代码基线 `7e2b4e5b9`（脚本提交 `35cf3c35e`）上、Redmi 2407FRK8EC（`4LSGLZEYOFCQBIQC`）的完整跑通结果（含 `:app:installPlayDebug`）：14/14 PASS，`restored integrity: ok`、`test urls left: 0`、偏好与数据库与备份逐字节一致、`adb reverse` 已清空。截图里可见 `1._Greatness.vtt` 第 1 个 cue（00:00:00–00:00:49）拆出的逐句双语行、当前句蓝色高亮，以及悬浮窗对同一句的滚动显示；另有 `--skip-install` 一轮 13/13 PASS。
+其他用法：`--restore-only --work <目录>`（只恢复）、`--keep`（保留现场）、`--serial <序列号>`（多设备）。
 
-同一基线上更早两轮曾出现「断言全 PASS、截图却是全黑/AOD 表盘」：MIUI 下 `KEYCODE_WAKEUP` 可能只点亮表盘（`mWakefulness` 已是 `Awake`，屏幕上没有 App），且反复重发唤醒手势会一直打断亮屏动画。现由 `wake_device` 的上滑 + 3 秒等待、以及 `capture_screen` 的 60 KB 字节数下限兜住——亮不起来就直接 FAIL 请人解锁，不再产出无法核对的证据。
+2026-10-25 在代码基线 `7e2b4e5b9`（脚本提交 `d66169281`）上、Redmi 2407FRK8EC（`4LSGLZEYOFCQBIQC`）的完整跑通结果（含 `:app:installPlayDebug`）：14/14 PASS，`restored integrity: ok`、`test urls left: 0`、偏好与数据库与备份逐字节一致、`adb reverse` 已清空。截图里可见 `1._Greatness.vtt` 第 1 个 cue（00:00:00–00:00:49）拆出的逐句双语行、当前句蓝色高亮，以及悬浮窗对同一句的滚动显示；另有 `--skip-install` 一轮 13/13 PASS。
 
 ### 5.3 语料基线（人工比对用）
 
@@ -271,7 +240,7 @@ bash scripts/transcript_device_test.sh \
 | 启动后停在首页 | `-e open_player true` 是字符串 extra | 用 `--ez` |
 | 传了 `--ez` 仍停在首页 | 同时传 `episode_id` 会优先走单集页 | 打开播放器时不要传 |
 | 冷启动时 `--ez` 不生效 | 播放器还没 attach，底部抽屉处于锁定态，`setState(EXPANDED)` 被忽略 | 等首启完成后再发一次同一 intent，走 `onNewIntent` |
-| `am start` 无反应、UI dump 里只有 `com.android.systemui`/`com.miui.aod`、`input tap` 全部丢失 | 设备息屏/Dozing（`mWakefulness=Dozing`）或停在 MIUI AOD 表盘（`mWakefulness=Awake` 但屏幕没 App），非 App 问题 | `KEYCODE_WAKEUP` + `wm dismiss-keyguard` + 上滑手势；有 PIN/图案锁时脚本无法解锁，需人工解锁 |
+| `am start` 无反应、UI dump 里只有 `com.android.systemui`/`com.miui.aod`、`input tap` 全部丢失 | 设备息屏/Dozing（`mWakefulness=Dozing`）或停在 MIUI AOD 表盘（`mWakefulness=Awake` 但屏幕没 App），非 App 问题；反复重发唤醒手势会打断亮屏动画 | `KEYCODE_WAKEUP` + `wm dismiss-keyguard` + 一次上滑（仅在 App 未聚焦时）；有 PIN/图案锁时脚本无法解锁，需人工解锁 |
 | 断言全 PASS 但截图是一片黑 | 息屏状态下 `screencap` 仍成功，只是帧内容为黑；UI dump 与截图是两条独立证据 | 看 PNG 字节数（全黑约 19 KB、AOD 表盘约 30 KB）；脚本已用 `capture_screen` 判 FAIL，人工解锁后重跑 |
 | `reverse: inaccessible or not found` | `adb reverse` 是主机侧命令，被塞进了 `adb shell` | 直接 `adb reverse`，不要经 `adb shell` |
 | `Can't start from invalid source` | 悬浮窗服务 `exported=false`，外部 `adb`/其它应用不能直接启动 | 在播放器溢出菜单开启（需悬浮窗权限）；开启后由播放服务按需自动 start/stop |
@@ -291,13 +260,12 @@ bash scripts/transcript_device_test.sh \
 - 音频转录页的“跟随音频”开关与视频弹窗的其他增强：用户明确表示**暂不做**（“那不用管这个功能”），未被再次要求前不要实现或重提。
 - `checkstyle`/`lint` 在 transcript 相关模块存在**既有**违规（未格式化历史代码），按 `AGENTS.md`「不修自己改动之外的告警」保持原样；只在被要求时跑 `./gradlew checkstyle lint`。
 
-## 8. 工作约定（务必先读 [AGENTS.md](file:///D:/AntennaPod/AGENTS.md)）
+## 8. 更新本文档（完成标准）
 
-- 最小 diff：不改无关代码、不重命名、不重排、默认不加注释；新增用户可见字符串同时写 `ui/i18n/src/main/res/values/strings.xml` 和 `ui/i18n/src/main/res/values-zh-rCN/strings.xml`，其它 `values-*/` 不动。
-- 改转录代码后同步更新本文档：§1 能力、§3 锚点（优先写方法/字段名，行号必须重新 grep）、§5 测试；文档基线不得落后于分支头。
-- 类不要写全限定名，用 import。
-- 先 `./gradlew :app:assembleDebug` 确认无编译错误，再跑测试/真机；**不要过滤编译输出**，不要自编编译命令。
-- 安装并启动：`./gradlew --console=plain :app:installPlayDebug && adb shell monkey -p de.danoeh.antennapod.debug 1`。
-- 不在 `develop`/`master` 直接提交，新分支提交；PR 前读 `.github/pull_request_template.md`，描述 2-8 句、`Closes: #<n>`，不写测试指引，创建后不再改描述；不要每个 review comment 都回复，留一条汇总。
-- 提交/推送/建 PR 只在用户明确要求时做。
-- 相关记忆（`C:\Users\游梦\.qoder-cn\projects\D--AntennaPod\memory\`）：`transcript-feature-initiative.md`（设计决策与限制）、`transcript-test-corpus.md`（语料基线）、`checkstyle-transcript-baseline.md`、`test-device-network.md`。
+1. 行为变了 → 更新 §1 对应行；入口增删 → 同步 §0/§3。
+2. 代码动过锚点 → 重新 grep，确保 §3 每个行号仍落在对应符号上。
+3. 测试变了 → 更新 §5；真机跑完 → 写 §5.2 结果（代码基线 + 脚本提交 + 日期）。
+4. 完成标准：代码与本文档在同一提交，`git diff --stat` 两者都在；§1/§3/§5 无未更新项。
+
+全局代码风格、编译、PR 约定见 [AGENTS.md](file:///D:/AntennaPod/AGENTS.md)。
+相关记忆（`C:\Users\游梦\.qoder-cn\projects\D--AntennaPod\memory\`）：`transcript-feature-initiative.md`（设计决策与限制）、`transcript-test-corpus.md`（语料基线）、`checkstyle-transcript-baseline.md`、`test-device-network.md`。

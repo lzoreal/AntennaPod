@@ -93,13 +93,17 @@ wake_device() {
   adb_sh input keyevent KEYCODE_WAKEUP >/dev/null 2>&1
   sleep 1
   adb_sh wm dismiss-keyguard >/dev/null 2>&1
-  # MIUI 的 AOD 只认手势：KEYCODE_WAKEUP 可能只点亮表盘（截图 ~30KB），上滑一次并等动画结束
-  local size
-  size="$(adb_sh wm size 2>/dev/null | tr -d '\r' | grep -oE '[0-9]+x[0-9]+' | tail -1)"
-  if [ -n "$size" ]; then
-    adb_sh input swipe "$(( ${size%x*} / 2 ))" "$(( ${size#*x} * 3 / 4 ))" \
-      "$(( ${size%x*} / 2 ))" "$(( ${size#*x} / 4 ))" 150 >/dev/null 2>&1
-    sleep 3
+  local focus
+  focus="$(adb_sh dumpsys window 2>/dev/null | tr -d '\r' | grep -m1 'mCurrentFocus' || true)"
+  if ! printf '%s' "$focus" | grep -q "$PKG"; then
+    # MIUI 的 AOD 只认手势：KEYCODE_WAKEUP 可能只点亮表盘（截图 ~30KB），上滑一次并等动画结束
+    local size
+    size="$(adb_sh wm size 2>/dev/null | tr -d '\r' | grep -oE '[0-9]+x[0-9]+' | tail -1)"
+    if [ -n "$size" ]; then
+      adb_sh input swipe "$(( ${size%x*} / 2 ))" "$(( ${size#*x} * 3 / 4 ))" \
+        "$(( ${size%x*} / 2 ))" "$(( ${size#*x} / 4 ))" 150 >/dev/null 2>&1
+      sleep 3
+    fi
   fi
   local state
   state="$(adb_sh dumpsys power 2>/dev/null | tr -d '\r' | grep -m1 -oE 'mWakefulness=[A-Za-z]+' || true)"
@@ -462,7 +466,7 @@ check_floating() {
 
   # uiautomator 只能 dump 当前活动窗口，悬浮窗是另一个 window，所以用服务状态做自动判定
   if floating_service_running; then
-    capture_screen "$WORK/04_floating.png"
+    capture_screen "$WORK/04_floating.png" || return 1
     record_pass "悬浮窗服务已在运行（偏好已是开启状态，不再点菜单切换）"
     return
   fi
@@ -476,7 +480,7 @@ check_floating() {
   dump_ui "$WORK/03_menu_items.xml" || { record_fail "悬浮窗：菜单项 dump 为空"; return; }
   tap_node "$WORK/03_menu_items.xml" 'Floating transcript|悬浮' "开启悬浮转录" || return
   sleep 4
-  capture_screen "$WORK/04_floating.png"
+  capture_screen "$WORK/04_floating.png" || return 1
   if floating_service_running; then
     record_pass "悬浮窗服务已启动（文字内容与间距看 $WORK/04_floating.png）"
   else
