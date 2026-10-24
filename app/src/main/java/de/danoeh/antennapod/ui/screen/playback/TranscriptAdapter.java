@@ -91,6 +91,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     private void applyLayout(TranscriptViewholder holder) {
         holder.viewContent.setLineSpacing(0, lineSpacingMultiplier);
         holder.viewContent.setPadding(horizontalPaddingPx, 0, horizontalPaddingPx, 0);
+        holder.viewTimecode.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14 + fontSizeStep * 2);
         holder.viewTimecode.setPadding(horizontalPaddingPx, 0, horizontalPaddingPx, 0);
         ViewGroup.MarginLayoutParams params =
                 (ViewGroup.MarginLayoutParams) holder.viewTimecode.getLayoutParams();
@@ -550,7 +551,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
 
     private void highlightViewHolder(TranscriptViewholder holder, boolean highlight) {
         if (highlight) {
-            holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19 + fontSizeStep * 2);
+            holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16 + fontSizeStep * 2);
             holder.viewContent.setAlpha(1.0f);
             holder.viewContent.setTypeface(null, Typeface.BOLD);
 

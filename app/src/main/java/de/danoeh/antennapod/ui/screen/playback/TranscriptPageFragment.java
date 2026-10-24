@@ -4,13 +4,12 @@ import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.DisplayMetrics;
+import android.os.SystemClock;
 import android.util.Log;
-import android.view.Choreographer;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.animation.DecelerateInterpolator;
+import android.view.ViewTreeObserver;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -21,7 +20,6 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 import androidx.media3.session.MediaController;
 import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.LinearSmoothScroller;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.recyclerview.widget.SimpleItemAnimator;
 
@@ -65,30 +63,32 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private FeedMedia currentMedia;
     private String loadedTranscriptUrl;
     private String loadedTranscriptType;
-    private boolean doInitialScroll = true;
     private boolean userScrolling = false;
+    private boolean pendingSnapToHighlight = false;
     private int lastScrolledPosition = -1;
     private float followDensity = 1f;
-    private Choreographer choreographer;
-    private boolean followFrameScheduled = false;
-    private final Choreographer.FrameCallback followFrameCallback = new Choreographer.FrameCallback() {
-        @Override
-        public void doFrame(long frameTimeNanos) {
-            followFrameScheduled = false;
-            if (!canAutoFollow() || !scrollTowardsCurrentSentence()) {
-                return;
-            }
-            followFrameScheduled = true;
-            choreographer.postFrameCallback(this);
+    private boolean followListenerRegistered = false;
+    private boolean followMoving = false;
+    private long lastFollowFrameMs = 0;
+    private final ViewTreeObserver.OnPreDrawListener followPreDrawListener = () -> {
+        if (!canAutoFollow()) {
+            stopFollowFrame();
+            return true;
         }
+        if (!scrollTowardsCurrentSentence()) {
+            stopFollowFrame();
+        }
+        return true;
     };
     private long lastPositionMs = 0;
     private boolean controlsBarVisibleBeforeImmersive = false;
     private boolean immersiveMode = false;
     private int immersiveTopInset = 0;
-    private static final float FOLLOW_STEP_FACTOR = 0.18f;
+    private static final float FOLLOW_START_DP = 64f;
+    private static final float FOLLOW_STOP_DP = 2f;
+    private static final float FOLLOW_MAX_SPEED_DP_PER_SEC = 500f;
+    private static final float FOLLOW_TIME_CONSTANT_MS = 140f;
     private static final float FOLLOW_MAX_STEP_DP = 10f;
-    private static final float FOLLOW_DEAD_ZONE_PX = 1f;
     private static final long HIGHLIGHT_UPDATE_INTERVAL_MS = 250;
     private static final int FONT_SIZE_MIN_STEP = UserPreferences.TRANSCRIPT_FONT_SIZE_MIN_STEP;
     private static final int FONT_SIZE_MAX_STEP = UserPreferences.TRANSCRIPT_FONT_SIZE_MAX_STEP;
@@ -138,7 +138,6 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
         viewBinding = TranscriptPageFragmentBinding.inflate(inflater, container, false);
-        choreographer = Choreographer.getInstance();
         followDensity = getResources().getDisplayMetrics().density;
 
         adapter = new TranscriptAdapter(getContext(), this);
@@ -156,10 +155,10 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 super.onScrollStateChanged(recyclerView, newState);
                 if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
                     userScrolling = true;
+                    pendingSnapToHighlight = false;
                     stopFollowFrame();
                     updateBackToCurrentVisibility();
                 } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                    resumeFollowingIfHighlightVisible();
                     scheduleFollowFrame();
                 }
             }
@@ -417,7 +416,6 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         viewBinding.recyclerView.setVisibility(View.VISIBLE);
 
         adapter.setMedia(currentMedia);
-        doInitialScroll = true;
         userScrolling = false;
         lastScrolledPosition = -1;
         segmentLooping = false;
@@ -521,6 +519,13 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
 
+        if (lastScrolledPosition >= 0 && Math.abs(pos - lastScrolledPosition) <= 1) {
+            lastScrolledPosition = pos;
+            pendingSnapToHighlight = false;
+            scheduleFollowFrame();
+            return;
+        }
+
         scrollToPosition(pos);
     }
 
@@ -531,17 +536,31 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     }
 
     private void scheduleFollowFrame() {
-        if (choreographer == null || followFrameScheduled || !canAutoFollow()) {
+        if (viewBinding == null || followListenerRegistered || !canAutoFollow()) {
             return;
         }
-        followFrameScheduled = true;
-        choreographer.postFrameCallback(followFrameCallback);
+        ViewTreeObserver observer = viewBinding.recyclerView.getViewTreeObserver();
+        if (!observer.isAlive()) {
+            return;
+        }
+        observer.addOnPreDrawListener(followPreDrawListener);
+        followListenerRegistered = true;
+        viewBinding.recyclerView.postInvalidateOnAnimation();
     }
 
     private void stopFollowFrame() {
-        if (choreographer != null && followFrameScheduled) {
-            choreographer.removeFrameCallback(followFrameCallback);
-            followFrameScheduled = false;
+        followMoving = false;
+        lastFollowFrameMs = 0;
+        if (!followListenerRegistered) {
+            return;
+        }
+        followListenerRegistered = false;
+        if (viewBinding == null) {
+            return;
+        }
+        ViewTreeObserver observer = viewBinding.recyclerView.getViewTreeObserver();
+        if (observer.isAlive()) {
+            observer.removeOnPreDrawListener(followPreDrawListener);
         }
     }
 
@@ -550,122 +569,124 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         RecyclerView recyclerView = viewBinding.recyclerView;
         RecyclerView.ViewHolder holder = recyclerView.findViewHolderForAdapterPosition(position);
         if (!(holder instanceof TranscriptViewholder)) {
-            return false;
+            if (pendingSnapToHighlight) {
+                // Keep the jump pending until the row is laid out (e.g. while the page is being
+                // measured), then centre it on the next frame.
+                recyclerView.scrollToPosition(position);
+                return true;
+            }
+            return stepTowardsRow(recyclerView, position);
         }
         int[] bounds = adapter.getSentenceBounds((TranscriptViewholder) holder);
+        boolean snap = pendingSnapToHighlight;
+        pendingSnapToHighlight = false;
         if (bounds == null) {
-            return false;
+            if (!snap) {
+                return false;
+            }
+            bounds = new int[]{0, holder.itemView.getHeight()};
         }
         int target = holder.itemView.getTop() + (bounds[0] + bounds[1]) / 2;
         int error = target - recyclerView.getHeight() / 2;
-        if (Math.abs(error) <= FOLLOW_DEAD_ZONE_PX) {
+        if (Math.abs(error) <= FOLLOW_STOP_DP * followDensity) {
+            followMoving = false;
             return false;
         }
-        float maxStep = FOLLOW_MAX_STEP_DP * followDensity;
-        float step = Math.max(-maxStep, Math.min(maxStep, error * FOLLOW_STEP_FACTOR));
+        if (snap) {
+            followMoving = false;
+            if (error < 0 && !recyclerView.canScrollVertically(-1)) {
+                return false;
+            }
+            if (error > 0 && !recyclerView.canScrollVertically(1)) {
+                return false;
+            }
+            recyclerView.scrollBy(0, error);
+            return true;
+        }
+        if (!followMoving && Math.abs(error) < FOLLOW_START_DP * followDensity) {
+            return false;
+        }
+        if (!followMoving) {
+            followMoving = true;
+            lastFollowFrameMs = 0;
+        }
+        long now = SystemClock.uptimeMillis();
+        long dt = lastFollowFrameMs == 0
+                ? 16L : Math.max(1L, Math.min(48L, now - lastFollowFrameMs));
+        lastFollowFrameMs = now;
+        float alpha = 1f - (float) Math.exp(-dt / FOLLOW_TIME_CONSTANT_MS);
+        float maxStep = FOLLOW_MAX_SPEED_DP_PER_SEC * followDensity * dt / 1000f;
+        float step = Math.max(-maxStep, Math.min(maxStep, error * alpha));
         int dy = Math.round(step);
         if (dy == 0) {
             dy = error > 0 ? 1 : -1;
         }
         if (dy < 0 && !recyclerView.canScrollVertically(-1)) {
+            followMoving = false;
             return false;
         }
         if (dy > 0 && !recyclerView.canScrollVertically(1)) {
+            followMoving = false;
             return false;
         }
         recyclerView.scrollBy(0, dy);
         return true;
     }
 
-    private int[] sentenceBounds(View targetView) {
-        if (adapter == null || viewBinding == null) {
-            return null;
+    private boolean stepTowardsRow(RecyclerView recyclerView, int position) {
+        LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
+        if (lm == null) {
+            return false;
         }
-        RecyclerView.ViewHolder holder = viewBinding.recyclerView.getChildViewHolder(targetView);
-        if (!(holder instanceof TranscriptViewholder)) {
-            return null;
+        int first = lm.findFirstVisibleItemPosition();
+        int last = lm.findLastVisibleItemPosition();
+        if (first == RecyclerView.NO_POSITION) {
+            return false;
         }
-        return adapter.getSentenceBounds((TranscriptViewholder) holder);
+        int direction = position < first ? -1 : position > last ? 1 : 0;
+        if (direction == 0) {
+            return false;
+        }
+        if (direction < 0 && !recyclerView.canScrollVertically(-1)) {
+            return false;
+        }
+        if (direction > 0 && !recyclerView.canScrollVertically(1)) {
+            return false;
+        }
+        recyclerView.scrollBy(0, direction * Math.round(FOLLOW_MAX_STEP_DP * followDensity));
+        return true;
     }
 
     private void scrollToPosition(int pos) {
         scrollToPosition(pos, false);
     }
 
-    private void scrollToPosition(int pos, boolean fast) {
+    private void scrollToPosition(int pos, boolean snap) {
         lastScrolledPosition = pos;
-        LinearLayoutManager lm = (LinearLayoutManager) viewBinding.recyclerView.getLayoutManager();
+        if (viewBinding == null) {
+            return;
+        }
+        RecyclerView recyclerView = viewBinding.recyclerView;
+        LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
         if (lm == null) {
             return;
         }
-
-        // No need to scroll if the current sentence is already centered
-        View targetView = lm.findViewByPosition(pos);
-        if (targetView != null) {
-            RecyclerView recyclerView = viewBinding.recyclerView;
-            int rvHeight = recyclerView.getHeight();
-            int[] bounds = sentenceBounds(targetView);
-            int centerY = bounds != null
-                    ? targetView.getTop() + (bounds[0] + bounds[1]) / 2
-                    : (targetView.getTop() + targetView.getBottom()) / 2;
-            int delta = centerY - rvHeight / 2;
-            if (Math.abs(delta) < 20) {
-                return;
-            }
-            if (delta < 0 && !recyclerView.canScrollVertically(-1)) {
-                return;
-            }
-            if (delta > 0 && !recyclerView.canScrollVertically(1)) {
-                return;
-            }
+        int first = lm.findFirstVisibleItemPosition();
+        int last = lm.findLastVisibleItemPosition();
+        if (first != RecyclerView.NO_POSITION && pos >= first && pos <= last) {
+            pendingSnapToHighlight = snap;
+            followMoving = false;
+            scheduleFollowFrame();
+            return;
         }
 
-        if (!doInitialScroll) {
-            if (lm.findFirstVisibleItemPosition() < pos
-                    && !viewBinding.recyclerView.canScrollVertically(1)) {
-                return;
-            }
-        }
-        doInitialScroll = false;
-
-        boolean quickScroll = Math.abs(lm.findFirstVisibleItemPosition() - pos) > 5;
-        if (quickScroll) {
-            viewBinding.recyclerView.scrollToPosition(pos);
-        }
-
-        LinearSmoothScroller smoothScroller = new LinearSmoothScroller(getContext()) {
-            @Override
-            protected int getVerticalSnapPreference() {
-                return LinearSmoothScroller.SNAP_TO_ANY;
-            }
-
-            @Override
-            protected void onTargetFound(View targetView, RecyclerView.State state,
-                                         RecyclerView.SmoothScroller.Action action) {
-                int viewportHeight = viewBinding.recyclerView.getHeight();
-                int centerY = targetView.getTop() + targetView.getHeight() / 2;
-                int[] bounds = sentenceBounds(targetView);
-                if (bounds != null) {
-                    centerY = targetView.getTop() + (bounds[0] + bounds[1]) / 2;
-                }
-                int dy = centerY - viewportHeight / 2;
-                RecyclerView recyclerView = viewBinding.recyclerView;
-                if (dy < 0 && !recyclerView.canScrollVertically(-1)) {
-                    dy = 0;
-                } else if (dy > 0 && !recyclerView.canScrollVertically(1)) {
-                    dy = 0;
-                }
-                int duration = Math.max(1, calculateTimeForDeceleration(Math.abs(dy)));
-                action.update(0, dy, duration, new DecelerateInterpolator());
-            }
-
-            @Override
-            protected float calculateSpeedPerPixel(DisplayMetrics displayMetrics) {
-                return (fast ? 100 : quickScroll ? 200 : 1600) / (float) displayMetrics.densityDpi;
-            }
-        };
-        smoothScroller.setTargetPosition(pos);
-        lm.startSmoothScroll(smoothScroller);
+        // The row is not laid out, so an animated seek would crawl over an unknown distance.
+        // Jump there and centre the sentence in one step once the row has been measured.
+        stopFollowFrame();
+        recyclerView.stopScroll();
+        pendingSnapToHighlight = true;
+        recyclerView.scrollToPosition(pos);
+        scheduleFollowFrame();
     }
 
     @Override
@@ -713,19 +734,6 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         viewBinding.btnBackToCurrent.setVisibility(userScrolling ? View.VISIBLE : View.GONE);
-    }
-
-    private void resumeFollowingIfHighlightVisible() {
-        if (!userScrolling || viewBinding == null || adapter == null) {
-            return;
-        }
-        LinearLayoutManager lm = (LinearLayoutManager) viewBinding.recyclerView.getLayoutManager();
-        int highlight = adapter.getHighlightPosition();
-        if (lm != null && highlight >= lm.findFirstVisibleItemPosition()
-                && highlight <= lm.findLastVisibleItemPosition()) {
-            userScrolling = false;
-            updateBackToCurrentVisibility();
-        }
     }
 
     @Override
@@ -829,7 +837,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             userScrolling = false;
             updateBackToCurrentVisibility();
             lastScrolledPosition = -1;
-            scrollToPosition(pos);
+            scrollToPosition(pos, true);
         }
         updateOffsetLabel();
         if (getContext() != null) {
@@ -1066,7 +1074,17 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         boolean visible = viewBinding.controlsBar.getVisibility() == View.VISIBLE;
+        if (visible) {
+            hideControlPanels();
+        }
         viewBinding.controlsBar.setVisibility(visible ? View.GONE : View.VISIBLE);
+    }
+
+    private void hideControlPanels() {
+        viewBinding.offsetControls.setVisibility(View.GONE);
+        viewBinding.layoutControls.setVisibility(View.GONE);
+        updateOffsetToggle();
+        updateLayoutControls();
     }
 
     public boolean isControlsBarVisible() {
@@ -1080,6 +1098,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         immersiveMode = immersive;
         if (immersive) {
             controlsBarVisibleBeforeImmersive = viewBinding.controlsBar.getVisibility() == View.VISIBLE;
+            hideControlPanels();
             viewBinding.controlsBar.setVisibility(View.GONE);
         } else {
             viewBinding.controlsBar.setVisibility(
