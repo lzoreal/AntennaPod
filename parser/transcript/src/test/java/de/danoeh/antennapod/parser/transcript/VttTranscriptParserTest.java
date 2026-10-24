@@ -257,6 +257,53 @@ public class VttTranscriptParserTest {
     }
 
     @Test
+    public void testAlternatingSingleLineBilingual() {
+        String vtt = "WEBVTT\n\n"
+                + "00:00.000 --> 00:02.000\n"
+                + "This is the first sentence\n\n"
+                + "00:00:02.000 --> 00:00:04.000\n"
+                + "这是第一句\n\n"
+                + "00:00:04.000 --> 00:00:06.000\n"
+                + "This is the second sentence\n\n"
+                + "00:00:06.000 --> 00:00:08.000\n"
+                + "这是第二句";
+        Transcript result = VttTranscriptParser.parse(vtt);
+
+        assertNotNull(result);
+        assertTrue(result.isBilingual());
+        assertEquals(2, result.getSegmentCount());
+        assertEquals("This is the first sentence\n这是第一句",
+                result.getSegmentAt(0).getWords());
+        assertEquals(1, result.getSegmentAt(0).getTranslationLine());
+        assertEquals(0, result.getSegmentAt(0).getStartTime());
+        assertEquals(4000, result.getSegmentAt(0).getEndTime());
+        assertEquals(4000, result.getSegmentAt(1).getStartTime());
+        assertEquals(8000, result.getSegmentAt(1).getEndTime());
+        assertEquals("This is the second sentence\n这是第二句",
+                result.getSegmentAt(1).getWords());
+    }
+
+    @Test
+    public void testLongBilingualCueSplitsIntoSentencePairs() {
+        String vtt = "WEBVTT\n\n"
+                + "00:00:00.000 --> 00:00:10.000\n"
+                + "First sentence. Second sentence.\n"
+                + "第一句。第二句。第三句。";
+        Transcript result = VttTranscriptParser.parse(vtt);
+
+        assertNotNull(result);
+        assertTrue(result.isBilingual());
+        assertEquals(2, result.getSegmentCount());
+        assertEquals("First sentence.\n第一句。", result.getSegmentAt(0).getWords());
+        assertEquals("Second sentence.\n第二句。 第三句。", result.getSegmentAt(1).getWords());
+        assertEquals(1, result.getSegmentAt(0).getTranslationLine());
+        assertEquals(1, result.getSegmentAt(1).getTranslationLine());
+        assertEquals(0, result.getSegmentAt(0).getStartTime());
+        assertEquals(4687, result.getSegmentAt(1).getStartTime());
+        assertEquals(10000, result.getSegmentAt(1).getEndTime());
+    }
+
+    @Test
     public void testParse() {
         String type = "text/vtt";
         Transcript result;

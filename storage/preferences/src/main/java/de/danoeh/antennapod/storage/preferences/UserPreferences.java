@@ -136,6 +136,7 @@ public abstract class UserPreferences {
     public static final int TRANSCRIPT_LANGUAGE_MODE_SECONDARY_ONLY = 2;
     private static final String PREF_FLOATING_TRANSCRIPT_X_DP = "prefFloatingTranscriptXDp";
     private static final String PREF_FLOATING_TRANSCRIPT_Y_DP = "prefFloatingTranscriptYDp";
+    private static final String PREF_FLOATING_TRANSCRIPT_LOCKED = "prefFloatingTranscriptLocked";
 
     // Experimental
     public static final int EPISODE_CLEANUP_QUEUE = -1;
@@ -997,5 +998,13 @@ public abstract class UserPreferences {
                 .putInt(PREF_FLOATING_TRANSCRIPT_X_DP, x)
                 .putInt(PREF_FLOATING_TRANSCRIPT_Y_DP, y)
                 .apply();
+    }
+
+    public static boolean isFloatingTranscriptLocked() {
+        return prefs.getBoolean(PREF_FLOATING_TRANSCRIPT_LOCKED, false);
+    }
+
+    public static void setFloatingTranscriptLocked(boolean locked) {
+        prefs.edit().putBoolean(PREF_FLOATING_TRANSCRIPT_LOCKED, locked).apply();
     }
 }
