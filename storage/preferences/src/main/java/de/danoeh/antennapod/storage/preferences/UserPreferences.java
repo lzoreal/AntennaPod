@@ -131,6 +131,9 @@ public abstract class UserPreferences {
     private static final String PREF_TRANSCRIPT_TIME_OFFSET_MEDIA = "prefTranscriptTimeOffsetMedia";
     public static final String PREF_TRANSCRIPT_TIME_OFFSETS = "prefTranscriptTimeOffsets";
     private static final String PREF_TRANSCRIPT_FONT_SIZE = "prefTranscriptFontSize";
+    private static final String PREF_TRANSCRIPT_LINE_SPACING = "prefTranscriptLineSpacing";
+    private static final String PREF_TRANSCRIPT_SIDE_MARGINS = "prefTranscriptSideMargins";
+    private static final String PREF_TRANSCRIPT_VERTICAL_SPACING = "prefTranscriptVerticalSpacing";
     private static final String PREF_TRANSCRIPT_SENTENCE_PER_LINE = "prefTranscriptSentencePerLine";
     public static final String PREF_TRANSCRIPT_LANGUAGE_MODE = "prefTranscriptLanguageMode";
     public static final int TRANSCRIPT_LANGUAGE_MODE_BOTH = 0;
@@ -138,6 +141,14 @@ public abstract class UserPreferences {
     public static final int TRANSCRIPT_LANGUAGE_MODE_SECONDARY_ONLY = 2;
     public static final int TRANSCRIPT_FONT_SIZE_MIN_STEP = -2;
     public static final int TRANSCRIPT_FONT_SIZE_MAX_STEP = 3;
+    public static final int TRANSCRIPT_LAYOUT_MIN_STEP = 0;
+    public static final int TRANSCRIPT_LAYOUT_MAX_STEP = 2;
+    public static final int TRANSCRIPT_LINE_SPACING_DEFAULT_STEP = 0;
+    public static final int TRANSCRIPT_SIDE_MARGINS_DEFAULT_STEP = 1;
+    public static final int TRANSCRIPT_VERTICAL_SPACING_DEFAULT_STEP = 1;
+    private static final float[] TRANSCRIPT_LINE_SPACING_MULTIPLIERS = {1.0f, 1.15f, 1.3f};
+    private static final int[] TRANSCRIPT_SIDE_MARGINS_DP = {16, 24, 32};
+    private static final int[] TRANSCRIPT_VERTICAL_SPACING_DP = {4, 8, 16};
     private static final String PREF_FLOATING_TRANSCRIPT_X_DP = "prefFloatingTranscriptXDp";
     private static final String PREF_FLOATING_TRANSCRIPT_Y_DP = "prefFloatingTranscriptYDp";
     private static final String PREF_FLOATING_TRANSCRIPT_LOCKED = "prefFloatingTranscriptLocked";
@@ -1006,6 +1017,55 @@ public abstract class UserPreferences {
 
     public static void setTranscriptFontSize(int step) {
         prefs.edit().putInt(PREF_TRANSCRIPT_FONT_SIZE, step).apply();
+    }
+
+    public static int getTranscriptLineSpacingStep() {
+        return getTranscriptLayoutStep(
+                PREF_TRANSCRIPT_LINE_SPACING, TRANSCRIPT_LINE_SPACING_DEFAULT_STEP);
+    }
+
+    public static void setTranscriptLineSpacingStep(int step) {
+        setTranscriptLayoutStep(PREF_TRANSCRIPT_LINE_SPACING, step);
+    }
+
+    public static float getTranscriptLineSpacingMultiplier() {
+        return TRANSCRIPT_LINE_SPACING_MULTIPLIERS[getTranscriptLineSpacingStep()];
+    }
+
+    public static int getTranscriptSideMarginsStep() {
+        return getTranscriptLayoutStep(
+                PREF_TRANSCRIPT_SIDE_MARGINS, TRANSCRIPT_SIDE_MARGINS_DEFAULT_STEP);
+    }
+
+    public static void setTranscriptSideMarginsStep(int step) {
+        setTranscriptLayoutStep(PREF_TRANSCRIPT_SIDE_MARGINS, step);
+    }
+
+    public static int getTranscriptSideMarginsDp() {
+        return TRANSCRIPT_SIDE_MARGINS_DP[getTranscriptSideMarginsStep()];
+    }
+
+    public static int getTranscriptVerticalSpacingStep() {
+        return getTranscriptLayoutStep(
+                PREF_TRANSCRIPT_VERTICAL_SPACING, TRANSCRIPT_VERTICAL_SPACING_DEFAULT_STEP);
+    }
+
+    public static void setTranscriptVerticalSpacingStep(int step) {
+        setTranscriptLayoutStep(PREF_TRANSCRIPT_VERTICAL_SPACING, step);
+    }
+
+    public static int getTranscriptVerticalSpacingDp() {
+        return TRANSCRIPT_VERTICAL_SPACING_DP[getTranscriptVerticalSpacingStep()];
+    }
+
+    private static int getTranscriptLayoutStep(String key, int defaultStep) {
+        int step = prefs.getInt(key, defaultStep);
+        return Math.max(TRANSCRIPT_LAYOUT_MIN_STEP, Math.min(TRANSCRIPT_LAYOUT_MAX_STEP, step));
+    }
+
+    private static void setTranscriptLayoutStep(String key, int step) {
+        prefs.edit().putInt(key,
+                Math.max(TRANSCRIPT_LAYOUT_MIN_STEP, Math.min(TRANSCRIPT_LAYOUT_MAX_STEP, step))).apply();
     }
 
     public static boolean isTranscriptSentencePerLine() {

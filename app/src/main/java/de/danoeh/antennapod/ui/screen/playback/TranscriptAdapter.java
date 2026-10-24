@@ -49,6 +49,9 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     private long lastHighlightPositionMs = 0;
     private int languageMode = UserPreferences.getTranscriptLanguageMode();
     private int fontSizeStep = UserPreferences.getTranscriptFontSize();
+    private float lineSpacingMultiplier;
+    private int horizontalPaddingPx;
+    private int verticalSpacingPx;
     private float lastTouchX = 0;
     private float lastTouchY = 0;
     private boolean sentencePerLine = UserPreferences.isTranscriptSentencePerLine();
@@ -67,6 +70,30 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         typedArray = context.obtainStyledAttributes(new int[]{android.R.attr.textColorPrimary});
         normalTextColor = typedArray.getColor(0, 0);
         typedArray.recycle();
+        readLayoutSettings();
+    }
+
+    private void readLayoutSettings() {
+        float density = context.getResources().getDisplayMetrics().density;
+        lineSpacingMultiplier = UserPreferences.getTranscriptLineSpacingMultiplier();
+        horizontalPaddingPx = Math.round(UserPreferences.getTranscriptSideMarginsDp() * density);
+        verticalSpacingPx = Math.round(UserPreferences.getTranscriptVerticalSpacingDp() * density);
+    }
+
+    public void refreshLayout() {
+        readLayoutSettings();
+        notifyDataSetChanged();
+    }
+
+    private void applyLayout(TranscriptViewholder holder) {
+        holder.viewContent.setLineSpacing(0, lineSpacingMultiplier);
+        holder.viewContent.setPadding(horizontalPaddingPx, 0, horizontalPaddingPx, 0);
+        holder.viewTimecode.setPadding(horizontalPaddingPx, 0, horizontalPaddingPx, 0);
+        ViewGroup.MarginLayoutParams params =
+                (ViewGroup.MarginLayoutParams) holder.viewTimecode.getLayoutParams();
+        params.topMargin = verticalSpacingPx;
+        params.bottomMargin = verticalSpacingPx;
+        holder.viewTimecode.setLayoutParams(params);
     }
 
     public static final int LANGUAGE_MODE_BOTH = UserPreferences.TRANSCRIPT_LANGUAGE_MODE_BOTH;
@@ -170,6 +197,8 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         String timecode = Converter.getDurationStringLong((int) seg.getStartTime());
 
         String displayText = getDisplayInfo(seg).text;
+
+        applyLayout(holder);
 
         if (!StringUtil.isBlank(seg.getSpeaker())) {
             if (position > 0 && media.getTranscript()

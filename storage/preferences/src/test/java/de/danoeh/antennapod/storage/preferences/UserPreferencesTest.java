@@ -40,6 +40,32 @@ public class UserPreferencesTest {
     }
 
     @Test
+    public void testTranscriptLayoutDefaults() {
+        assertEquals(1.0f, UserPreferences.getTranscriptLineSpacingMultiplier(), 0.001f);
+        assertEquals(24, UserPreferences.getTranscriptSideMarginsDp());
+        assertEquals(8, UserPreferences.getTranscriptVerticalSpacingDp());
+    }
+
+    @Test
+    public void testTranscriptLayoutStepsAreClamped() {
+        UserPreferences.setTranscriptLineSpacingStep(5);
+        UserPreferences.setTranscriptSideMarginsStep(-3);
+        UserPreferences.setTranscriptVerticalSpacingStep(2);
+
+        assertEquals(1.3f, UserPreferences.getTranscriptLineSpacingMultiplier(), 0.001f);
+        assertEquals(16, UserPreferences.getTranscriptSideMarginsDp());
+        assertEquals(16, UserPreferences.getTranscriptVerticalSpacingDp());
+
+        UserPreferences.setTranscriptLineSpacingStep(0);
+        UserPreferences.setTranscriptSideMarginsStep(1);
+        UserPreferences.setTranscriptVerticalSpacingStep(1);
+
+        assertEquals(1.0f, UserPreferences.getTranscriptLineSpacingMultiplier(), 0.001f);
+        assertEquals(24, UserPreferences.getTranscriptSideMarginsDp());
+        assertEquals(8, UserPreferences.getTranscriptVerticalSpacingDp());
+    }
+
+    @Test
     public void testLegacyTranscriptOffsetIsMigrated() {
         SharedPreferences preferences = UserPreferences.getPreferences();
         preferences.edit()
