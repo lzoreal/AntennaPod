@@ -335,6 +335,16 @@ backup_device() {
   done
   MSYS_NO_PATHCONV=1 "${ADB[@]}" exec-out run-as "$PKG" \
     cat "shared_prefs/${PKG}_preferences.xml" > "$WORK/prefs.orig.xml" || abort "备份偏好失败"
+  if ! "$PYTHON" - "$WORK/Antennapod.db.orig" <<'PY'
+import sqlite3, sys
+conn = sqlite3.connect(sys.argv[1])
+left = conn.execute(
+    "select count(*) from FeedItems where podcastindex_transcript_url like '%127.0.0.1%'").fetchone()[0]
+sys.exit(0 if left == 0 else 1)
+PY
+  then
+    abort "设备上已残留测试 URL（上次 --keep 未恢复）。先运行 --restore-only --work <上次目录>，再重跑"
+  fi
   BACKUP_OK=1
   if [ -z "$MEDIA_ID" ]; then
     # PlaybackPreferences 的键带包名前缀，例如 de.danoeh.antennapod.preferences.currentlyPlayingMedia
