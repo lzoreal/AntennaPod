@@ -1,10 +1,6 @@
 package de.danoeh.antennapod.ui.screen.playback;
 
 import android.app.Dialog;
-import android.content.ClipData;
-import android.content.ClipboardManager;
-import android.content.Intent;
-import android.os.Build;
 import android.os.Bundle;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -16,7 +12,6 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
-import androidx.core.content.ContextCompat;
 import androidx.fragment.app.DialogFragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.LinearSmoothScroller;
@@ -24,7 +19,6 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import de.danoeh.antennapod.R;
 import de.danoeh.antennapod.databinding.TranscriptDialogBinding;
-import de.danoeh.antennapod.event.MessageEvent;
 import de.danoeh.antennapod.event.PlayerStatusEvent;
 import de.danoeh.antennapod.event.playback.PlaybackPositionEvent;
 import de.danoeh.antennapod.model.feed.FeedMedia;
@@ -181,7 +175,17 @@ public class TranscriptDialogFragment extends DialogFragment
         .subscribeOn(Schedulers.computation())
         .observeOn(AndroidSchedulers.mainThread())
         .subscribe(media -> onMediaChanged((Playable) media),
-                error -> Log.e(TAG, Log.getStackTraceString(error)));
+                error -> {
+                    Log.e(TAG, Log.getStackTraceString(error));
+                    if (viewBinding != null) {
+                        viewBinding.progLoading.setVisibility(View.GONE);
+                    }
+                },
+                () -> {
+                    if (viewBinding != null) {
+                        viewBinding.progLoading.setVisibility(View.GONE);
+                    }
+                });
     }
 
     private void onMediaChanged(Playable media) {
@@ -190,7 +194,9 @@ public class TranscriptDialogFragment extends DialogFragment
         }
         this.media = media;
 
-        if (!((FeedMedia) media).hasTranscript()) {
+        Transcript loadedTranscript = ((FeedMedia) media).getTranscript();
+        if (!((FeedMedia) media).hasTranscript() || loadedTranscript == null
+                || loadedTranscript.getSegmentCount() == 0) {
             dismiss();
             Toast.makeText(getContext(), R.string.no_transcript_label, Toast.LENGTH_LONG).show();
             return;
@@ -199,9 +205,15 @@ public class TranscriptDialogFragment extends DialogFragment
         viewBinding.progLoading.setVisibility(View.GONE);
         adapter.setMedia(media);
 
+        long offset = UserPreferences.getTranscriptTimeOffset(((FeedMedia) media).getId());
+        long position = Math.max(0, ((FeedMedia) media).getPosition() - offset);
+        int initialPosition = loadedTranscript.findSegmentIndexBefore(position);
+        adapter.setHighlightPosition(initialPosition);
+        scrollToPosition(initialPosition);
+
         View btnToggleTranslation = viewBinding.getRoot().findViewById(R.id.btnToggleTranslation);
         if (btnToggleTranslation != null) {
-            boolean isBilingual = ((FeedMedia) media).getTranscript().isBilingual();
+            boolean isBilingual = loadedTranscript.isBilingual();
             btnToggleTranslation.setVisibility(isBilingual ? View.VISIBLE : View.GONE);
         }
     }

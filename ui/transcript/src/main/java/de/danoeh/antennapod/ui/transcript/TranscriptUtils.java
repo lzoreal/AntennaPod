@@ -91,6 +91,9 @@ public class TranscriptUtils {
     }
 
     public static void storeTranscript(FeedMedia media, String transcript) {
+        if (media.getTranscriptFileUrl() == null) {
+            return;
+        }
         File transcriptFile = new File(media.getTranscriptFileUrl());
         FileOutputStream ostream = null;
         try {

@@ -213,11 +213,17 @@ public class TranscriptFloatingWindowService extends Service {
                     if (media == null) {
                         return null;
                     }
+                    if (lastPlaybackPosition < 0) {
+                        lastPlaybackPosition = Math.max(0, media.getPosition());
+                    }
                     return TranscriptUtils.loadTranscript(media, false);
                 })
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(t -> this.transcript = t,
+                .subscribe(t -> {
+                            this.transcript = t;
+                            updateTranscript(true);
+                        },
                         e -> android.util.Log.e("FloatingTranscript", "load error", e));
     }
 
@@ -235,11 +241,13 @@ public class TranscriptFloatingWindowService extends Service {
 
         long offset = UserPreferences.getTranscriptTimeOffset(currentMediaId);
         long position = lastPlaybackPosition - offset;
-        TranscriptSegment segment = transcript.getSegmentAtTime(position);
-        if (segment == null) {
+        long firstStart = transcript.getSegmentAt(0).getStartTime();
+        long lastEnd = transcript.getSegmentAt(transcript.getSegmentCount() - 1).getEndTime();
+        if (position < firstStart || position > lastEnd) {
             hideTranscript();
             return;
         }
+        TranscriptSegment segment = transcript.getSegmentAtTime(position);
 
         String words = segment.getWords();
         int split = segment.getTranslationLine() >= 0
