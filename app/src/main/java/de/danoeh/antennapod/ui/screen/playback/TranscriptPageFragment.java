@@ -1,6 +1,9 @@
 package de.danoeh.antennapod.ui.screen.playback;
 
+import android.content.Context;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.Layout;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -15,10 +18,14 @@ import androidx.annotation.Nullable;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
+import androidx.media3.session.MediaController;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.LinearSmoothScroller;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.recyclerview.widget.SimpleItemAnimator;
 
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 import de.danoeh.antennapod.R;
 import de.danoeh.antennapod.databinding.TranscriptPageFragmentBinding;
 import de.danoeh.antennapod.event.FeedItemEvent;
@@ -41,8 +48,10 @@ import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.core.Maybe;
 import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
+import java.text.DecimalFormat;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.concurrent.ExecutionException;
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
@@ -63,11 +72,50 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private boolean immersiveMode = false;
     private int immersiveTopInset = 0;
     private static final long FOLLOW_SCROLL_INTERVAL_MS = 300;
+    private static final long HIGHLIGHT_UPDATE_INTERVAL_MS = 250;
     private static final int FONT_SIZE_MIN_STEP = UserPreferences.TRANSCRIPT_FONT_SIZE_MIN_STEP;
     private static final int FONT_SIZE_MAX_STEP = UserPreferences.TRANSCRIPT_FONT_SIZE_MAX_STEP;
+    private static final int[] VERTICAL_SPACING_LABELS = {
+            R.string.transcript_layout_compact,
+            R.string.transcript_layout_standard,
+            R.string.transcript_layout_loose};
     private long lastFollowScrollTime = 0;
     private boolean segmentLooping = false;
     private int loopSegmentIndex = -1;
+    private final Handler highlightHandler = new Handler(Looper.getMainLooper());
+    private ListenableFuture<MediaController> controllerFuture;
+    private MediaController mediaController;
+    private boolean highlightTickerActive = false;
+    private boolean highlightTickerDriving = false;
+    private final Runnable highlightTicker = new Runnable() {
+        @Override
+        public void run() {
+            if (!highlightTickerActive) {
+                return;
+            }
+            MediaController controller = mediaController;
+            boolean playing = controller != null && controller.isConnected() && controller.isPlaying();
+            if (playing) {
+                long position = controller.getCurrentPosition();
+                setHighlightTickerDriving(true);
+                if (adapter != null) {
+                    adapter.updatePlaybackPosition(position);
+                }
+                handlePlaybackPosition(position);
+            } else if (highlightTickerDriving) {
+                long position = controller != null && controller.isConnected()
+                        ? controller.getCurrentPosition() : -1;
+                setHighlightTickerDriving(false);
+                if (position >= 0) {
+                    if (adapter != null) {
+                        adapter.updatePlaybackPosition(position);
+                    }
+                    handlePlaybackPosition(position);
+                }
+            }
+            highlightHandler.postDelayed(this, HIGHLIGHT_UPDATE_INTERVAL_MS);
+        }
+    };
 
     @Nullable
     @Override
@@ -79,6 +127,10 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         LinearLayoutManager layoutManager = new LinearLayoutManager(getContext());
         viewBinding.recyclerView.setLayoutManager(layoutManager);
         viewBinding.recyclerView.setAdapter(adapter);
+        RecyclerView.ItemAnimator animator = viewBinding.recyclerView.getItemAnimator();
+        if (animator instanceof SimpleItemAnimator) {
+            ((SimpleItemAnimator) animator).setSupportsChangeAnimations(false);
+        }
 
         viewBinding.recyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
@@ -101,8 +153,25 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         viewBinding.btnTranslationToggle.setOnClickListener(v -> cycleLanguageMode());
         viewBinding.btnTranslationToggle.setContentDescription(getString(R.string.toggle_translation));
         viewBinding.btnLineBreakToggle.setOnClickListener(v -> toggleSentencePerLine());
-        viewBinding.btnFontSmaller.setOnClickListener(v -> adjustFontSize(-1));
-        viewBinding.btnFontLarger.setOnClickListener(v -> adjustFontSize(1));
+        viewBinding.btnLayout.setOnClickListener(v -> toggleLayoutBar());
+        viewBinding.btnLayout.setContentDescription(getString(R.string.transcript_layout_toggle_description));
+        viewBinding.btnFontSizeDown.setOnClickListener(v -> adjustFontSize(-1));
+        viewBinding.btnFontSizeUp.setOnClickListener(v -> adjustFontSize(1));
+        viewBinding.btnFontSizeDown.setContentDescription(getString(R.string.transcript_font_smaller_description));
+        viewBinding.btnFontSizeUp.setContentDescription(getString(R.string.transcript_font_larger_description));
+        bindLayoutStepper(viewBinding.btnLineSpacingDown, viewBinding.btnLineSpacingUp,
+                R.string.transcript_layout_line_spacing);
+        bindLayoutStepper(viewBinding.btnSideMarginsDown, viewBinding.btnSideMarginsUp,
+                R.string.transcript_layout_side_margins);
+        bindLayoutStepper(viewBinding.btnVerticalSpacingDown, viewBinding.btnVerticalSpacingUp,
+                R.string.transcript_layout_vertical_spacing);
+        viewBinding.btnLineSpacingDown.setOnClickListener(v -> adjustLineSpacing(-1));
+        viewBinding.btnLineSpacingUp.setOnClickListener(v -> adjustLineSpacing(1));
+        viewBinding.btnSideMarginsDown.setOnClickListener(v -> adjustSideMargins(-1));
+        viewBinding.btnSideMarginsUp.setOnClickListener(v -> adjustSideMargins(1));
+        viewBinding.btnVerticalSpacingDown.setOnClickListener(v -> adjustVerticalSpacing(-1));
+        viewBinding.btnVerticalSpacingUp.setOnClickListener(v -> adjustVerticalSpacing(1));
+        viewBinding.btnLayoutReset.setOnClickListener(v -> resetTranscriptLayout());
         viewBinding.btnSegmentLoop.setOnClickListener(v -> toggleSegmentLoop());
         viewBinding.btnBackToCurrent.setOnClickListener(v -> returnToCurrentSentence());
         viewBinding.btnLineBreakToggle.setContentDescription(
@@ -116,6 +185,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         updateTranslationToggle();
         updateSentenceToggle();
         updateOffsetToggle();
+        updateLayoutControls();
+        applyTranscriptLayout();
         updateSegmentLoopToggle();
         updateBackToCurrentVisibility();
 
@@ -136,6 +207,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     public void onStart() {
         super.onStart();
         EventBus.getDefault().register(this);
+        connectPlaybackController();
         if (adapter != null
                 && adapter.getLanguageMode() != UserPreferences.getTranscriptLanguageMode()) {
             adapter.setLanguageMode(UserPreferences.getTranscriptLanguageMode());
@@ -145,12 +217,71 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     }
 
     @Override
+    public void onResume() {
+        super.onResume();
+        highlightTickerActive = true;
+        highlightHandler.post(highlightTicker);
+    }
+
+    @Override
+    public void onPause() {
+        highlightTickerActive = false;
+        setHighlightTickerDriving(false);
+        highlightHandler.removeCallbacks(highlightTicker);
+        super.onPause();
+    }
+
+    @Override
     public void onStop() {
         super.onStop();
         if (disposable != null) {
             disposable.dispose();
         }
+        disconnectPlaybackController();
         EventBus.getDefault().unregister(this);
+    }
+
+    private void connectPlaybackController() {
+        Context context = getContext();
+        if (context == null) {
+            return;
+        }
+        ListenableFuture<MediaController> future = PlaybackController.openMedia3Controller(context);
+        controllerFuture = future;
+        future.addListener(() -> {
+            if (!isAdded() || future.isCancelled()) {
+                return;
+            }
+            try {
+                mediaController = future.get();
+            } catch (ExecutionException | InterruptedException e) {
+                Log.e(TAG, "Error getting media controller", e);
+            }
+        }, MoreExecutors.directExecutor());
+    }
+
+    private void setHighlightTickerDriving(boolean driving) {
+        if (highlightTickerDriving == driving) {
+            return;
+        }
+        highlightTickerDriving = driving;
+        if (adapter != null) {
+            adapter.setPositionEventsSuppressed(driving);
+        }
+    }
+
+    private void disconnectPlaybackController() {
+        highlightTickerActive = false;
+        setHighlightTickerDriving(false);
+        highlightHandler.removeCallbacks(highlightTicker);
+        if (mediaController != null) {
+            mediaController.release();
+            mediaController = null;
+        }
+        if (controllerFuture != null) {
+            MediaController.releaseFuture(controllerFuture);
+            controllerFuture = null;
+        }
     }
 
     @Override
@@ -334,15 +465,22 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onPlaybackPositionEvent(PlaybackPositionEvent event) {
-        if (event.getPosition() >= 0) {
-            lastPositionMs = event.getPosition();
+        if (highlightTickerDriving) {
+            return;
+        }
+        handlePlaybackPosition(event.getPosition());
+    }
+
+    private void handlePlaybackPosition(long position) {
+        if (position >= 0) {
+            lastPositionMs = position;
         }
         if (currentMedia == null || currentMedia.getTranscript() == null || viewBinding == null) {
             return;
         }
 
-        if (segmentLooping && event.getPosition() >= 0) {
-            applySegmentLoop(event.getPosition());
+        if (segmentLooping && position >= 0) {
+            applySegmentLoop(position);
         }
 
         int pos = currentMedia.getTranscript().findSegmentIndexBefore(
@@ -468,7 +606,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
             @Override
             protected float calculateSpeedPerPixel(DisplayMetrics displayMetrics) {
-                return (fast ? 100 : quickScroll ? 200 : 1000) / (float) displayMetrics.densityDpi;
+                return (fast ? 100 : quickScroll ? 200 : 1400) / (float) displayMetrics.densityDpi;
             }
         };
         smoothScroller.setTargetPosition(pos);
@@ -696,8 +834,10 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         boolean visible = viewBinding.offsetControls.getVisibility() == View.VISIBLE;
+        viewBinding.layoutControls.setVisibility(View.GONE);
         viewBinding.offsetControls.setVisibility(visible ? View.GONE : View.VISIBLE);
         updateOffsetToggle();
+        updateLayoutControls();
         updateOffsetLabel();
     }
 
@@ -707,6 +847,106 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         boolean visible = viewBinding.offsetControls.getVisibility() == View.VISIBLE;
         viewBinding.btnOffsetToggle.setAlpha(visible ? 1.0f : 0.5f);
+    }
+
+    private void toggleLayoutBar() {
+        if (viewBinding == null) {
+            return;
+        }
+        boolean visible = viewBinding.layoutControls.getVisibility() == View.VISIBLE;
+        viewBinding.offsetControls.setVisibility(View.GONE);
+        viewBinding.layoutControls.setVisibility(visible ? View.GONE : View.VISIBLE);
+        updateOffsetToggle();
+        updateLayoutControls();
+    }
+
+    private void updateLayoutControls() {
+        if (viewBinding == null || adapter == null) {
+            return;
+        }
+        int fontStep = adapter.getFontSizeStep();
+        viewBinding.txtFontSizeValue.setText(getString(
+                R.string.transcript_layout_font_size_value, 16 + fontStep * 2));
+        int lineStep = UserPreferences.getTranscriptLineSpacingStep();
+        viewBinding.txtLineSpacingValue.setText(getString(
+                R.string.transcript_layout_line_spacing_value,
+                new DecimalFormat("0.##").format(
+                        UserPreferences.getTranscriptLineSpacingMultiplier())));
+        int marginStep = UserPreferences.getTranscriptSideMarginsStep();
+        viewBinding.txtSideMarginsValue.setText(getString(
+                R.string.transcript_layout_margin_value,
+                UserPreferences.getTranscriptSideMarginsDp()));
+        int verticalStep = UserPreferences.getTranscriptVerticalSpacingStep();
+        viewBinding.txtVerticalSpacingValue.setText(VERTICAL_SPACING_LABELS[verticalStep]);
+
+        viewBinding.btnFontSizeDown.setAlpha(fontStep > FONT_SIZE_MIN_STEP ? 1.0f : 0.5f);
+        viewBinding.btnFontSizeUp.setAlpha(fontStep < FONT_SIZE_MAX_STEP ? 1.0f : 0.5f);
+        viewBinding.btnLineSpacingDown.setAlpha(
+                lineStep > UserPreferences.TRANSCRIPT_LAYOUT_MIN_STEP ? 1.0f : 0.5f);
+        viewBinding.btnLineSpacingUp.setAlpha(
+                lineStep < UserPreferences.TRANSCRIPT_LAYOUT_MAX_STEP ? 1.0f : 0.5f);
+        viewBinding.btnSideMarginsDown.setAlpha(
+                marginStep > UserPreferences.TRANSCRIPT_LAYOUT_MIN_STEP ? 1.0f : 0.5f);
+        viewBinding.btnSideMarginsUp.setAlpha(
+                marginStep < UserPreferences.TRANSCRIPT_LAYOUT_MAX_STEP ? 1.0f : 0.5f);
+        viewBinding.btnVerticalSpacingDown.setAlpha(
+                verticalStep > UserPreferences.TRANSCRIPT_LAYOUT_MIN_STEP ? 1.0f : 0.5f);
+        viewBinding.btnVerticalSpacingUp.setAlpha(
+                verticalStep < UserPreferences.TRANSCRIPT_LAYOUT_MAX_STEP ? 1.0f : 0.5f);
+        viewBinding.btnLayout.setAlpha(
+                viewBinding.layoutControls.getVisibility() == View.VISIBLE ? 1.0f : 0.5f);
+    }
+
+    private void applyTranscriptLayout() {
+        if (viewBinding == null) {
+            return;
+        }
+        int padding = Math.round(UserPreferences.getTranscriptVerticalSpacingDp()
+                * getResources().getDisplayMetrics().density);
+        viewBinding.recyclerView.setPadding(0, padding, 0, padding);
+        if (adapter != null) {
+            adapter.refreshLayout();
+        }
+    }
+
+    private void adjustLineSpacing(int delta) {
+        UserPreferences.setTranscriptLineSpacingStep(
+                UserPreferences.getTranscriptLineSpacingStep() + delta);
+        applyTranscriptLayout();
+        updateLayoutControls();
+    }
+
+    private void adjustSideMargins(int delta) {
+        UserPreferences.setTranscriptSideMarginsStep(
+                UserPreferences.getTranscriptSideMarginsStep() + delta);
+        applyTranscriptLayout();
+        updateLayoutControls();
+    }
+
+    private void adjustVerticalSpacing(int delta) {
+        UserPreferences.setTranscriptVerticalSpacingStep(
+                UserPreferences.getTranscriptVerticalSpacingStep() + delta);
+        applyTranscriptLayout();
+        updateLayoutControls();
+    }
+
+    private void resetTranscriptLayout() {
+        if (adapter == null) {
+            return;
+        }
+        adapter.setFontSizeStep(0);
+        UserPreferences.setTranscriptLineSpacingStep(UserPreferences.TRANSCRIPT_LINE_SPACING_DEFAULT_STEP);
+        UserPreferences.setTranscriptSideMarginsStep(UserPreferences.TRANSCRIPT_SIDE_MARGINS_DEFAULT_STEP);
+        UserPreferences.setTranscriptVerticalSpacingStep(
+                UserPreferences.TRANSCRIPT_VERTICAL_SPACING_DEFAULT_STEP);
+        applyTranscriptLayout();
+        updateLayoutControls();
+    }
+
+    private void bindLayoutStepper(TextView decrease, TextView increase, int labelRes) {
+        String label = getString(labelRes);
+        decrease.setContentDescription(getString(R.string.transcript_layout_decrease) + " " + label);
+        increase.setContentDescription(getString(R.string.transcript_layout_increase) + " " + label);
     }
 
     private String formatTimeOffset(long offsetMs) {
@@ -755,6 +995,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         int next = Math.max(FONT_SIZE_MIN_STEP, Math.min(FONT_SIZE_MAX_STEP, step + delta));
         if (next != step) {
             adapter.setFontSizeStep(next);
+            updateLayoutControls();
         }
     }
 

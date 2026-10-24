@@ -515,11 +515,14 @@ public abstract class PlaybackController {
         }, 0);
     }
 
-    public static void bindToMedia3Service(Context context, Consumer<MediaController> consumer) {
+    public static ListenableFuture<MediaController> openMedia3Controller(Context context) {
         SessionToken sessionToken = new SessionToken(context,
                 new ComponentName(context, Media3PlaybackService.class));
-        ListenableFuture<MediaController> controllerFuture =
-                new MediaController.Builder(context, sessionToken).buildAsync();
+        return new MediaController.Builder(context, sessionToken).buildAsync();
+    }
+
+    public static void bindToMedia3Service(Context context, Consumer<MediaController> consumer) {
+        ListenableFuture<MediaController> controllerFuture = openMedia3Controller(context);
         controllerFuture.addListener(() -> {
             MediaController controller = null;
             try {

@@ -38,21 +38,16 @@
             android:contentDescription="@string/transcript_line_break_description"
             android:src="@drawable/ic_transcript_linebreak" />
 
-        <ImageButton
-            android:id="@+id/btnFontSmaller"
+        <TextView
+            android:id="@+id/btnLayout"
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/transcript_font_smaller_description"
-            android:src="@drawable/ic_transcript_font_smaller" />
-
-        <ImageButton
-            android:id="@+id/btnFontLarger"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/transcript_font_larger_description"
-            android:src="@drawable/ic_transcript_font_larger" />
+            android:contentDescription="@string/transcript_layout_toggle_description"
+            android:gravity="center"
+            android:text="@string/transcript_layout_toggle"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="16sp" />
 
         <ImageButton
             android:id="@+id/btnSegmentLoop"
@@ -251,5 +246,211 @@
                 android:textColor="?android:attr/textColorPrimary"
                 android:textSize="13sp" />
         </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/layoutControls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="16dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="8dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/transcript_layout_font_size"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/btnFontSizeDown"
+                android:layout_width="44dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/bg_transcript_offset_button"
+                android:gravity="center"
+                android:text="@string/transcript_layout_decrease_symbol"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/txtFontSizeValue"
+                android:layout_width="60dp"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/btnFontSizeUp"
+                android:layout_width="44dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_transcript_offset_button"
+                android:gravity="center"
+                android:text="@string/transcript_layout_increase_symbol"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/transcript_layout_line_spacing"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/btnLineSpacingDown"
+                android:layout_width="44dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/bg_transcript_offset_button"
+                android:gravity="center"
+                android:text="@string/transcript_layout_decrease_symbol"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/txtLineSpacingValue"
+                android:layout_width="60dp"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/btnLineSpacingUp"
+                android:layout_width="44dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_transcript_offset_button"
+                android:gravity="center"
+                android:text="@string/transcript_layout_increase_symbol"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/transcript_layout_side_margins"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/btnSideMarginsDown"
+                android:layout_width="44dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/bg_transcript_offset_button"
+                android:gravity="center"
+                android:text="@string/transcript_layout_decrease_symbol"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/txtSideMarginsValue"
+                android:layout_width="60dp"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/btnSideMarginsUp"
+                android:layout_width="44dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_transcript_offset_button"
+                android:gravity="center"
+                android:text="@string/transcript_layout_increase_symbol"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/transcript_layout_vertical_spacing"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/btnVerticalSpacingDown"
+                android:layout_width="44dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/bg_transcript_offset_button"
+                android:gravity="center"
+                android:text="@string/transcript_layout_decrease_symbol"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/txtVerticalSpacingValue"
+                android:layout_width="60dp"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/btnVerticalSpacingUp"
+                android:layout_width="44dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_transcript_offset_button"
+                android:gravity="center"
+                android:text="@string/transcript_layout_increase_symbol"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/btnLayoutReset"
+            android:layout_width="match_parent"
+            android:layout_height="36dp"
+            android:background="@drawable/bg_transcript_offset_button"
+            android:gravity="center"
+            android:text="@string/reset"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="13sp" />
     </LinearLayout>
 </LinearLayout>

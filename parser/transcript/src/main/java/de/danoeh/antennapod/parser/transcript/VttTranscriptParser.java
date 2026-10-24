@@ -97,19 +97,7 @@ public class VttTranscriptParser {
             addAlternatingSegments(transcript, cues, alternatingPrimaryScript);
         } else {
             TranscriptSegment segment = null;
-            for (int i = 0; i < cues.size(); i++) {
-                Cue cue = cues.get(i);
-                Cue nextCue = i + 1 < cues.size() ? cues.get(i + 1) : null;
-                boolean canSplit = bilingual && hasDifferentScripts(cue.lines())
-                        && (nextCue == null || nextCue.start() >= cue.end());
-                if (canSplit) {
-                    if (segment != null) {
-                        transcript.addSegment(segment);
-                        segment = null;
-                    }
-                    addBilingualCue(transcript, cue);
-                    continue;
-                }
+            for (Cue cue : cues) {
                 String payload = String.join(bilingual ? "\n" : " ", cue.lines());
                 if (!bilingual && segment != null && segment.getSpeaker().equals(cue.speaker())
                         && cue.end() - segment.getStartTime() < TranscriptParser.MAX_SPAN) {
@@ -230,90 +218,17 @@ public class VttTranscriptParser {
                 index++;
             }
             if (translationCue != null) {
-                addSentencePairs(transcript, primaryCue.start(),
+                transcript.addSegment(new TranscriptSegment(primaryCue.start(),
                         Math.max(primaryCue.end(), translationCue.end()),
-                        String.join(" ", primaryCue.lines()),
-                        String.join(" ", translationCue.lines()),
-                        primaryCue.speaker());
+                        String.join(" ", primaryCue.lines()) + "\n"
+                                + String.join(" ", translationCue.lines()),
+                        primaryCue.speaker()));
             } else {
                 transcript.addSegment(new TranscriptSegment(primaryCue.start(), primaryCue.end(),
                         String.join(" ", primaryCue.lines()), primaryCue.speaker()));
             }
         }
     }
-
-    private static void addBilingualCue(Transcript transcript, Cue cue) {
-        String payload = String.join("\n", cue.lines());
-        int split = TranscriptSentenceUtils.languageSplitIndex(payload);
-        if (split <= 0 || split >= payload.length() - 1) {
-            transcript.addSegment(new TranscriptSegment(
-                    cue.start(), cue.end(), payload, cue.speaker()));
-            return;
-        }
-        addSentencePairs(transcript, cue.start(), cue.end(),
-                payload.substring(0, split), payload.substring(split + 1), cue.speaker());
-    }
-
-    private static void addSentencePairs(Transcript transcript, long start, long end,
-                                         String primaryText, String translationText, String speaker) {
-        List<SentenceRange> primary = sentenceRanges(primaryText);
-        List<SentenceRange> translation = sentenceRanges(translationText);
-        if (primary.isEmpty()) {
-            if (!primaryText.trim().isEmpty()) {
-                transcript.addSegment(new TranscriptSegment(start, end, primaryText.trim(), speaker));
-            }
-            return;
-        }
-        int primaryLength = Math.max(1, primaryText.length());
-        long duration = Math.max(0, end - start);
-        for (int i = 0; i < primary.size(); i++) {
-            SentenceRange sentence = primary.get(i);
-            long sentenceStart = start + duration * sentence.start() / primaryLength;
-            long sentenceEnd = i == primary.size() - 1
-                    ? end : start + duration * sentence.end() / primaryLength;
-            if (sentenceEnd < sentenceStart) {
-                sentenceEnd = sentenceStart;
-            }
-            String translationLine = "";
-            if (!translation.isEmpty()) {
-                if (translation.size() <= primary.size()) {
-                    translationLine = translation.get(Math.min(i, translation.size() - 1)).text();
-                } else if (i == primary.size() - 1) {
-                    List<String> remaining = new ArrayList<>();
-                    for (int j = i; j < translation.size(); j++) {
-                        remaining.add(translation.get(j).text());
-                    }
-                    translationLine = String.join(" ", remaining);
-                } else {
-                    translationLine = translation.get(i).text();
-                }
-            }
-            String words = translationLine.isEmpty()
-                    ? sentence.text() : sentence.text() + "\n" + translationLine;
-            transcript.addSegment(new TranscriptSegment(
-                    sentenceStart, sentenceEnd, words, speaker));
-        }
-    }
-
-    private static List<SentenceRange> sentenceRanges(String text) {
-        List<SentenceRange> result = new ArrayList<>();
-        int length = text.length();
-        int[] starts = TranscriptSentenceUtils.chunkStarts(text, length);
-        for (int i = 0; i + 1 < starts.length; i++) {
-            int start = starts[i];
-            int end = starts[i + 1];
-            String sentence = text.substring(start, end).trim();
-            if (!sentence.isEmpty()) {
-                result.add(new SentenceRange(start, end, sentence));
-            }
-        }
-        if (result.isEmpty() && !text.trim().isEmpty()) {
-            result.add(new SentenceRange(0, length, text.trim()));
-        }
-        return result;
-    }
-
-    private record SentenceRange(int start, int end, String text) { }
 
     private static boolean hasDifferentScripts(@NonNull List<String> lines) {
         int firstScript = TranscriptSentenceUtils.SCRIPT_UNKNOWN;
