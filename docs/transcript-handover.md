@@ -59,7 +59,7 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 | 逐句换行 | 每个句子独占一行（双语时主/译成对） | `isTranscriptSentencePerLine()`、`TranscriptPageFragment.toggleSentencePerLine()` |
 | 字号 | 步进制（`16 + step*2` sp，高亮 `19 + step*2`），缓存在 adapter 字段 | [TranscriptAdapter.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java#L337) |
 | 分级高亮 | 当前段（一条 cue）整块加粗+19sp+全亮，其他段 16sp 半透明；段内只分当前句（全色+加粗）与其他句（统一半透明）两档，不再区分已播/未播；字号跃迁保留，便于快速定位当前声音 | `TranscriptAdapter.highlightViewHolder()` / `applyGradedHighlight()` |
-| 跟随音频 | 整屏页 RESUMED 且播放中时以 250ms 轮询位置，高亮与滚动同源；相邻句平滑滚动已放慢（2000/dpi），超过 5 行仍瞬跳；用户手动滚动时暂停跟随，回到当前句后恢复；弹窗/悬浮窗仍按 1 秒事件 | `TranscriptPageFragment` 的 `highlightTicker`/`userScrolling`/`returnToCurrentSentence()`/`resumeFollowingIfHighlightVisible()` |
+| 跟随音频 | 整屏页 RESUMED 且播放中时以 250ms 轮询位置，高亮与滚动同源；相邻句平滑滚动已放慢（1400/dpi），超过 5 行仍瞬跳；用户手动滚动时暂停跟随，回到当前句后恢复；弹窗/悬浮窗仍按 1 秒事件 | `TranscriptPageFragment` 的 `highlightTicker`/`userScrolling`/`returnToCurrentSentence()`/`resumeFollowingIfHighlightVisible()` |
 | 沉浸模式 | 隐藏播放器其他区块，只看转录 | `btnImmersive`、提交 `0792497f4` |
 | 回到当前句 | `btnBackToCurrent`，仅在偏离时可见 | [TranscriptPageFragment.java:592](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L592) |
 

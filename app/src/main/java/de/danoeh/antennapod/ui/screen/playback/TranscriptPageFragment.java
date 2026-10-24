@@ -554,7 +554,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
             @Override
             protected float calculateSpeedPerPixel(DisplayMetrics displayMetrics) {
-                return (fast ? 100 : quickScroll ? 200 : 2000) / (float) displayMetrics.densityDpi;
+                return (fast ? 100 : quickScroll ? 200 : 1400) / (float) displayMetrics.densityDpi;
             }
         };
         smoothScroller.setTargetPosition(pos);
