@@ -1,5 +1,6 @@
 package de.danoeh.antennapod.ui.screen.playback.audio;
 
+import android.os.Build;
 import android.os.Bundle;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -319,7 +320,7 @@ public class AudioPlayerFragment extends Fragment implements
 
         // Hide the system status bar and navigation bar
         View decorView = getActivity().getWindow().getDecorView();
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             WindowInsetsController controller = decorView.getWindowInsetsController();
             if (controller != null) {
                 controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
@@ -376,7 +377,7 @@ public class AudioPlayerFragment extends Fragment implements
 
         // Show the system status bar and navigation bar
         View decorView = getActivity().getWindow().getDecorView();
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             WindowInsetsController controller = decorView.getWindowInsetsController();
             if (controller != null) {
                 controller.show(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());

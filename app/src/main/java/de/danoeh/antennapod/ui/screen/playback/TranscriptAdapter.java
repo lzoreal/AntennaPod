@@ -14,6 +14,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import androidx.annotation.NonNull;
+import androidx.appcompat.R;
 import androidx.core.graphics.ColorUtils;
 import androidx.recyclerview.widget.RecyclerView;
 import de.danoeh.antennapod.databinding.TranscriptItemBinding;
@@ -60,7 +61,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     public TranscriptAdapter(Context context, SegmentClickListener segmentClickListener) {
         this.context = context;
         this.segmentClickListener = segmentClickListener;
-        TypedArray typedArray = context.obtainStyledAttributes(new int[]{androidx.appcompat.R.attr.colorAccent});
+        TypedArray typedArray = context.obtainStyledAttributes(new int[]{R.attr.colorAccent});
         highlightTextColor = typedArray.getColor(0, 0);
         typedArray.recycle();
         typedArray = context.obtainStyledAttributes(new int[]{android.R.attr.textColorPrimary});

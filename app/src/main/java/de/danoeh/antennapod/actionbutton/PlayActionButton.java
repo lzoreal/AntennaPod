@@ -8,6 +8,7 @@ import de.danoeh.antennapod.R;
 import de.danoeh.antennapod.playback.service.PlaybackService;
 import de.danoeh.antennapod.playback.service.PlaybackServiceStarter;
 import de.danoeh.antennapod.storage.database.DBWriter;
+import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.event.FeedItemEvent;
 import de.danoeh.antennapod.event.MessageEvent;
 import de.danoeh.antennapod.model.feed.FeedItem;
@@ -46,6 +47,7 @@ public class PlayActionButton extends ItemActionButton {
             Log.i(TAG, "Missing episode. Will update the database now.");
             media.setDownloaded(false, 0);
             media.deleteTranscriptFiles();
+            UserPreferences.removeTranscriptTimeOffset(media.getId());
             media.setLocalFileUrl(null);
             DBWriter.setMediaDownloadInformation(media);
             EventBus.getDefault().post(new FeedItemEvent(Collections.singletonList(media.getItem()), false));

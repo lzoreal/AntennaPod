@@ -198,10 +198,10 @@
     <string name="transcript_offset_forward_fine_format">+%1$s 秒</string>
     <string name="transcript_offset_back_fine_description">将声音文字提前 %1$s 秒</string>
     <string name="transcript_offset_forward_fine_description">将声音文字延后 %1$s 秒</string>
+    <string name="transcript_offset_value_format">%1$s 秒</string>
     <string name="transcript_offset_label">偏移：%1$s</string>
     <string name="transcript_offset_reset_description">重置声音文字偏移</string>
     <string name="transcript_offset_message">声音文字偏移：%1$s</string>
-    <string name="transcript_offset_toggle">±s</string>
     <string name="transcript_offset_toggle_description">声音文字偏移控制</string>
     <string name="transcript_line_break_toggle">¶</string>
     <string name="transcript_line_break_description">将句子分行显示</string>
@@ -902,9 +902,8 @@
     <plurals name="num_subscriptions">
         <item quantity="other">%d 个订阅</item>
     </plurals>
-    <string name="pref_floating_transcript_title">悬浮窗transcript</string>
-    <string name="pref_floating_transcript_summary">当播放时在屏幕最上层显示transcript</string>
-    <string name="pref_floating_transcript_permission">Please grant \"Display over other apps\" permission to use floating transcript</string>
+    <string name="pref_floating_transcript_title">悬浮窗声音文字</string>
+    <string name="pref_floating_transcript_summary">当播放时在屏幕最上层显示声音文字</string>
     <string name="archive_feed_label_verb">归档</string>
     <string name="archive_feed_label_noun">归档</string>
     <string name="restore_archive_label">恢复</string>
