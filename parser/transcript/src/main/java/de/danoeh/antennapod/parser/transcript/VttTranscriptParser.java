@@ -188,13 +188,16 @@ public class VttTranscriptParser {
                 other++;
             }
         }
-        if (cjk > 0) {
+        if (latin == 0 && cjk == 0 && other == 0) {
+            return SCRIPT_UNKNOWN;
+        }
+        if (cjk > latin && cjk >= other) {
             return SCRIPT_CJK;
         }
-        if (latin > 0) {
+        if (latin > cjk && latin >= other) {
             return SCRIPT_LATIN;
         }
-        return other > 0 ? SCRIPT_OTHER : SCRIPT_UNKNOWN;
+        return SCRIPT_OTHER;
     }
 
     @NonNull

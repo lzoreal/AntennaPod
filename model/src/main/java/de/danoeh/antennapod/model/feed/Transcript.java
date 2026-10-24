@@ -9,7 +9,7 @@ public class Transcript {
     private boolean bilingual = false;
 
     public void addSegment(TranscriptSegment segment) {
-        if ((!segments.isEmpty() && segments.get(segments.size() - 1).getStartTime() >= segment.getStartTime())) {
+        if ((!segments.isEmpty() && segments.get(segments.size() - 1).getStartTime() > segment.getStartTime())) {
             throw new IllegalArgumentException("Segments must be added in sorted order");
         }
         segments.add(segment);

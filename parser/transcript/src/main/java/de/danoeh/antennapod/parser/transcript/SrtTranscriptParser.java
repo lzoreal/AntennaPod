@@ -63,6 +63,9 @@ public class SrtTranscriptParser {
                 }
                 duration += endTimecode - startTimecode;
                 do {
+                    if (!iter.hasNext()) {
+                        break;
+                    }
                     line = iter.next();
                     if (StringUtil.isBlank(line)) {
                         break;

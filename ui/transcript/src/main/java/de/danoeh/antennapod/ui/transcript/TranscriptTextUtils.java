@@ -73,13 +73,16 @@ public final class TranscriptTextUtils {
                 other++;
             }
         }
-        if (cjk > 0) {
+        if (latin == 0 && cjk == 0 && other == 0) {
+            return -1;
+        }
+        if (cjk > latin && cjk >= other) {
             return 1;
         }
-        if (latin > 0) {
+        if (latin > cjk && latin >= other) {
             return 0;
         }
-        return other > 0 ? 2 : -1;
+        return 2;
     }
 
     public static int charIndexAt(String text, float progress) {
@@ -103,8 +106,10 @@ public final class TranscriptTextUtils {
             while (boundary < length && isTrailingChar(text.charAt(boundary))) {
                 boundary++;
             }
-            starts.add(boundary);
-            last = boundary;
+            if (boundary > last) {
+                starts.add(boundary);
+                last = boundary;
+            }
         }
         if (length > last) {
             starts.add(length);
@@ -155,7 +160,7 @@ public final class TranscriptTextUtils {
         }
         String result = splitSentencesInBlock(primary);
         if (!translation.isEmpty()) {
-            result = result + "\n" + translation;
+            result = result + "\n" + splitSentencesInBlock(translation);
         }
         return result;
     }

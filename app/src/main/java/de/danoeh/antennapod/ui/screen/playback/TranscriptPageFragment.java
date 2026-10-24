@@ -1,9 +1,5 @@
 package de.danoeh.antennapod.ui.screen.playback;
 
-import android.content.ClipData;
-import android.content.ClipboardManager;
-import android.content.Intent;
-import android.os.Build;
 import android.os.Bundle;
 import android.text.Layout;
 import android.util.DisplayMetrics;
@@ -16,7 +12,6 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
@@ -238,15 +233,25 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         doInitialScroll = true;
         userScrolling = false;
         lastScrolledPosition = -1;
-        updateBackToCurrentVisibility();
+        segmentLooping = false;
+        loopSegmentIndex = -1;
         lastPositionMs = Math.max(0, currentMedia.getPosition());
+        long offset = UserPreferences.getTranscriptTimeOffset(currentMedia.getId());
+        int initialPosition = currentMedia.getTranscript().findSegmentIndexBefore(lastPositionMs - offset);
+        adapter.setHighlightPosition(initialPosition);
+        scrollToPosition(initialPosition);
+        updateBackToCurrentVisibility();
         updateOffsetLabel();
         updateTranslationToggle();
+        updateSegmentLoopToggle();
     }
 
     private void showEmptyState() {
         if (viewBinding == null) {
             return;
+        }
+        if (adapter != null) {
+            adapter.clear();
         }
         viewBinding.progLoading.setVisibility(View.GONE);
         viewBinding.recyclerView.setVisibility(View.GONE);
@@ -527,7 +532,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         TranscriptSegment segment = currentMedia.getTranscript().getSegmentAt(loopSegmentIndex);
         long startTime = segment.getStartTime() + offset;
         long endTime = segment.getEndTime() + offset;
-        if (position - offset >= endTime) {
+        if (position >= endTime) {
             PlaybackController.bindToMedia3Service(getContext(), controller ->
                     controller.seekTo((int) Math.max(0, startTime)));
         }

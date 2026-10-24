@@ -51,7 +51,7 @@ public class TranscriptTextUtilsTest {
     public void testChunkStartsIncludeTrailingQuotes() {
         assertArrayEquals(new int[] {0, 13, 18}, TranscriptTextUtils.chunkStarts("He said \"Hi.\" Bye."));
         assertArrayEquals(new int[] {0, 10, 14}, TranscriptTextUtils.chunkStarts("Wait what? No."));
-        assertArrayEquals(new int[] {0, 11, 11, 15}, TranscriptTextUtils.chunkStarts("Wait what?! No."));
+        assertArrayEquals(new int[] {0, 11, 15}, TranscriptTextUtils.chunkStarts("Wait what?! No."));
     }
 
     @Test

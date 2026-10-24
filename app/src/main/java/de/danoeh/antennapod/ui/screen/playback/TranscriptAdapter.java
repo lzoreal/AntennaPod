@@ -6,17 +6,15 @@ import android.graphics.Typeface;
 import android.text.Layout;
 import android.text.Spannable;
 import android.text.SpannableString;
-import android.text.TextUtils;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.StyleSpan;
+import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import androidx.annotation.NonNull;
-import androidx.core.content.ContextCompat;
 import androidx.core.graphics.ColorUtils;
 import androidx.recyclerview.widget.RecyclerView;
-import com.google.android.material.elevation.SurfaceColors;
 import de.danoeh.antennapod.databinding.TranscriptItemBinding;
 import de.danoeh.antennapod.event.playback.PlaybackPositionEvent;
 import de.danoeh.antennapod.model.feed.FeedMedia;
@@ -27,15 +25,13 @@ import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.ui.common.Converter;
 import de.danoeh.antennapod.ui.transcript.TranscriptTextUtils;
 import de.danoeh.antennapod.ui.transcript.TranscriptViewholder;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import org.apache.commons.lang3.ObjectUtils;
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
 import org.jsoup.internal.StringUtil;
-import android.util.TypedValue;
+
 public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder> {
     private static final int PAST_SENTENCE_ALPHA = 0xA6;
     private static final int FUTURE_SENTENCE_ALPHA = 0x8C;
@@ -99,8 +95,20 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             return;
         }
         this.media = (FeedMedia) media;
+        highlightPosition = -1;
+        prevHighlightPosition = -1;
         highlightedSentence = -1;
-        lastHighlightPositionMs = Math.max(0, ((FeedMedia) media).getPosition());
+        long offset = UserPreferences.getTranscriptTimeOffset(((FeedMedia) media).getId());
+        lastHighlightPositionMs = Math.max(0, ((FeedMedia) media).getPosition() - offset);
+        notifyDataSetChanged();
+    }
+
+    public void clear() {
+        media = null;
+        highlightPosition = -1;
+        prevHighlightPosition = -1;
+        highlightedSentence = -1;
+        lastHighlightPositionMs = 0;
         notifyDataSetChanged();
     }
 
@@ -205,7 +213,8 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         if (split >= 0 && split < text.length()) {
             String translation = text.substring(split + 1);
             int[] translationStarts = TranscriptTextUtils.chunkStarts(translation, translation.length());
-            colorSentences(graded, translationStarts, sentence, split + 1, translation.length());
+            int translationSentence = Math.min(sentence, translationStarts.length - 2);
+            colorSentences(graded, translationStarts, translationSentence, split + 1, translation.length());
         }
         holder.viewContent.setText(graded);
     }
@@ -260,7 +269,8 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             String translation = text.substring(split + 1);
             int sentenceIndex = TranscriptTextUtils.sentenceIndexAt(translation,
                     (offset - split - 1) / (float) Math.max(1, translation.length()), translation.length());
-            return TranscriptTextUtils.sentenceStartTime(segment, text, sentenceIndex, split);
+            return TranscriptTextUtils.sentenceStartTime(segment, translation, sentenceIndex,
+                    translation.length());
         }
         int length = split < 0 ? text.length() : split;
         int sentenceIndex = TranscriptTextUtils.sentenceIndexAt(text,
@@ -313,7 +323,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         }
         long position = event.getPosition() - UserPreferences.getTranscriptTimeOffset(media.getId());
         int index = media.getTranscript().findSegmentIndexBefore(position);
-        if (index < 0 || index > media.getTranscript().getSegmentCount()) {
+        if (index < 0 || index >= media.getTranscript().getSegmentCount()) {
             return;
         }
         if (prevHighlightPosition != highlightPosition) {
@@ -324,7 +334,9 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         if (index != highlightPosition) {
             highlightPosition = index;
             highlightedSentence = sentence;
-            notifyItemChanged(prevHighlightPosition);
+            if (prevHighlightPosition >= 0) {
+                notifyItemChanged(prevHighlightPosition);
+            }
             notifyItemChanged(highlightPosition);
         } else if (sentence != highlightedSentence) {
             highlightedSentence = sentence;
