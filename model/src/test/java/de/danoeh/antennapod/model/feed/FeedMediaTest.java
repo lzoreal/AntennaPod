@@ -32,13 +32,16 @@ public class FeedMediaTest {
         media.setLocalFileUrl(new File(temporaryFolder.getRoot(), "episode.mp3").getAbsolutePath());
         File transcriptFile = new File(media.getTranscriptFileUrl());
         File metadataFile = new File(media.getTranscriptMetadataFileUrl());
+        File tempFile = new File(media.getTranscriptFileUrl() + ".tmp");
         Files.write(transcriptFile.toPath(), "transcript".getBytes(StandardCharsets.UTF_8));
         Files.write(metadataFile.toPath(), "source".getBytes(StandardCharsets.UTF_8));
+        Files.write(tempFile.toPath(), "temp".getBytes(StandardCharsets.UTF_8));
 
         media.deleteTranscriptFiles();
 
         assertFalse(transcriptFile.exists());
         assertFalse(metadataFile.exists());
+        assertFalse(tempFile.exists());
     }
 
     /**

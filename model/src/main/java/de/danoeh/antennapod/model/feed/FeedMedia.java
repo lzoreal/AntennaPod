@@ -516,8 +516,8 @@ public class FeedMedia implements Playable {
             return;
         }
         File transcriptFile = new File(transcriptFileUrl);
-        if (transcriptFile.exists() && !transcriptFile.delete()) {
-            return;
+        if (transcriptFile.exists()) {
+            transcriptFile.delete();
         }
         File metadataFile = new File(getTranscriptMetadataFileUrl());
         if (metadataFile.exists()) {

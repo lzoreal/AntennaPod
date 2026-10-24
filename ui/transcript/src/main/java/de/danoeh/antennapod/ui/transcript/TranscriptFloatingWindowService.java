@@ -77,7 +77,8 @@ public class TranscriptFloatingWindowService extends Service {
     private final Runnable hideControlsRunnable = () -> setControlsVisible(false);
     private final SharedPreferences.OnSharedPreferenceChangeListener languageModeListener =
             (sharedPreferences, key) -> {
-                if (UserPreferences.PREF_TRANSCRIPT_LANGUAGE_MODE.equals(key)) {
+                if (UserPreferences.PREF_TRANSCRIPT_LANGUAGE_MODE.equals(key)
+                        || UserPreferences.PREF_TRANSCRIPT_TIME_OFFSETS.equals(key)) {
                     updateTranscript(true);
                 }
             };

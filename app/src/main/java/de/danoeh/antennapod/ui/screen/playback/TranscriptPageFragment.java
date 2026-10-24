@@ -63,8 +63,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private boolean immersiveMode = false;
     private int immersiveTopInset = 0;
     private static final long FOLLOW_SCROLL_INTERVAL_MS = 300;
-    private static final int FONT_SIZE_MIN_STEP = -2;
-    private static final int FONT_SIZE_MAX_STEP = 3;
+    private static final int FONT_SIZE_MIN_STEP = UserPreferences.TRANSCRIPT_FONT_SIZE_MIN_STEP;
+    private static final int FONT_SIZE_MAX_STEP = UserPreferences.TRANSCRIPT_FONT_SIZE_MAX_STEP;
     private long lastFollowScrollTime = 0;
     private boolean segmentLooping = false;
     private int loopSegmentIndex = -1;
@@ -714,7 +714,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         String value = seconds == Math.rint(seconds)
                 ? String.valueOf((long) seconds)
                 : String.format(Locale.getDefault(), "%.1f", seconds);
-        return (seconds > 0 ? "+" : "") + value + " s";
+        return getString(R.string.transcript_offset_value_format, (seconds > 0 ? "+" : "") + value);
     }
 
     // ===== Public methods called by AudioPlayerFragment =====

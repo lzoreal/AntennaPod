@@ -129,13 +129,15 @@ public abstract class UserPreferences {
     public static final String PREF_FLOATING_TRANSCRIPT = "prefFloatingTranscript";
     private static final String PREF_TRANSCRIPT_TIME_OFFSET = "prefTranscriptTimeOffset";
     private static final String PREF_TRANSCRIPT_TIME_OFFSET_MEDIA = "prefTranscriptTimeOffsetMedia";
-    private static final String PREF_TRANSCRIPT_TIME_OFFSETS = "prefTranscriptTimeOffsets";
+    public static final String PREF_TRANSCRIPT_TIME_OFFSETS = "prefTranscriptTimeOffsets";
     private static final String PREF_TRANSCRIPT_FONT_SIZE = "prefTranscriptFontSize";
     private static final String PREF_TRANSCRIPT_SENTENCE_PER_LINE = "prefTranscriptSentencePerLine";
     public static final String PREF_TRANSCRIPT_LANGUAGE_MODE = "prefTranscriptLanguageMode";
     public static final int TRANSCRIPT_LANGUAGE_MODE_BOTH = 0;
     public static final int TRANSCRIPT_LANGUAGE_MODE_PRIMARY_ONLY = 1;
     public static final int TRANSCRIPT_LANGUAGE_MODE_SECONDARY_ONLY = 2;
+    public static final int TRANSCRIPT_FONT_SIZE_MIN_STEP = -2;
+    public static final int TRANSCRIPT_FONT_SIZE_MAX_STEP = 3;
     private static final String PREF_FLOATING_TRANSCRIPT_X_DP = "prefFloatingTranscriptXDp";
     private static final String PREF_FLOATING_TRANSCRIPT_Y_DP = "prefFloatingTranscriptYDp";
     private static final String PREF_FLOATING_TRANSCRIPT_LOCKED = "prefFloatingTranscriptLocked";
@@ -998,7 +1000,8 @@ public abstract class UserPreferences {
     }
 
     public static int getTranscriptFontSize() {
-        return prefs.getInt(PREF_TRANSCRIPT_FONT_SIZE, 0);
+        int step = prefs.getInt(PREF_TRANSCRIPT_FONT_SIZE, 0);
+        return Math.max(TRANSCRIPT_FONT_SIZE_MIN_STEP, Math.min(TRANSCRIPT_FONT_SIZE_MAX_STEP, step));
     }
 
     public static void setTranscriptFontSize(int step) {
