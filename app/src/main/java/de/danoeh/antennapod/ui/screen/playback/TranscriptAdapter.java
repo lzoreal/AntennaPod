@@ -342,7 +342,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
 
     private void highlightViewHolder(TranscriptViewholder holder, boolean highlight) {
         if (highlight) {
-            holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16 + fontSizeStep * 2);
+            holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19 + fontSizeStep * 2);
             holder.viewContent.setAlpha(1.0f);
             holder.viewContent.setTypeface(null, Typeface.BOLD);
 
