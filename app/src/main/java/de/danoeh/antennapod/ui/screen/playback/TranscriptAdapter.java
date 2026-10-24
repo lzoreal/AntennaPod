@@ -37,9 +37,9 @@ import org.greenrobot.eventbus.ThreadMode;
 import org.jsoup.internal.StringUtil;
 
 public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder> {
-    private static final int PAST_SENTENCE_ALPHA = 0xA6;
     private static final int FUTURE_SENTENCE_ALPHA = 0x8C;
     private static final Object SENTENCE_HIGHLIGHT_PAYLOAD = new Object();
+    private static final Object SEGMENT_HIGHLIGHT_PAYLOAD = new Object();
     private final SegmentClickListener segmentClickListener;
     private final Context context;
     private FeedMedia media;
@@ -47,6 +47,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     private int highlightPosition = -1;
     private int highlightedSentence = -1;
     private long lastHighlightPositionMs = 0;
+    private boolean positionEventsSuppressed = false;
     private int languageMode = UserPreferences.getTranscriptLanguageMode();
     private int fontSizeStep = UserPreferences.getTranscriptFontSize();
     private float lineSpacingMultiplier;
@@ -235,7 +236,16 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             super.onBindViewHolder(holder, position, payloads);
             return;
         }
-        applyGradedHighlight(holder, position);
+        if (payloads.contains(SEGMENT_HIGHLIGHT_PAYLOAD)) {
+            highlightViewHolder(holder, position == highlightPosition);
+            if (position != highlightPosition) {
+                holder.viewContent.setText(getDisplayInfo(
+                        media.getTranscript().getSegmentAt(position)).text);
+            }
+        }
+        if (position == highlightPosition) {
+            applyGradedHighlight(holder, position);
+        }
     }
 
     private DisplayInfo getDisplayInfo(TranscriptSegment segment) {
@@ -307,14 +317,9 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             if (start >= end) {
                 continue;
             }
-            int color;
-            if (i == sentence) {
-                color = highlightTextColor;
-            } else if (i < sentence) {
-                color = ColorUtils.setAlphaComponent(highlightTextColor, PAST_SENTENCE_ALPHA);
-            } else {
-                color = ColorUtils.setAlphaComponent(highlightTextColor, FUTURE_SENTENCE_ALPHA);
-            }
+            int color = i == sentence
+                    ? highlightTextColor
+                    : ColorUtils.setAlphaComponent(highlightTextColor, FUTURE_SENTENCE_ALPHA);
             graded.setSpan(new ForegroundColorSpan(color), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
             if (i == sentence) {
                 graded.setSpan(new StyleSpan(Typeface.BOLD), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -393,10 +398,21 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onEventMainThread(PlaybackPositionEvent event) {
-        if (event.getPosition() < 0 || media == null || media.getTranscript() == null) {
+        if (positionEventsSuppressed) {
             return;
         }
-        long position = event.getPosition() - UserPreferences.getTranscriptTimeOffset(media.getId());
+        updatePlaybackPosition(event.getPosition());
+    }
+
+    public void setPositionEventsSuppressed(boolean suppressed) {
+        positionEventsSuppressed = suppressed;
+    }
+
+    public void updatePlaybackPosition(long positionMs) {
+        if (positionMs < 0 || media == null || media.getTranscript() == null) {
+            return;
+        }
+        long position = positionMs - UserPreferences.getTranscriptTimeOffset(media.getId());
         int index = media.getTranscript().findSegmentIndexBefore(position);
         if (index < 0 || index >= media.getTranscript().getSegmentCount()) {
             return;
@@ -410,9 +426,9 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             highlightPosition = index;
             highlightedSentence = sentence;
             if (prevHighlightPosition >= 0) {
-                notifyItemChanged(prevHighlightPosition);
+                notifyItemChanged(prevHighlightPosition, SEGMENT_HIGHLIGHT_PAYLOAD);
             }
-            notifyItemChanged(highlightPosition);
+            notifyItemChanged(highlightPosition, SEGMENT_HIGHLIGHT_PAYLOAD);
         } else if (sentence != highlightedSentence) {
             highlightedSentence = sentence;
             notifyItemChanged(highlightPosition, SENTENCE_HIGHLIGHT_PAYLOAD);

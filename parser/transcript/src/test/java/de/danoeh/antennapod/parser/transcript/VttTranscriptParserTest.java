@@ -280,7 +280,7 @@ public class VttTranscriptParserTest {
     }
 
     @Test
-    public void testLongBilingualCueSplitsIntoSentencePairs() {
+    public void testLongBilingualCueKeepsSingleSegment() {
         String vtt = "WEBVTT\n\n"
                 + "00:00:00.000 --> 00:00:10.000\n"
                 + "First sentence. Second sentence.\n"
@@ -289,16 +289,15 @@ public class VttTranscriptParserTest {
 
         assertNotNull(result);
         assertTrue(result.isBilingual());
-        assertEquals(2, result.getSegmentCount());
-        assertEquals("First sentence.\n第一句。", result.getSegmentAt(0).getWords());
-        assertEquals("Second sentence.\n第二句。 第三句。", result.getSegmentAt(1).getWords());
+        assertEquals(1, result.getSegmentCount());
+        assertEquals("First sentence. Second sentence.\n第一句。第二句。第三句。",
+                result.getSegmentAt(0).getWords());
         assertEquals(0, result.getSegmentAt(0).getStartTime());
-        assertEquals(4687, result.getSegmentAt(1).getStartTime());
-        assertEquals(10000, result.getSegmentAt(1).getEndTime());
+        assertEquals(10000, result.getSegmentAt(0).getEndTime());
     }
 
     @Test
-    public void testNumberedSentenceEndSplitsIntoSentencePairs() {
+    public void testNumberedSentenceEndKeepsSingleSegment() {
         String vtt = "WEBVTT\n\n"
                 + "00:00:00.000 --> 00:00:10.000\n"
                 + "At least 38. It is precise.\n"
@@ -307,12 +306,11 @@ public class VttTranscriptParserTest {
 
         assertNotNull(result);
         assertTrue(result.isBilingual());
-        assertEquals(2, result.getSegmentCount());
-        assertEquals("At least 38.\n至少 38 位。", result.getSegmentAt(0).getWords());
-        assertEquals("It is precise.\n非常精确。", result.getSegmentAt(1).getWords());
-        assertEquals(4444, result.getSegmentAt(0).getEndTime());
-        assertEquals(4444, result.getSegmentAt(1).getStartTime());
-        assertEquals(10000, result.getSegmentAt(1).getEndTime());
+        assertEquals(1, result.getSegmentCount());
+        assertEquals("At least 38. It is precise.\n至少 38 位。非常精确。",
+                result.getSegmentAt(0).getWords());
+        assertEquals(0, result.getSegmentAt(0).getStartTime());
+        assertEquals(10000, result.getSegmentAt(0).getEndTime());
     }
 
     @Test
