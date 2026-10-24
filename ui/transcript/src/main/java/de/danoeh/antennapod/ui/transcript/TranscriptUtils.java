@@ -6,6 +6,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InterruptedIOException;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -17,12 +18,14 @@ import de.danoeh.antennapod.parser.transcript.TranscriptParser;
 import okhttp3.CacheControl;
 import okhttp3.Request;
 import okhttp3.Response;
+import okio.BufferedSource;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 
 public class TranscriptUtils {
     private static final String TAG = "Transcript";
     private static final int MAX_CACHED_TRANSCRIPTS = 8;
+    private static final long MAX_TRANSCRIPT_BYTES = 5L * 1024 * 1024;
     private static final Map<String, Transcript> TRANSCRIPT_CACHE =
             new LinkedHashMap<>(16, 0.75f, true);
 
@@ -47,8 +50,20 @@ public class TranscriptUtils {
             Request request = new Request.Builder().url(url).cacheControl(cacheControl).build();
             response = AntennapodHttpClient.getHttpClient().newCall(request).execute();
             if (response.isSuccessful() && response.body() != null) {
+                if (response.body().contentLength() > MAX_TRANSCRIPT_BYTES) {
+                    Log.e(TAG, "Transcript too large: " + url);
+                    return null;
+                }
+                BufferedSource source = response.body().source();
+                if (source.request(MAX_TRANSCRIPT_BYTES + 1)) {
+                    Log.e(TAG, "Transcript too large: " + url);
+                    return null;
+                }
+                Charset charset = response.body().contentType() != null
+                        ? response.body().contentType().charset(StandardCharsets.UTF_8)
+                        : StandardCharsets.UTF_8;
                 Log.d(TAG, "Done Downloading transcript URL " + url);
-                str.append(response.body().string());
+                str.append(source.readString(charset));
             } else {
                 Log.d(TAG, "Error Downloading transcript URL " + url + ": " + response.message());
             }
@@ -84,49 +99,131 @@ public class TranscriptUtils {
             }
         }
 
+        boolean staleLocalTranscript = false;
         if (!forceRefresh && media.getTranscriptFileUrl() != null) {
             File transcriptFile = new File(media.getTranscriptFileUrl());
-            try {
-                if (transcriptFile.exists()) {
-                    String t = FileUtils.readFileToString(transcriptFile, StandardCharsets.UTF_8);
-                    if (StringUtils.isNotEmpty(t)) {
-                        Transcript transcript = parseTranscript(t, transcriptType);
-                        if (transcript != null) {
-                            cacheTranscript(cacheKey, transcript);
-                        }
-                        media.setTranscript(transcript);
-                        return transcript;
-                    }
+            if (transcriptFile.exists()) {
+                Transcript localTranscript = loadLocalTranscript(media, cacheKey);
+                if (localTranscript != null) {
+                    return localTranscript;
                 }
-            } catch (IOException e) {
-                Log.e(TAG, "Unable to read transcript file", e);
+                staleLocalTranscript = true;
             }
         }
 
         String transcriptUrl = media.getItem().getTranscriptUrl();
         if (transcriptUrl == null) {
-            return fallbackToCache(media, cacheKey, forceRefresh);
+            return fallbackToLocalOrCache(media, cacheKey, forceRefresh);
         }
         String t = loadTranscriptFromUrl(transcriptUrl, forceRefresh);
         if (StringUtils.isNotEmpty(t)) {
             Transcript transcript = parseTranscript(t, transcriptType);
             if (transcript != null) {
-                cacheTranscript(cacheKey, transcript);
+                boolean storeLocal = staleLocalTranscript
+                        || (forceRefresh && media.getTranscriptFileUrl() != null);
+                if (storeLocal) {
+                    storeTranscript(media, t);
+                    cacheTranscript(cacheKey(media), transcript);
+                } else {
+                    cacheTranscript(cacheKey, transcript);
+                }
+                return transcript;
             }
-            return transcript;
         }
-        return fallbackToCache(media, cacheKey, forceRefresh);
+        return fallbackToLocalOrCache(media, cacheKey, forceRefresh);
     }
 
-    private static Transcript fallbackToCache(FeedMedia media, String cacheKey, Boolean forceRefresh) {
+    private static Transcript loadLocalTranscript(FeedMedia media, String cacheKey) {
+        if (media.getTranscriptFileUrl() == null) {
+            return null;
+        }
+        File transcriptFile = new File(media.getTranscriptFileUrl());
+        if (!transcriptFile.exists() || transcriptFile.length() > MAX_TRANSCRIPT_BYTES
+                || !isTranscriptFileCurrent(media)) {
+            return null;
+        }
+        try {
+            String t = FileUtils.readFileToString(transcriptFile, StandardCharsets.UTF_8);
+            if (StringUtils.isEmpty(t)) {
+                return null;
+            }
+            Transcript transcript = parseTranscript(t, media.getItem().getTranscriptType());
+            if (transcript == null) {
+                return null;
+            }
+            cacheLocalTranscript(media, cacheKey, transcript);
+            media.setTranscript(transcript);
+            return transcript;
+        } catch (IOException e) {
+            Log.e(TAG, "Unable to read transcript file", e);
+            return null;
+        }
+    }
+
+    private static void cacheLocalTranscript(FeedMedia media, String cacheKey,
+                                             Transcript transcript) {
+        if (transcript == null) {
+            return;
+        }
+        cacheTranscript(cacheKey, transcript);
+        if (!hasTranscriptMetadata(media)) {
+            writeTranscriptMetadata(media);
+        }
+    }
+
+    private static boolean hasTranscriptMetadata(FeedMedia media) {
+        String metadataFileUrl = media.getTranscriptMetadataFileUrl();
+        return metadataFileUrl != null && new File(metadataFileUrl).exists();
+    }
+
+    private static boolean isTranscriptFileCurrent(FeedMedia media) {
+        String metadataFileUrl = media.getTranscriptMetadataFileUrl();
+        if (metadataFileUrl == null) {
+            return true;
+        }
+        File metadataFile = new File(metadataFileUrl);
+        if (!metadataFile.exists()) {
+            return true;
+        }
+        try {
+            return transcriptSource(media).equals(
+                    FileUtils.readFileToString(metadataFile, StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            Log.e(TAG, "Unable to read transcript metadata", e);
+            return false;
+        }
+    }
+
+    private static String transcriptSource(FeedMedia media) {
+        String type = media.getItem().getTranscriptType();
+        String url = media.getItem().getTranscriptUrl();
+        return (type == null ? "" : type) + "\n" + (url == null ? "" : url);
+    }
+
+    private static void writeTranscriptMetadata(FeedMedia media) {
+        String metadataFileUrl = media.getTranscriptMetadataFileUrl();
+        if (metadataFileUrl == null) {
+            return;
+        }
+        try {
+            FileUtils.writeStringToFile(new File(metadataFileUrl),
+                    transcriptSource(media), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            Log.e(TAG, "Unable to store transcript metadata", e);
+        }
+    }
+
+    private static Transcript fallbackToLocalOrCache(FeedMedia media, String cacheKey,
+                                                     Boolean forceRefresh) {
         if (!forceRefresh) {
             return null;
         }
         Transcript cached = getCachedTranscript(cacheKey);
         if (cached != null) {
             media.setTranscript(cached);
+            return cached;
         }
-        return cached;
+        return loadLocalTranscript(media, cacheKey);
     }
 
     private static String cacheKey(FeedMedia media) {
@@ -175,24 +272,39 @@ public class TranscriptUtils {
     }
 
     public static void storeTranscript(FeedMedia media, String transcript) {
-        if (media.getTranscriptFileUrl() == null) {
+        if (media.getItem() == null || media.getTranscriptFileUrl() == null) {
+            return;
+        }
+        if (parseTranscript(transcript, media.getItem().getTranscriptType()) == null) {
+            Log.e(TAG, "Refusing to store invalid transcript");
             return;
         }
         File transcriptFile = new File(media.getTranscriptFileUrl());
+        File tempFile = new File(transcriptFile.getPath() + ".tmp");
         FileOutputStream ostream = null;
         try {
-            if (transcriptFile.exists() && !transcriptFile.delete()) {
-                Log.e(TAG, "Failed to delete existing transcript file " + transcriptFile.getAbsolutePath());
+            ostream = new FileOutputStream(tempFile);
+            ostream.write(transcript.getBytes(StandardCharsets.UTF_8));
+            ostream.close();
+            ostream = null;
+            if (!tempFile.renameTo(transcriptFile)) {
+                if (transcriptFile.exists() && !transcriptFile.delete()) {
+                    Log.e(TAG, "Failed to delete existing transcript file "
+                            + transcriptFile.getAbsolutePath());
+                    return;
+                }
+                if (!tempFile.renameTo(transcriptFile)) {
+                    FileUtils.copyFile(tempFile, transcriptFile);
+                }
             }
-            if (transcriptFile.createNewFile()) {
-                ostream = new FileOutputStream(transcriptFile);
-                ostream.write(transcript.getBytes(StandardCharsets.UTF_8));
-                ostream.close();
-            }
+            writeTranscriptMetadata(media);
         } catch (IOException e) {
             Log.e(TAG, "Unable to store transcript file", e);
         } finally {
             IOUtils.closeQuietly(ostream);
+            if (tempFile.exists() && !tempFile.delete()) {
+                Log.e(TAG, "Unable to delete temporary transcript file " + tempFile);
+            }
         }
     }
 }

@@ -4,6 +4,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -38,6 +39,37 @@ public class JsonTranscriptParserTest {
                 + "{'startTime': 5, 'endTime': 10, 'body': 'World'}]}";
         Transcript result = JsonTranscriptParser.parse(json);
         assertTrue(result.getSpeakers().isEmpty());
+    }
+
+    @Test
+    public void testNullSpeakerIsIgnored() {
+        String json = "{\"segments\":[{\"speaker\":null,\"startTime\":0,"
+                + "\"endTime\":5,\"body\":\"Hello\"}]}";
+        Transcript result = JsonTranscriptParser.parse(json);
+
+        assertNotNull(result);
+        assertEquals("", result.getSegmentAt(0).getSpeaker());
+        assertTrue(result.getSpeakers().isEmpty());
+    }
+
+    @Test
+    public void testInvalidTimeRangeIsSkipped() {
+        String json = "{\"segments\":[{\"startTime\":10,\"endTime\":5,\"body\":\"Bad\"}]}";
+
+        assertNull(JsonTranscriptParser.parse(json));
+    }
+
+    @Test
+    public void testOutOfOrderSegmentsAreSorted() {
+        String json = "{\"segments\":["
+                + "{\"startTime\":5,\"endTime\":10,\"body\":\"Second\"},"
+                + "{\"startTime\":0,\"endTime\":5,\"body\":\"First\"}]}";
+        Transcript result = JsonTranscriptParser.parse(json);
+
+        assertNotNull(result);
+        assertEquals(2, result.getSegmentCount());
+        assertEquals("First", result.getSegmentAt(0).getWords());
+        assertEquals("Second", result.getSegmentAt(1).getWords());
     }
 
     @Test

@@ -45,7 +45,7 @@ public class FeedItem implements Serializable {
     private String socialInteractUrl;
     private String podcastIndexTranscriptUrl;
     private String podcastIndexTranscriptType;
-    private Transcript transcript;
+    private transient Transcript transcript;
 
     private int state;
     public static final int NEW = -1;
@@ -176,6 +176,13 @@ public class FeedItem implements Serializable {
             socialInteractUrl = other.socialInteractUrl;
         }
         if (other.getTranscriptUrl() != null) {
+            boolean typeChanged = other.getTranscriptType() != null
+                    && !Objects.equals(other.getTranscriptType(), podcastIndexTranscriptType);
+            boolean transcriptSourceChanged = typeChanged
+                    || !Objects.equals(other.getTranscriptUrl(), podcastIndexTranscriptUrl);
+            if (transcriptSourceChanged) {
+                transcript = null;
+            }
             podcastIndexTranscriptUrl = other.podcastIndexTranscriptUrl;
         }
         if (other.getTranscriptType() != null) {

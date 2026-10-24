@@ -10,10 +10,17 @@ public class Transcript {
     private boolean bilingual = false;
 
     public void addSegment(TranscriptSegment segment) {
-        if ((!segments.isEmpty() && segments.get(segments.size() - 1).getStartTime() > segment.getStartTime())) {
-            throw new IllegalArgumentException("Segments must be added in sorted order");
+        int low = 0;
+        int high = segments.size();
+        while (low < high) {
+            int middle = (low + high) >>> 1;
+            if (segments.get(middle).getStartTime() <= segment.getStartTime()) {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
         }
-        segments.add(segment);
+        segments.add(low, segment);
     }
 
     public int findSegmentIndexBefore(long time) {

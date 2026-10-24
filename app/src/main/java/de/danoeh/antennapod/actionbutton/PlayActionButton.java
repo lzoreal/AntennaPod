@@ -45,6 +45,7 @@ public class PlayActionButton extends ItemActionButton {
         if (!media.fileExists()) {
             Log.i(TAG, "Missing episode. Will update the database now.");
             media.setDownloaded(false, 0);
+            media.deleteTranscriptFiles();
             media.setLocalFileUrl(null);
             DBWriter.setMediaDownloadInformation(media);
             EventBus.getDefault().post(new FeedItemEvent(Collections.singletonList(media.getItem()), false));

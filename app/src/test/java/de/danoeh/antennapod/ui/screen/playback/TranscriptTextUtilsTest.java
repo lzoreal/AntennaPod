@@ -44,7 +44,15 @@ public class TranscriptTextUtilsTest {
     @Test
     public void testChunkStartsKeepDecimalNumbersTogether() {
         assertArrayEquals(new int[] {0, 21}, TranscriptTextUtils.chunkStarts("Price is 3.5 dollars."));
-        assertArrayEquals(new int[] {0, 26}, TranscriptTextUtils.chunkStarts("It costs 3.5. And 4.5 too."));
+        assertArrayEquals(new int[] {0, 13, 26}, TranscriptTextUtils.chunkStarts("It costs 3.5. And 4.5 too."));
+    }
+
+    @Test
+    public void testChunkStartsSplitAfterNumberedSentence() {
+        assertArrayEquals(new int[] {0, 12, 27},
+                TranscriptTextUtils.chunkStarts("At least 38. It is precise."));
+        assertArrayEquals(new int[] {0, 12, 32},
+                TranscriptTextUtils.chunkStarts("It was 1999. Everything changed."));
     }
 
     @Test
@@ -82,6 +90,8 @@ public class TranscriptTextUtilsTest {
         assertEquals(10, TranscriptTextUtils.languageSplitIndex("Hi.\nThere.\n你好。\n世界。"));
         assertEquals(-1, TranscriptTextUtils.languageSplitIndex("Hello. World."));
         assertEquals(-1, TranscriptTextUtils.languageSplitIndex("Hello. World.\nHallo. Welt."));
+        assertEquals(-1, TranscriptTextUtils.languageSplitIndex("Hello\n"));
+        assertEquals(-1, TranscriptTextUtils.languageSplitIndex("Hello\n\n"));
     }
 
     @Test
@@ -128,11 +138,23 @@ public class TranscriptTextUtilsTest {
         String text = "One. Two. Three.";
         TranscriptSegment segment = segment(10000, 16000, text);
         assertEquals(10000, TranscriptTextUtils.sentenceStartTime(segment, text, 0, text.length()));
-        assertEquals(12000, TranscriptTextUtils.sentenceStartTime(segment, text, 1, text.length()));
-        assertEquals(14000, TranscriptTextUtils.sentenceStartTime(segment, text, 2, text.length()));
-        assertEquals(14000, TranscriptTextUtils.sentenceStartTime(segment, text, 99, text.length()));
+        assertEquals(11500, TranscriptTextUtils.sentenceStartTime(segment, text, 1, text.length()));
+        assertEquals(13375, TranscriptTextUtils.sentenceStartTime(segment, text, 2, text.length()));
+        assertEquals(13375, TranscriptTextUtils.sentenceStartTime(segment, text, 99, text.length()));
         String single = "Single sentence.";
         assertEquals(10000, TranscriptTextUtils.sentenceStartTime(segment, single, 3, single.length()));
+    }
+
+    @Test
+    public void testSentenceEndTime() {
+        String text = "One. Two. Three.";
+        TranscriptSegment segment = segment(10000, 16000, text);
+
+        assertEquals(11500, TranscriptTextUtils.sentenceEndTime(segment, text, 0, text.length()));
+        assertEquals(13375, TranscriptTextUtils.sentenceEndTime(segment, text, 1, text.length()));
+        assertEquals(16000, TranscriptTextUtils.sentenceEndTime(segment, text, 2, text.length()));
+        assertEquals(16000, TranscriptTextUtils.sentenceEndTime(segment, text, 99, text.length()));
+        assertEquals(16000, TranscriptTextUtils.sentenceEndTime(segment, "Single.", 0, 7));
     }
 
     private static TranscriptSegment segment(long start, long end, String words) {

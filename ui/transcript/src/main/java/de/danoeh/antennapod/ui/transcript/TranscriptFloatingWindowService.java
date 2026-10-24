@@ -27,6 +27,7 @@ import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
 
+import de.danoeh.antennapod.event.FeedListUpdateEvent;
 import de.danoeh.antennapod.event.PlayerStatusEvent;
 import de.danoeh.antennapod.event.playback.PlaybackPositionEvent;
 import de.danoeh.antennapod.model.feed.FeedMedia;
@@ -57,12 +58,17 @@ public class TranscriptFloatingWindowService extends Service {
     private Disposable loadDisposable;
     private WindowManager.LayoutParams params;
     private long currentMediaId = -1;
+    private volatile long currentFeedId = -1;
     private int windowWidth;
     private int screenWidth;
     private int screenHeight;
     private long lastSentenceSegmentStart = -1;
     private int lastSentenceIndex = -1;
-    private long lastPlaybackPosition = -1;
+    private TranscriptSegment sentenceCacheSegment;
+    private String sentenceCacheWords;
+    private int[] sentenceCacheStarts;
+    private int[] translationCacheStarts;
+    private volatile long lastPlaybackPosition = -1;
     private boolean playing;
     private boolean positionLocked;
     private boolean windowHidden = true;
@@ -348,29 +354,42 @@ public class TranscriptFloatingWindowService extends Service {
     }
 
     private void loadTranscript(long mediaId) {
+        loadTranscript(mediaId, false);
+    }
+
+    private void loadTranscript(long mediaId, boolean keepPosition) {
         if (loadDisposable != null && !loadDisposable.isDisposed()) {
             loadDisposable.dispose();
         }
         transcript = null;
-        lastPlaybackPosition = -1;
+        if (!keepPosition) {
+            lastPlaybackPosition = -1;
+            currentFeedId = -1;
+        }
         lastSentenceSegmentStart = -1;
         lastSentenceIndex = -1;
+        sentenceCacheSegment = null;
+        sentenceCacheWords = null;
+        sentenceCacheStarts = null;
+        translationCacheStarts = null;
         hideTranscript();
         loadDisposable = Observable.fromCallable(() -> {
             FeedMedia media = DBReader.getFeedMedia(mediaId);
-            if (media == null) {
+            if (media == null || media.getItem() == null) {
                 return null;
             }
-            if (lastPlaybackPosition < 0) {
-                lastPlaybackPosition = Math.max(0, media.getPosition());
-            }
-            return TranscriptUtils.loadTranscript(media, false);
+            media.setTranscript(TranscriptUtils.loadTranscript(media, false));
+            return media;
         })
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(t -> {
-                    this.transcript = t;
-                    if (t == null || t.getSegmentCount() == 0) {
+                .subscribe(media -> {
+                    currentFeedId = media.getItem().getFeedId();
+                    if (lastPlaybackPosition < 0) {
+                        lastPlaybackPosition = Math.max(0, media.getPosition());
+                    }
+                    this.transcript = media.getTranscript();
+                    if (transcript == null || transcript.getSegmentCount() == 0) {
                         hideTranscript();
                         stopSelf();
                         return;
@@ -390,6 +409,14 @@ public class TranscriptFloatingWindowService extends Service {
         }
         lastPlaybackPosition = event.getPosition();
         updateTranscript(false);
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onFeedListUpdateEvent(FeedListUpdateEvent event) {
+        if (currentMediaId == -1 || currentFeedId == -1 || !event.contains(currentFeedId)) {
+            return;
+        }
+        loadTranscript(currentMediaId, true);
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
@@ -423,13 +450,25 @@ public class TranscriptFloatingWindowService extends Service {
         boolean bilingual = split >= 0;
         String primaryText = bilingual ? words.substring(0, split) : words;
         int primaryLength = primaryText.length();
-        int[] sentenceStarts = TranscriptTextUtils.chunkStarts(primaryText, primaryLength);
+        if (segment != sentenceCacheSegment || !words.equals(sentenceCacheWords)) {
+            sentenceCacheSegment = segment;
+            sentenceCacheWords = words;
+            sentenceCacheStarts = TranscriptTextUtils.chunkStarts(primaryText, primaryLength);
+            if (bilingual) {
+                String translation = words.substring(split + 1);
+                translationCacheStarts = TranscriptTextUtils.chunkStarts(
+                        translation, translation.length());
+            } else {
+                translationCacheStarts = null;
+            }
+        }
+        int[] sentenceStarts = sentenceCacheStarts;
         if (primaryLength <= 0 || sentenceStarts.length < 2) {
             hideTranscript();
             return;
         }
 
-        int sentenceIndex = TranscriptTextUtils.sentenceIndexAt(primaryText,
+        int sentenceIndex = TranscriptTextUtils.sentenceIndexAt(sentenceStarts,
                 TranscriptTextUtils.progressAt(segment, position), primaryLength);
         boolean isNewSentence = segment.getStartTime() != lastSentenceSegmentStart
                 || sentenceIndex != lastSentenceIndex;
@@ -439,10 +478,8 @@ public class TranscriptFloatingWindowService extends Service {
 
         lastSentenceSegmentStart = segment.getStartTime();
         lastSentenceIndex = sentenceIndex;
-        long sentenceEndTime = sentenceIndex + 2 < sentenceStarts.length
-                ? TranscriptTextUtils.sentenceStartTime(segment, primaryText,
-                        sentenceIndex + 1, primaryLength)
-                : segment.getEndTime();
+        long sentenceEndTime = TranscriptTextUtils.sentenceEndTime(
+                segment, sentenceStarts, sentenceIndex);
         long remainingMs = sentenceEndTime + offset - lastPlaybackPosition;
 
         int languageMode = UserPreferences.getTranscriptLanguageMode();
@@ -470,12 +507,12 @@ public class TranscriptFloatingWindowService extends Service {
         }
 
         updateTranslationView(words, split, sentenceIndex, showTranslation, remainingMs,
-                sentenceStarts.length == 2);
+                sentenceStarts.length == 2, translationCacheStarts);
     }
 
     private void updateTranslationView(String words, int languageSplit, int sentenceIndex,
                                        boolean showTranslation, long remainingMs,
-                                       boolean singlePrimarySentence) {
+                                       boolean singlePrimarySentence, int[] translationStarts) {
         if (!showTranslation) {
             tvTranscriptTranslation.stopAutoScroll();
             tvTranscriptTranslation.setVisibility(View.GONE);
@@ -494,8 +531,7 @@ public class TranscriptFloatingWindowService extends Service {
             startAutoScrollIfPlaying(tvTranscriptTranslation, remainingMs);
             return;
         }
-        int[] translationStarts = TranscriptTextUtils.chunkStarts(translation, translation.length());
-        if (translationStarts.length < 2) {
+        if (translationStarts == null || translationStarts.length < 2) {
             tvTranscriptTranslation.stopAutoScroll();
             tvTranscriptTranslation.setVisibility(View.GONE);
             return;
