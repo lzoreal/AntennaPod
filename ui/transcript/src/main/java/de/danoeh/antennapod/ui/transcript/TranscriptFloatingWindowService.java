@@ -7,7 +7,9 @@ import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.PixelFormat;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -17,6 +19,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.WindowManager;
+import android.widget.ImageButton;
 
 import androidx.annotation.Nullable;
 
@@ -42,20 +45,30 @@ public class TranscriptFloatingWindowService extends Service {
     private static final String TAG = "FloatingTranscript";
     private static final String ACTION_SHOW = "de.danoeh.antennapod.action.SHOW_FLOATING_TRANSCRIPT";
     private static final String EXTRA_MEDIA_ID = "extra_media_id";
+    private static final long CONTROLS_HIDE_DELAY_MS = 4000;
 
     private WindowManager windowManager;
     private View floatingView;
+    private View floatingControls;
     private ScrollTextView tvTranscript;
     private ScrollTextView tvTranscriptTranslation;
+    private ImageButton btnFloatingLock;
     private Transcript transcript;
     private Disposable loadDisposable;
     private WindowManager.LayoutParams params;
     private long currentMediaId = -1;
     private int windowWidth;
+    private int screenWidth;
+    private int screenHeight;
     private long lastSentenceSegmentStart = -1;
     private int lastSentenceIndex = -1;
     private long lastPlaybackPosition = -1;
     private boolean playing;
+    private boolean positionLocked;
+    private boolean windowHidden = true;
+    private boolean controlsWereVisible;
+    private final Handler controlsHandler = new Handler(Looper.getMainLooper());
+    private final Runnable hideControlsRunnable = () -> setControlsVisible(false);
     private final SharedPreferences.OnSharedPreferenceChangeListener languageModeListener =
             (sharedPreferences, key) -> {
                 if (UserPreferences.PREF_TRANSCRIPT_LANGUAGE_MODE.equals(key)) {
@@ -90,6 +103,7 @@ public class TranscriptFloatingWindowService extends Service {
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         playing = PlaybackPreferences.getCurrentPlayerStatus()
                 == PlaybackPreferences.PLAYER_STATUS_PLAYING;
+        positionLocked = UserPreferences.isFloatingTranscriptLocked();
         EventBus.getDefault().register(this);
         UserPreferences.registerFloatingTranscriptListener(languageModeListener);
     }
@@ -117,16 +131,26 @@ public class TranscriptFloatingWindowService extends Service {
 
     private void createFloatingWindow() {
         floatingView = LayoutInflater.from(this).inflate(R.layout.floating_transcript_layout, null);
+        floatingControls = floatingView.findViewById(R.id.floating_controls);
         tvTranscript = floatingView.findViewById(R.id.tv_floating_transcript);
         tvTranscriptTranslation = floatingView.findViewById(R.id.tv_floating_transcript_translation);
+        btnFloatingLock = floatingView.findViewById(R.id.btn_floating_lock);
+        ImageButton btnFloatingClose = floatingView.findViewById(R.id.btn_floating_close);
+        btnFloatingLock.setOnClickListener(v -> {
+            togglePositionLock();
+            showControls();
+        });
+        btnFloatingClose.setOnClickListener(v -> closeFloatingTranscript());
+        setControlsVisible(false);
+        updateLockButton();
 
-        int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+        final int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE;
 
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        int screenWidth = dm.widthPixels;
-        int screenHeight = dm.heightPixels;
+        screenWidth = dm.widthPixels;
+        screenHeight = dm.heightPixels;
         windowWidth = (int) (screenWidth * 0.9);
 
         params = new WindowManager.LayoutParams(
@@ -163,6 +187,8 @@ public class TranscriptFloatingWindowService extends Service {
                         startX = params.x;
                         startY = params.y;
                         moved = false;
+                        controlsWereVisible = areControlsVisible();
+                        showControls();
                         return true;
                     case MotionEvent.ACTION_MOVE:
                         float deltaX = event.getRawX() - downX;
@@ -173,18 +199,28 @@ public class TranscriptFloatingWindowService extends Service {
                             return true;
                         }
                         moved = true;
+                        showControls();
+                        if (positionLocked) {
+                            return true;
+                        }
                         params.x = startX + (int) deltaX;
                         params.y = startY + (int) deltaY;
                         params.x = Math.max(0, Math.min(params.x, screenWidth - windowWidth));
-                        params.y = Math.max(0, Math.min(params.y, screenHeight - floatingView.getHeight()));
+                        params.y = Math.max(0, Math.min(params.y,
+                                screenHeight - floatingView.getHeight()));
                         windowManager.updateViewLayout(floatingView, params);
                         return true;
                     case MotionEvent.ACTION_UP:
                         if (moved) {
-                            UserPreferences.setFloatingTranscriptPosition(
-                                    (int) (params.x / dm.density), (int) (params.y / dm.density));
-                        } else {
+                            if (!positionLocked) {
+                                snapToEdge();
+                                saveFloatingPosition();
+                            }
+                            showControls();
+                        } else if (controlsWereVisible) {
                             openTranscriptPage();
+                        } else {
+                            showControls();
                         }
                         return true;
                 }
@@ -193,6 +229,85 @@ public class TranscriptFloatingWindowService extends Service {
         });
 
         windowManager.addView(floatingView, params);
+    }
+
+    private void togglePositionLock() {
+        positionLocked = !positionLocked;
+        UserPreferences.setFloatingTranscriptLocked(positionLocked);
+        updateLockButton();
+    }
+
+    private void setControlsVisible(boolean visible) {
+        if (floatingControls == null) {
+            return;
+        }
+        floatingControls.setVisibility(visible ? View.VISIBLE : View.INVISIBLE);
+        controlsHandler.removeCallbacks(hideControlsRunnable);
+    }
+
+    private void showControls() {
+        if (floatingControls == null) {
+            return;
+        }
+        floatingControls.setVisibility(View.VISIBLE);
+        controlsHandler.removeCallbacks(hideControlsRunnable);
+        controlsHandler.postDelayed(hideControlsRunnable, CONTROLS_HIDE_DELAY_MS);
+    }
+
+    private boolean areControlsVisible() {
+        return floatingControls != null && floatingControls.getVisibility() == View.VISIBLE;
+    }
+
+    private void updateLockButton() {
+        if (btnFloatingLock == null) {
+            return;
+        }
+        btnFloatingLock.setImageResource(positionLocked
+                ? R.drawable.ic_transcript_lock : R.drawable.ic_transcript_unlock);
+        btnFloatingLock.setContentDescription(getString(positionLocked
+                ? R.string.transcript_floating_unlock : R.string.transcript_floating_lock));
+        btnFloatingLock.setAlpha(positionLocked ? 1.0f : 0.7f);
+    }
+
+    private void snapToEdge() {
+        if (params == null) {
+            return;
+        }
+        params.x = params.x + windowWidth / 2 < screenWidth / 2
+                ? 0 : screenWidth - windowWidth;
+        params.y = Math.max(0, Math.min(params.y, screenHeight - floatingView.getHeight()));
+        try {
+            windowManager.updateViewLayout(floatingView, params);
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "Unable to snap floating window", e);
+        }
+    }
+
+    private void saveFloatingPosition() {
+        if (params == null) {
+            return;
+        }
+        float density = getResources().getDisplayMetrics().density;
+        UserPreferences.setFloatingTranscriptPosition(
+                (int) (params.x / density), (int) (params.y / density));
+    }
+
+    private void clampPosition() {
+        if (params == null || floatingView == null) {
+            return;
+        }
+        params.x = Math.max(0, Math.min(params.x, screenWidth - windowWidth));
+        params.y = Math.max(0, Math.min(params.y, screenHeight - floatingView.getHeight()));
+        try {
+            windowManager.updateViewLayout(floatingView, params);
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "Unable to clamp floating window", e);
+        }
+    }
+
+    private void closeFloatingTranscript() {
+        UserPreferences.setFloatingTranscriptEnabled(false);
+        stopSelf();
     }
 
     private void openTranscriptPage() {
@@ -219,10 +334,12 @@ public class TranscriptFloatingWindowService extends Service {
             return;
         }
         DisplayMetrics dm = getResources().getDisplayMetrics();
+        screenWidth = dm.widthPixels;
+        screenHeight = dm.heightPixels;
         windowWidth = (int) (dm.widthPixels * 0.9f);
         params.width = windowWidth;
-        params.x = Math.max(0, Math.min(params.x, dm.widthPixels - windowWidth));
-        params.y = Math.max(0, Math.min(params.y, dm.heightPixels - floatingView.getHeight()));
+        params.x = Math.max(0, Math.min(params.x, screenWidth - windowWidth));
+        params.y = Math.max(0, Math.min(params.y, screenHeight - floatingView.getHeight()));
         try {
             windowManager.updateViewLayout(floatingView, params);
         } catch (IllegalArgumentException e) {
@@ -335,12 +452,15 @@ public class TranscriptFloatingWindowService extends Service {
                 || !showTranslation;
 
         setTouchable(true);
+        if (floatingView != null && windowHidden) {
+            windowHidden = false;
+            floatingView.setVisibility(View.VISIBLE);
+            setControlsVisible(false);
+            floatingView.post(this::clampPosition);
+        }
         if (showPrimary) {
             String text = primaryText.substring(sentenceStarts[sentenceIndex],
                     sentenceStarts[sentenceIndex + 1]).trim();
-            if (segment.getSpeaker() != null && !segment.getSpeaker().isEmpty()) {
-                text = segment.getSpeaker() + ": " + text;
-            }
             tvTranscript.setText(text);
             tvTranscript.setVisibility(View.VISIBLE);
             startAutoScrollIfPlaying(tvTranscript, remainingMs);
@@ -349,17 +469,31 @@ public class TranscriptFloatingWindowService extends Service {
             tvTranscript.setVisibility(View.GONE);
         }
 
-        updateTranslationView(words, split, sentenceIndex, showTranslation, remainingMs);
+        updateTranslationView(words, split, sentenceIndex, showTranslation, remainingMs,
+                sentenceStarts.length == 2);
     }
 
     private void updateTranslationView(String words, int languageSplit, int sentenceIndex,
-                                       boolean showTranslation, long remainingMs) {
+                                       boolean showTranslation, long remainingMs,
+                                       boolean singlePrimarySentence) {
         if (!showTranslation) {
             tvTranscriptTranslation.stopAutoScroll();
             tvTranscriptTranslation.setVisibility(View.GONE);
             return;
         }
         String translation = words.substring(languageSplit + 1);
+        if (singlePrimarySentence) {
+            String text = translation.trim();
+            if (text.isEmpty()) {
+                tvTranscriptTranslation.stopAutoScroll();
+                tvTranscriptTranslation.setVisibility(View.GONE);
+                return;
+            }
+            tvTranscriptTranslation.setText(text);
+            tvTranscriptTranslation.setVisibility(View.VISIBLE);
+            startAutoScrollIfPlaying(tvTranscriptTranslation, remainingMs);
+            return;
+        }
         int[] translationStarts = TranscriptTextUtils.chunkStarts(translation, translation.length());
         if (translationStarts.length < 2) {
             tvTranscriptTranslation.stopAutoScroll();
@@ -392,6 +526,11 @@ public class TranscriptFloatingWindowService extends Service {
             tvTranscriptTranslation.stopAutoScroll();
             tvTranscriptTranslation.setVisibility(View.GONE);
         }
+        if (floatingView != null) {
+            floatingView.setVisibility(View.GONE);
+        }
+        windowHidden = true;
+        setControlsVisible(false);
         setTouchable(false);
     }
 
@@ -419,6 +558,7 @@ public class TranscriptFloatingWindowService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        controlsHandler.removeCallbacks(hideControlsRunnable);
         EventBus.getDefault().unregister(this);
         UserPreferences.unregisterFloatingTranscriptListener(languageModeListener);
         if (loadDisposable != null && !loadDisposable.isDisposed()) {

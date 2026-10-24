@@ -2,6 +2,7 @@ package de.danoeh.antennapod.ui.screen.playback.audio;
 
 import android.os.Bundle;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.provider.Settings;
 import android.util.Log;
@@ -121,6 +122,12 @@ public class AudioPlayerFragment extends Fragment implements
     private int currentChapterIndex = -1;
     private boolean isImmersiveMode = false;
     private OnBackPressedCallback immersiveBackCallback;
+    private final SharedPreferences.OnSharedPreferenceChangeListener floatingTranscriptListener =
+            (preferences, key) -> {
+                if (UserPreferences.PREF_FLOATING_TRANSCRIPT.equals(key)) {
+                    updateFloatingTranscriptButton();
+                }
+            };
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
@@ -575,6 +582,7 @@ public class AudioPlayerFragment extends Fragment implements
         super.onStart();
         loadMediaInfo(false);
         EventBus.getDefault().register(this);
+        UserPreferences.registerFloatingTranscriptListener(floatingTranscriptListener);
         txtvRev.setText(NumberFormat.getInstance().format(UserPreferences.getRewindSecs()));
         txtvFF.setText(NumberFormat.getInstance().format(UserPreferences.getFastForwardSecs()));
         updateFloatingTranscriptButton();
@@ -586,6 +594,7 @@ public class AudioPlayerFragment extends Fragment implements
         super.onStop();
         progressIndicator.setVisibility(View.GONE);
         EventBus.getDefault().unregister(this);
+        UserPreferences.unregisterFloatingTranscriptListener(floatingTranscriptListener);
         if (disposable != null) {
             disposable.dispose();
         }
