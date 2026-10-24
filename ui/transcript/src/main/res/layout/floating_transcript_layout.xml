@@ -4,6 +4,36 @@
     android:layout_height="wrap_content"
     android:orientation="vertical">
 
+    <LinearLayout
+        android:id="@+id/floating_controls"
+        android:layout_width="match_parent"
+        android:layout_height="32dp"
+        android:gravity="end|center_vertical"
+        android:orientation="horizontal"
+        android:visibility="invisible">
+
+        <ImageButton
+            android:id="@+id/btn_floating_lock"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:background="@drawable/bg_floating_control"
+            android:contentDescription="@string/transcript_floating_lock"
+            android:padding="4dp"
+            android:src="@drawable/ic_transcript_unlock"
+            android:tint="@color/floating_transcript_translation_text" />
+
+        <ImageButton
+            android:id="@+id/btn_floating_close"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_floating_control"
+            android:contentDescription="@string/transcript_floating_close"
+            android:padding="4dp"
+            android:src="@drawable/ic_transcript_close"
+            android:tint="@color/floating_transcript_translation_text" />
+    </LinearLayout>
+
     <de.danoeh.antennapod.ui.transcript.ScrollTextView
         android:id="@+id/tv_floating_transcript"
         android:layout_width="match_parent"
@@ -22,6 +52,7 @@
         android:id="@+id/tv_floating_transcript_translation"
         android:layout_width="match_parent"
         android:layout_height="@dimen/floating_transcript_height"
+        android:layout_marginTop="-8dp"
         android:background="@android:color/transparent"
         android:textColor="@color/floating_transcript_translation_text"
         android:textSize="@dimen/floating_transcript_text_size"

@@ -23,6 +23,10 @@ public class FeedListUpdateEvent {
     }
 
     public boolean contains(Feed feed) {
-        return feeds.contains(feed.getId());
+        return contains(feed.getId());
+    }
+
+    public boolean contains(long feedId) {
+        return feeds.contains(feedId);
     }
 }

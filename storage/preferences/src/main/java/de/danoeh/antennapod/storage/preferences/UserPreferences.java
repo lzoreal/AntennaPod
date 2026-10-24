@@ -15,6 +15,7 @@ import androidx.preference.PreferenceManager;
 import de.danoeh.antennapod.model.feed.FeedOrder;
 import org.json.JSONArray;
 import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
@@ -128,13 +129,16 @@ public abstract class UserPreferences {
     public static final String PREF_FLOATING_TRANSCRIPT = "prefFloatingTranscript";
     private static final String PREF_TRANSCRIPT_TIME_OFFSET = "prefTranscriptTimeOffset";
     private static final String PREF_TRANSCRIPT_TIME_OFFSET_MEDIA = "prefTranscriptTimeOffsetMedia";
+    private static final String PREF_TRANSCRIPT_TIME_OFFSETS = "prefTranscriptTimeOffsets";
     private static final String PREF_TRANSCRIPT_FONT_SIZE = "prefTranscriptFontSize";
+    private static final String PREF_TRANSCRIPT_SENTENCE_PER_LINE = "prefTranscriptSentencePerLine";
     public static final String PREF_TRANSCRIPT_LANGUAGE_MODE = "prefTranscriptLanguageMode";
     public static final int TRANSCRIPT_LANGUAGE_MODE_BOTH = 0;
     public static final int TRANSCRIPT_LANGUAGE_MODE_PRIMARY_ONLY = 1;
     public static final int TRANSCRIPT_LANGUAGE_MODE_SECONDARY_ONLY = 2;
-    private static final String PREF_FLOATING_TRANSCRIPT_X = "prefFloatingTranscriptX";
-    private static final String PREF_FLOATING_TRANSCRIPT_Y = "prefFloatingTranscriptY";
+    private static final String PREF_FLOATING_TRANSCRIPT_X_DP = "prefFloatingTranscriptXDp";
+    private static final String PREF_FLOATING_TRANSCRIPT_Y_DP = "prefFloatingTranscriptYDp";
+    private static final String PREF_FLOATING_TRANSCRIPT_LOCKED = "prefFloatingTranscriptLocked";
 
     // Experimental
     public static final int EPISODE_CLEANUP_QUEUE = -1;
@@ -946,17 +950,51 @@ public abstract class UserPreferences {
     }
 
     public static long getTranscriptTimeOffset(long mediaId) {
-        if (prefs.getLong(PREF_TRANSCRIPT_TIME_OFFSET_MEDIA, -1) != mediaId) {
-            return 0;
-        }
-        return prefs.getLong(PREF_TRANSCRIPT_TIME_OFFSET, 0);
+        return getTranscriptTimeOffsets().optLong(String.valueOf(mediaId), 0);
     }
 
-    public static void setTranscriptTimeOffset(long mediaId, long offsetMs) {
-        prefs.edit()
-                .putLong(PREF_TRANSCRIPT_TIME_OFFSET_MEDIA, mediaId)
-                .putLong(PREF_TRANSCRIPT_TIME_OFFSET, offsetMs)
-                .apply();
+    public static synchronized void setTranscriptTimeOffset(long mediaId, long offsetMs) {
+        JSONObject offsets = getTranscriptTimeOffsets();
+        try {
+            offsets.put(String.valueOf(mediaId), offsetMs);
+        } catch (JSONException e) {
+            Log.e(TAG, "Unable to store transcript offset", e);
+            return;
+        }
+        prefs.edit().putString(PREF_TRANSCRIPT_TIME_OFFSETS, offsets.toString()).apply();
+    }
+
+    public static synchronized void removeTranscriptTimeOffset(long mediaId) {
+        JSONObject offsets = getTranscriptTimeOffsets();
+        if (offsets.remove(String.valueOf(mediaId)) == null) {
+            return;
+        }
+        prefs.edit().putString(PREF_TRANSCRIPT_TIME_OFFSETS, offsets.toString()).apply();
+    }
+
+    private static JSONObject getTranscriptTimeOffsets() {
+        String json = prefs.getString(PREF_TRANSCRIPT_TIME_OFFSETS, null);
+        if (json != null) {
+            try {
+                return new JSONObject(json);
+            } catch (JSONException e) {
+                Log.e(TAG, "Unable to read transcript offsets", e);
+                return new JSONObject();
+            }
+        }
+        JSONObject offsets = new JSONObject();
+        long legacyMediaId = prefs.getLong(PREF_TRANSCRIPT_TIME_OFFSET_MEDIA, -1);
+        long legacyOffset = prefs.getLong(PREF_TRANSCRIPT_TIME_OFFSET, 0);
+        if (legacyMediaId != -1 && legacyOffset != 0) {
+            try {
+                offsets.put(String.valueOf(legacyMediaId), legacyOffset);
+            } catch (JSONException e) {
+                Log.e(TAG, "Unable to migrate transcript offset", e);
+                return offsets;
+            }
+            prefs.edit().putString(PREF_TRANSCRIPT_TIME_OFFSETS, offsets.toString()).apply();
+        }
+        return offsets;
     }
 
     public static int getTranscriptFontSize() {
@@ -965,6 +1003,14 @@ public abstract class UserPreferences {
 
     public static void setTranscriptFontSize(int step) {
         prefs.edit().putInt(PREF_TRANSCRIPT_FONT_SIZE, step).apply();
+    }
+
+    public static boolean isTranscriptSentencePerLine() {
+        return prefs.getBoolean(PREF_TRANSCRIPT_SENTENCE_PER_LINE, true);
+    }
+
+    public static void setTranscriptSentencePerLine(boolean enabled) {
+        prefs.edit().putBoolean(PREF_TRANSCRIPT_SENTENCE_PER_LINE, enabled).apply();
     }
 
     public static int getTranscriptLanguageMode() {
@@ -976,17 +1022,25 @@ public abstract class UserPreferences {
     }
 
     public static int getFloatingTranscriptX() {
-        return prefs.getInt(PREF_FLOATING_TRANSCRIPT_X, -1);
+        return prefs.getInt(PREF_FLOATING_TRANSCRIPT_X_DP, -1);
     }
 
     public static int getFloatingTranscriptY() {
-        return prefs.getInt(PREF_FLOATING_TRANSCRIPT_Y, -1);
+        return prefs.getInt(PREF_FLOATING_TRANSCRIPT_Y_DP, -1);
     }
 
     public static void setFloatingTranscriptPosition(int x, int y) {
         prefs.edit()
-                .putInt(PREF_FLOATING_TRANSCRIPT_X, x)
-                .putInt(PREF_FLOATING_TRANSCRIPT_Y, y)
+                .putInt(PREF_FLOATING_TRANSCRIPT_X_DP, x)
+                .putInt(PREF_FLOATING_TRANSCRIPT_Y_DP, y)
                 .apply();
+    }
+
+    public static boolean isFloatingTranscriptLocked() {
+        return prefs.getBoolean(PREF_FLOATING_TRANSCRIPT_LOCKED, false);
+    }
+
+    public static void setFloatingTranscriptLocked(boolean locked) {
+        prefs.edit().putBoolean(PREF_FLOATING_TRANSCRIPT_LOCKED, locked).apply();
     }
 }

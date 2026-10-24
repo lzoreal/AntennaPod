@@ -70,6 +70,12 @@ public class ScrollTextView extends TextView {
     }
 
     @Override
+    protected void onDetachedFromWindow() {
+        stopAutoScroll();
+        super.onDetachedFromWindow();
+    }
+
+    @Override
     protected void onDraw(Canvas canvas) {
         TextPaint paint = getPaint();
         int textColor = getCurrentTextColor();

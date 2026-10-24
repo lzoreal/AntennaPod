@@ -40,7 +40,7 @@ public class JsonTranscriptParser {
                 segmentEndTime = endTime;
                 startTime = Double.valueOf(jsonObject.optDouble("startTime", -1) * 1000L).longValue();
                 endTime = Double.valueOf(jsonObject.optDouble("endTime", -1) * 1000L).longValue();
-                if (startTime < 0 || endTime < 0) {
+                if (startTime < 0 || endTime <= startTime) {
                     continue;
                 }
                 if (segmentStartTime == -1L) {
@@ -49,10 +49,12 @@ public class JsonTranscriptParser {
                 duration += endTime - startTime;
 
                 prevSpeaker = speaker;
-                speaker = jsonObject.optString("speaker");
-                speakers.add(speaker);
+                speaker = jsonObject.isNull("speaker") ? "" : jsonObject.optString("speaker");
                 if (StringUtils.isEmpty(speaker) && StringUtils.isNotEmpty(prevSpeaker)) {
                     speaker = prevSpeaker;
+                }
+                if (StringUtils.isNotEmpty(speaker)) {
+                    speakers.add(speaker);
                 }
                 String body = jsonObject.optString("body");
                 if (!prevSpeaker.equals(speaker)) {
@@ -74,9 +76,8 @@ public class JsonTranscriptParser {
                 if (duration >= TranscriptParser.MIN_SPAN) {
                     // Look ahead and make sure the next segment does not start with an alphanumeric character
                     if ((i + 1) < objSegments.length()) {
-                        String nextSegmentFirstChar = objSegments.getJSONObject(i + 1)
-                                .optString("body")
-                                .substring(0, 1);
+                        String nextBody = objSegments.getJSONObject(i + 1).optString("body");
+                        String nextSegmentFirstChar = nextBody.isEmpty() ? "" : nextBody.substring(0, 1);
                         if (!StringUtils.isAlphanumeric(nextSegmentFirstChar)
                                 && (duration < TranscriptParser.MAX_SPAN)) {
                             continue;

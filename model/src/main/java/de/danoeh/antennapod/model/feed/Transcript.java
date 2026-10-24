@@ -1,18 +1,26 @@
 package de.danoeh.antennapod.model.feed;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Set;
 
 public class Transcript {
-    private Set<String> speakers;
+    private Set<String> speakers = Collections.emptySet();
     private final ArrayList<TranscriptSegment> segments = new ArrayList<>();
     private boolean bilingual = false;
 
     public void addSegment(TranscriptSegment segment) {
-        if ((!segments.isEmpty() && segments.get(segments.size() - 1).getStartTime() >= segment.getStartTime())) {
-            throw new IllegalArgumentException("Segments must be added in sorted order");
+        int low = 0;
+        int high = segments.size();
+        while (low < high) {
+            int middle = (low + high) >>> 1;
+            if (segments.get(middle).getStartTime() <= segment.getStartTime()) {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
         }
-        segments.add(segment);
+        segments.add(low, segment);
     }
 
     public int findSegmentIndexBefore(long time) {

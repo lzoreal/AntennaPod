@@ -40,6 +40,7 @@ public class SrtTranscriptParser {
 
         while (iter.hasNext()) {
             body = new StringBuilder();
+            String firstPayloadLine = null;
             line = iter.next();
 
             if (line.isEmpty()) {
@@ -63,24 +64,44 @@ public class SrtTranscriptParser {
                 }
                 duration += endTimecode - startTimecode;
                 do {
+                    if (!iter.hasNext()) {
+                        break;
+                    }
                     line = iter.next();
                     if (StringUtil.isBlank(line)) {
                         break;
                     }
-                    body.append(line.strip());
+                    String strippedLine = line.strip();
+                    if (firstPayloadLine == null) {
+                        firstPayloadLine = strippedLine;
+                    }
+                    body.append(strippedLine);
                     body.append(" ");
                 } while (iter.hasNext());
             }
 
-            if (body.indexOf(": ") != -1) {
-                String[] parts = body.toString().trim().split(":");
-                if (parts.length < 2) {
-                    continue;
+            int colon = -1;
+            int speakerBodyStart = -1;
+            String candidateSpeaker = "";
+            if (firstPayloadLine != null) {
+                int inlineColon = firstPayloadLine.indexOf(": ");
+                if (inlineColon > 0) {
+                    colon = inlineColon;
+                    speakerBodyStart = inlineColon + 2;
+                    candidateSpeaker = firstPayloadLine.substring(0, inlineColon).strip();
+                } else if (firstPayloadLine.endsWith(":") && firstPayloadLine.length() > 1) {
+                    colon = firstPayloadLine.length() - 1;
+                    speakerBodyStart = firstPayloadLine.length();
+                    candidateSpeaker = firstPayloadLine.substring(0, colon).strip();
                 }
+            }
+            if (colon > 0 && isValidSpeaker(candidateSpeaker)) {
                 prevSpeaker = speaker;
-                speaker = parts[0];
+                speaker = candidateSpeaker;
                 speakers.add(speaker);
-                body = new StringBuilder(parts[1].strip());
+                String firstLineBody = firstPayloadLine.substring(speakerBodyStart).strip();
+                String remainingBody = body.substring(firstPayloadLine.length()).strip();
+                body = new StringBuilder((firstLineBody + " " + remainingBody).strip());
                 if (StringUtils.isNotEmpty(prevSpeaker) && !StringUtils.equals(speaker, prevSpeaker)) {
                     if (StringUtils.isNotEmpty(segmentBody)) {
                         transcript.addSegment(new TranscriptSegment(spanStartTimecode,
@@ -129,5 +150,17 @@ public class SrtTranscriptParser {
         long seconds = Integer.parseInt(matcher.group(3));
         long milliseconds = Integer.parseInt(matcher.group(4));
         return (hours * 60 * 60 * 1000) + (minutes * 60 * 1000) + (seconds * 1000) + milliseconds;
+    }
+
+    private static boolean isValidSpeaker(String name) {
+        if (name.isEmpty() || name.length() > 40) {
+            return false;
+        }
+        for (int i = 0; i < name.length(); i++) {
+            if (Character.isLetter(name.charAt(i))) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -22,8 +22,14 @@ dependencies {
     implementation project(':storage:database')
     implementation project(':storage:preferences')
     implementation project(':ui:app-start-intent')
+    implementation project(':ui:i18n')
 
     implementation libs.rxandroid
     implementation libs.rxjava
     implementation libs.eventbus
+
+    testImplementation libs.junit
+    testImplementation libs.robolectric
+    testImplementation libs.nanohttpd
+    testImplementation libs.mockito.core
 }

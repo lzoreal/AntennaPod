@@ -8,6 +8,7 @@ import org.jsoup.Jsoup;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -24,11 +25,6 @@ public class VttTranscriptParser {
 
     private static final Pattern VOICE_SPAN =
             Pattern.compile("<v(?:\\.[^\t\n\r &<>.]+)*[ \t]([^\n\r&>]+)>");
-
-    private static final int SCRIPT_UNKNOWN = -1;
-    private static final int SCRIPT_LATIN = 0;
-    private static final int SCRIPT_CJK = 1;
-    private static final int SCRIPT_OTHER = 2;
 
     private record Timings(long start, long end) {}
 
@@ -57,7 +53,7 @@ public class VttTranscriptParser {
 
             Timings timings = parseCueTimings(line);
             if (timings == null) {
-                return null;
+                continue;
             }
 
             List<String> payloadLines = parseCuePayloadLines(iterator);
@@ -85,36 +81,54 @@ public class VttTranscriptParser {
         }
 
         int bilingualCues = 0;
+        cues.sort(Comparator.comparingLong(Cue::start));
         for (Cue cue : cues) {
             if (cue.lines().size() > 1 && hasDifferentScripts(cue.lines())) {
                 bilingualCues++;
             }
         }
-        boolean bilingual = bilingualCues * 2 > cues.size();
+        int alternatingPrimaryScript = bilingualCues == 0
+                ? detectAlternatingPrimaryScript(cues) : TranscriptSentenceUtils.SCRIPT_UNKNOWN;
+        boolean alternatingBilingual =
+                alternatingPrimaryScript != TranscriptSentenceUtils.SCRIPT_UNKNOWN;
+        boolean bilingual = bilingualCues * 2 > cues.size() || alternatingBilingual;
 
-        TranscriptSegment segment = null;
-        for (Cue cue : cues) {
-            String payload = String.join(bilingual ? "\n" : " ", cue.lines());
-            if (!bilingual && segment != null && segment.getSpeaker().equals(cue.speaker())
-                    && cue.end() - segment.getStartTime() < TranscriptParser.MAX_SPAN) {
-                segment.append(cue.end(), payload);
-            } else {
-                if (segment != null) {
+        if (alternatingBilingual) {
+            addAlternatingSegments(transcript, cues, alternatingPrimaryScript);
+        } else {
+            TranscriptSegment segment = null;
+            for (int i = 0; i < cues.size(); i++) {
+                Cue cue = cues.get(i);
+                Cue nextCue = i + 1 < cues.size() ? cues.get(i + 1) : null;
+                boolean canSplit = bilingual && hasDifferentScripts(cue.lines())
+                        && (nextCue == null || nextCue.start() >= cue.end());
+                if (canSplit) {
+                    if (segment != null) {
+                        transcript.addSegment(segment);
+                        segment = null;
+                    }
+                    addBilingualCue(transcript, cue);
+                    continue;
+                }
+                String payload = String.join(bilingual ? "\n" : " ", cue.lines());
+                if (!bilingual && segment != null && segment.getSpeaker().equals(cue.speaker())
+                        && cue.end() - segment.getStartTime() < TranscriptParser.MAX_SPAN) {
+                    segment.append(cue.end(), payload);
+                } else {
+                    if (segment != null) {
+                        transcript.addSegment(segment);
+                    }
+                    segment = new TranscriptSegment(cue.start(), cue.end(), payload, cue.speaker());
+                }
+                if (segment.getEndTime() - segment.getStartTime() >= TranscriptParser.MIN_SPAN) {
                     transcript.addSegment(segment);
-                }
-                segment = new TranscriptSegment(cue.start(), cue.end(), payload, cue.speaker());
-                if (bilingual && hasDifferentScripts(cue.lines())) {
-                    segment.setTranslationLine(1);
+                    segment = null;
                 }
             }
-            if (segment.getEndTime() - segment.getStartTime() >= TranscriptParser.MIN_SPAN) {
-                transcript.addSegment(segment);
-                segment = null;
-            }
-        }
 
-        if (segment != null) {
-            transcript.addSegment(segment);
+            if (segment != null) {
+                transcript.addSegment(segment);
+            }
         }
 
         if (transcript.getSegmentCount() == 0) {
@@ -149,52 +163,172 @@ public class VttTranscriptParser {
         }
         long start = parseTimestamp(timestamps[0].trim());
         long end = parseTimestamp(timestamps[1].trim().split("[ \t]")[0]);
-        if (start == -1 || end == -1) {
+        if (start == -1 || end == -1 || end <= start) {
             return null;
         }
         return new Timings(start, end);
     }
 
-    private static boolean hasDifferentScripts(@NonNull List<String> lines) {
-        int firstScript = -1;
-        for (String line : lines) {
-            int script = scriptOf(line);
-            if (script == SCRIPT_UNKNOWN) {
+    private static int detectAlternatingPrimaryScript(@NonNull List<Cue> cues) {
+        if (cues.size() < 4) {
+            return TranscriptSentenceUtils.SCRIPT_UNKNOWN;
+        }
+        int primaryScript = TranscriptSentenceUtils.SCRIPT_UNKNOWN;
+        int otherScript = TranscriptSentenceUtils.SCRIPT_UNKNOWN;
+        int previousScript = TranscriptSentenceUtils.SCRIPT_UNKNOWN;
+        int primaryCount = 0;
+        int otherCount = 0;
+        for (Cue cue : cues) {
+            int script = TranscriptSentenceUtils.scriptOf(String.join(" ", cue.lines()));
+            if (script == TranscriptSentenceUtils.SCRIPT_UNKNOWN) {
+                return TranscriptSentenceUtils.SCRIPT_UNKNOWN;
+            }
+            if (primaryScript == TranscriptSentenceUtils.SCRIPT_UNKNOWN) {
+                primaryScript = script;
+            }
+            if (script == primaryScript) {
+                primaryCount++;
+            } else {
+                if (otherScript == TranscriptSentenceUtils.SCRIPT_UNKNOWN) {
+                    otherScript = script;
+                } else if (script != otherScript) {
+                    return TranscriptSentenceUtils.SCRIPT_UNKNOWN;
+                }
+                otherCount++;
+            }
+            if (previousScript != TranscriptSentenceUtils.SCRIPT_UNKNOWN
+                    && script == previousScript) {
+                return TranscriptSentenceUtils.SCRIPT_UNKNOWN;
+            }
+            previousScript = script;
+        }
+        if (primaryCount < 2 || otherCount < 2) {
+            return TranscriptSentenceUtils.SCRIPT_UNKNOWN;
+        }
+        return primaryScript;
+    }
+
+    private static void addAlternatingSegments(Transcript transcript, List<Cue> cues,
+                                               int primaryScript) {
+        int index = 0;
+        while (index < cues.size()) {
+            Cue primaryCue = cues.get(index);
+            if (TranscriptSentenceUtils.scriptOf(String.join(" ", primaryCue.lines()))
+                    != primaryScript) {
+                transcript.addSegment(new TranscriptSegment(primaryCue.start(), primaryCue.end(),
+                        String.join(" ", primaryCue.lines()), primaryCue.speaker()));
+                index++;
                 continue;
             }
-            if (firstScript == -1) {
+            Cue translationCue = null;
+            if (index + 1 < cues.size()
+                    && TranscriptSentenceUtils.scriptOf(String.join(" ", cues.get(index + 1).lines()))
+                    != primaryScript) {
+                translationCue = cues.get(index + 1);
+                index += 2;
+            } else {
+                index++;
+            }
+            if (translationCue != null) {
+                addSentencePairs(transcript, primaryCue.start(),
+                        Math.max(primaryCue.end(), translationCue.end()),
+                        String.join(" ", primaryCue.lines()),
+                        String.join(" ", translationCue.lines()),
+                        primaryCue.speaker());
+            } else {
+                transcript.addSegment(new TranscriptSegment(primaryCue.start(), primaryCue.end(),
+                        String.join(" ", primaryCue.lines()), primaryCue.speaker()));
+            }
+        }
+    }
+
+    private static void addBilingualCue(Transcript transcript, Cue cue) {
+        String payload = String.join("\n", cue.lines());
+        int split = TranscriptSentenceUtils.languageSplitIndex(payload);
+        if (split <= 0 || split >= payload.length() - 1) {
+            transcript.addSegment(new TranscriptSegment(
+                    cue.start(), cue.end(), payload, cue.speaker()));
+            return;
+        }
+        addSentencePairs(transcript, cue.start(), cue.end(),
+                payload.substring(0, split), payload.substring(split + 1), cue.speaker());
+    }
+
+    private static void addSentencePairs(Transcript transcript, long start, long end,
+                                         String primaryText, String translationText, String speaker) {
+        List<SentenceRange> primary = sentenceRanges(primaryText);
+        List<SentenceRange> translation = sentenceRanges(translationText);
+        if (primary.isEmpty()) {
+            if (!primaryText.trim().isEmpty()) {
+                transcript.addSegment(new TranscriptSegment(start, end, primaryText.trim(), speaker));
+            }
+            return;
+        }
+        int primaryLength = Math.max(1, primaryText.length());
+        long duration = Math.max(0, end - start);
+        for (int i = 0; i < primary.size(); i++) {
+            SentenceRange sentence = primary.get(i);
+            long sentenceStart = start + duration * sentence.start() / primaryLength;
+            long sentenceEnd = i == primary.size() - 1
+                    ? end : start + duration * sentence.end() / primaryLength;
+            if (sentenceEnd < sentenceStart) {
+                sentenceEnd = sentenceStart;
+            }
+            String translationLine = "";
+            if (!translation.isEmpty()) {
+                if (translation.size() <= primary.size()) {
+                    translationLine = translation.get(Math.min(i, translation.size() - 1)).text();
+                } else if (i == primary.size() - 1) {
+                    List<String> remaining = new ArrayList<>();
+                    for (int j = i; j < translation.size(); j++) {
+                        remaining.add(translation.get(j).text());
+                    }
+                    translationLine = String.join(" ", remaining);
+                } else {
+                    translationLine = translation.get(i).text();
+                }
+            }
+            String words = translationLine.isEmpty()
+                    ? sentence.text() : sentence.text() + "\n" + translationLine;
+            transcript.addSegment(new TranscriptSegment(
+                    sentenceStart, sentenceEnd, words, speaker));
+        }
+    }
+
+    private static List<SentenceRange> sentenceRanges(String text) {
+        List<SentenceRange> result = new ArrayList<>();
+        int length = text.length();
+        int[] starts = TranscriptSentenceUtils.chunkStarts(text, length);
+        for (int i = 0; i + 1 < starts.length; i++) {
+            int start = starts[i];
+            int end = starts[i + 1];
+            String sentence = text.substring(start, end).trim();
+            if (!sentence.isEmpty()) {
+                result.add(new SentenceRange(start, end, sentence));
+            }
+        }
+        if (result.isEmpty() && !text.trim().isEmpty()) {
+            result.add(new SentenceRange(0, length, text.trim()));
+        }
+        return result;
+    }
+
+    private record SentenceRange(int start, int end, String text) { }
+
+    private static boolean hasDifferentScripts(@NonNull List<String> lines) {
+        int firstScript = TranscriptSentenceUtils.SCRIPT_UNKNOWN;
+        for (String line : lines) {
+            int script = TranscriptSentenceUtils.scriptOf(line);
+            if (script == TranscriptSentenceUtils.SCRIPT_UNKNOWN) {
+                continue;
+            }
+            if (firstScript == TranscriptSentenceUtils.SCRIPT_UNKNOWN) {
                 firstScript = script;
             } else if (firstScript != script) {
                 return true;
             }
         }
         return false;
-    }
-
-    private static int scriptOf(@NonNull String line) {
-        int latin = 0;
-        int cjk = 0;
-        int other = 0;
-        for (int i = 0; i < line.length(); i++) {
-            char c = line.charAt(i);
-            if (!Character.isLetter(c)) {
-                continue;
-            }
-            if (Character.UnicodeScript.of(c) == Character.UnicodeScript.LATIN) {
-                latin++;
-            } else if ((c >= '\u3040' && c <= '\u9fff') || (c >= '\uac00' && c <= '\ud7af')) {
-                cjk++;
-            } else {
-                other++;
-            }
-        }
-        if (cjk > 0) {
-            return SCRIPT_CJK;
-        }
-        if (latin > 0) {
-            return SCRIPT_LATIN;
-        }
-        return other > 0 ? SCRIPT_OTHER : SCRIPT_UNKNOWN;
     }
 
     @NonNull

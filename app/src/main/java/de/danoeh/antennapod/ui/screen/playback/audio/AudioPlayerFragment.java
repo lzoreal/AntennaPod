@@ -2,6 +2,7 @@ package de.danoeh.antennapod.ui.screen.playback.audio;
 
 import android.os.Bundle;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.provider.Settings;
 import android.util.Log;
@@ -47,7 +48,6 @@ import de.danoeh.antennapod.ui.episodes.TimeSpeedConverter;
 import de.danoeh.antennapod.ui.screen.playback.MediaPlayerErrorDialog;
 import de.danoeh.antennapod.ui.screen.playback.PlayButton;
 import de.danoeh.antennapod.ui.screen.playback.SleepTimerDialog;
-import de.danoeh.antennapod.ui.screen.playback.TranscriptDialogFragment;
 import de.danoeh.antennapod.ui.screen.playback.TranscriptPageFragment;
 import de.danoeh.antennapod.ui.screen.playback.VariableSpeedDialog;
 import de.danoeh.antennapod.ui.transcript.TranscriptFloatingWindowService;
@@ -67,6 +67,7 @@ import de.danoeh.antennapod.activity.MainActivity;
 import de.danoeh.antennapod.ui.common.Converter;
 import de.danoeh.antennapod.ui.screen.feed.preferences.SkipPreferenceDialog;
 import de.danoeh.antennapod.event.FeedItemEvent;
+import de.danoeh.antennapod.event.FeedListUpdateEvent;
 import de.danoeh.antennapod.event.PlayerErrorEvent;
 import de.danoeh.antennapod.event.PlayerStatusEvent;
 import de.danoeh.antennapod.event.playback.BufferUpdateEvent;
@@ -122,6 +123,12 @@ public class AudioPlayerFragment extends Fragment implements
     private int currentChapterIndex = -1;
     private boolean isImmersiveMode = false;
     private OnBackPressedCallback immersiveBackCallback;
+    private final SharedPreferences.OnSharedPreferenceChangeListener floatingTranscriptListener =
+            (preferences, key) -> {
+                if (UserPreferences.PREF_FLOATING_TRANSCRIPT.equals(key)) {
+                    updateFloatingTranscriptButton();
+                }
+            };
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
@@ -491,6 +498,16 @@ public class AudioPlayerFragment extends Fragment implements
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onFeedListUpdate(FeedListUpdateEvent event) {
+        if (currentMedia == null || currentMedia.getItem() == null) {
+            return;
+        }
+        if (event.contains(currentMedia.getItem().getFeedId())) {
+            loadMediaInfo(false);
+        }
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
     public void onPlaybackServiceChanged(PlaybackServiceEvent event) {
         if (event.action == PlaybackServiceEvent.Action.SERVICE_SHUT_DOWN) {
             ((MainActivity) getActivity()).getBottomSheet().setState(BottomSheetBehavior.STATE_COLLAPSED);
@@ -576,6 +593,7 @@ public class AudioPlayerFragment extends Fragment implements
         super.onStart();
         loadMediaInfo(false);
         EventBus.getDefault().register(this);
+        UserPreferences.registerFloatingTranscriptListener(floatingTranscriptListener);
         txtvRev.setText(NumberFormat.getInstance().format(UserPreferences.getRewindSecs()));
         txtvFF.setText(NumberFormat.getInstance().format(UserPreferences.getFastForwardSecs()));
         updateFloatingTranscriptButton();
@@ -587,19 +605,12 @@ public class AudioPlayerFragment extends Fragment implements
         super.onStop();
         progressIndicator.setVisibility(View.GONE);
         EventBus.getDefault().unregister(this);
+        UserPreferences.unregisterFloatingTranscriptListener(floatingTranscriptListener);
         if (disposable != null) {
             disposable.dispose();
         }
-        if (isImmersiveMode && getActivity() != null) {
-            View decorView = getActivity().getWindow().getDecorView();
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                WindowInsetsController controller = decorView.getWindowInsetsController();
-                if (controller != null) {
-                    controller.show(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
-                }
-            } else {
-                decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
-            }
+        if (isImmersiveMode) {
+            exitImmersiveMode();
         }
     }
 

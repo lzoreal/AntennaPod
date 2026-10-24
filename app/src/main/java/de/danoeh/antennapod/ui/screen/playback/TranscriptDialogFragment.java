@@ -1,10 +1,6 @@
 package de.danoeh.antennapod.ui.screen.playback;
 
 import android.app.Dialog;
-import android.content.ClipData;
-import android.content.ClipboardManager;
-import android.content.Intent;
-import android.os.Build;
 import android.os.Bundle;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -16,7 +12,6 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
-import androidx.core.content.ContextCompat;
 import androidx.fragment.app.DialogFragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.LinearSmoothScroller;
@@ -24,7 +19,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import de.danoeh.antennapod.R;
 import de.danoeh.antennapod.databinding.TranscriptDialogBinding;
-import de.danoeh.antennapod.event.MessageEvent;
+import de.danoeh.antennapod.event.FeedListUpdateEvent;
 import de.danoeh.antennapod.event.PlayerStatusEvent;
 import de.danoeh.antennapod.event.playback.PlaybackPositionEvent;
 import de.danoeh.antennapod.model.feed.FeedMedia;
@@ -52,7 +47,6 @@ public class TranscriptDialogFragment extends DialogFragment
     private Playable media;
     private Transcript transcript;
     private TranscriptAdapter adapter = null;
-    private boolean doInitialScroll = true;
     private LinearLayoutManager layoutManager;
 
     @Override
@@ -88,10 +82,11 @@ public class TranscriptDialogFragment extends DialogFragment
 
         viewBinding.followAudioCheckbox.setChecked(true);
         viewBinding.progLoading.setVisibility(View.VISIBLE);
-        doInitialScroll = true;
 
         View btnToggleTranslation = viewBinding.getRoot().findViewById(R.id.btnToggleTranslation);
         if (btnToggleTranslation != null) {
+            btnToggleTranslation.setAlpha(
+                    adapter.getLanguageMode() == TranscriptAdapter.LANGUAGE_MODE_BOTH ? 1.0f : 0.5f);
             btnToggleTranslation.setOnClickListener(v -> {
                 int newState = (adapter.getLanguageMode() + 1) % 3;
                 adapter.setLanguageMode(newState);
@@ -108,11 +103,12 @@ public class TranscriptDialogFragment extends DialogFragment
     }
 
     @Override
-    public void onTranscriptClicked(int pos, TranscriptSegment segment, long sentenceStartTime) {
+    public void onTranscriptClicked(int pos, TranscriptSegment segment,
+                                    long sentenceStartTime, long sentenceEndTime) {
         long offset = media instanceof FeedMedia
                 ? UserPreferences.getTranscriptTimeOffset(((FeedMedia) media).getId()) : 0;
         long startTime = sentenceStartTime + offset;
-        long endTime = segment.getEndTime() + offset;
+        long endTime = sentenceEndTime + offset;
 
         scrollToPosition(pos);
         PlaybackController.bindToMedia3Service(getActivity(), controller -> {
@@ -125,7 +121,6 @@ public class TranscriptDialogFragment extends DialogFragment
                 controller.play();
             }
         });
-        adapter.notifyItemChanged(pos);
         viewBinding.followAudioCheckbox.setChecked(true);
     }
 
@@ -142,6 +137,10 @@ public class TranscriptDialogFragment extends DialogFragment
     public void onStart() {
         super.onStart();
         EventBus.getDefault().register(this);
+        if (adapter != null
+                && adapter.getLanguageMode() != UserPreferences.getTranscriptLanguageMode()) {
+            adapter.setLanguageMode(UserPreferences.getTranscriptLanguageMode());
+        }
         loadMediaInfo(false);
     }
 
@@ -151,8 +150,18 @@ public class TranscriptDialogFragment extends DialogFragment
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onFeedListUpdateEvent(FeedListUpdateEvent event) {
+        if (!(media instanceof FeedMedia) || ((FeedMedia) media).getItem() == null) {
+            return;
+        }
+        if (event.contains(((FeedMedia) media).getItem().getFeedId())) {
+            loadMediaInfo(false, true);
+        }
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
     public void onEventMainThread(PlaybackPositionEvent event) {
-        if (transcript == null) {
+        if (transcript == null || event.getPosition() < 0) {
             return;
         }
         long offset = media instanceof FeedMedia
@@ -162,66 +171,105 @@ public class TranscriptDialogFragment extends DialogFragment
     }
 
     private void loadMediaInfo(boolean forceRefresh) {
+        loadMediaInfo(forceRefresh, false);
+    }
+
+    private void loadMediaInfo(boolean forceRefresh, boolean forceReload) {
+        if (!forceRefresh && !forceReload && media instanceof FeedMedia && transcript != null
+                && adapter != null && adapter.getItemCount() > 0
+                && ((FeedMedia) media).getId()
+                == PlaybackPreferences.getCurrentlyPlayingFeedMediaId()) {
+            if (viewBinding != null) {
+                viewBinding.progLoading.setVisibility(View.GONE);
+            }
+            return;
+        }
         if (disposable != null) {
             disposable.dispose();
         }
         disposable = Maybe.create(emitter -> {
-            Playable media = DBReader.getFeedMedia(PlaybackPreferences.getCurrentlyPlayingFeedMediaId());
-            if (media instanceof FeedMedia) {
-                this.media = media;
-
-                transcript = TranscriptUtils.loadTranscript((FeedMedia) this.media, forceRefresh);
-                doInitialScroll = true;
-                ((FeedMedia) this.media).setTranscript(transcript);
-                emitter.onSuccess(this.media);
+            Playable loadedMedia = DBReader.getFeedMedia(
+                    PlaybackPreferences.getCurrentlyPlayingFeedMediaId());
+            if (loadedMedia instanceof FeedMedia) {
+                FeedMedia feedMedia = (FeedMedia) loadedMedia;
+                feedMedia.setTranscript(TranscriptUtils.loadTranscript(feedMedia, forceRefresh));
+                emitter.onSuccess(feedMedia);
             } else {
                 emitter.onComplete();
             }
         })
-        .subscribeOn(Schedulers.computation())
+        .subscribeOn(Schedulers.io())
         .observeOn(AndroidSchedulers.mainThread())
         .subscribe(media -> onMediaChanged((Playable) media),
-                error -> Log.e(TAG, Log.getStackTraceString(error)));
+                error -> {
+                    Log.e(TAG, Log.getStackTraceString(error));
+                    if (viewBinding != null) {
+                        viewBinding.progLoading.setVisibility(View.GONE);
+                    }
+                },
+                () -> {
+                    if (viewBinding != null) {
+                        viewBinding.progLoading.setVisibility(View.GONE);
+                    }
+                });
     }
 
     private void onMediaChanged(Playable media) {
-        if (!(media instanceof FeedMedia)) {
+        if (viewBinding == null || !isAdded() || !(media instanceof FeedMedia)) {
             return;
         }
         this.media = media;
-
-        if (!((FeedMedia) media).hasTranscript()) {
+        this.transcript = ((FeedMedia) media).getTranscript();
+        if (this.transcript == null || this.transcript.getSegmentCount() == 0) {
             dismiss();
             Toast.makeText(getContext(), R.string.no_transcript_label, Toast.LENGTH_LONG).show();
             return;
         }
+        Transcript loadedTranscript = this.transcript;
 
         viewBinding.progLoading.setVisibility(View.GONE);
         adapter.setMedia(media);
 
+        long offset = UserPreferences.getTranscriptTimeOffset(((FeedMedia) media).getId());
+        long position = Math.max(0, ((FeedMedia) media).getPosition() - offset);
+        int initialPosition = loadedTranscript.findSegmentIndexBefore(position);
+        long initialMediaId = ((FeedMedia) media).getId();
+        adapter.setHighlightPosition(initialPosition);
+        viewBinding.transcriptList.post(() -> {
+            if (viewBinding != null && isAdded() && media instanceof FeedMedia
+                    && ((FeedMedia) media).getId() == initialMediaId
+                    && initialPosition < adapter.getItemCount()) {
+                scrollToPosition(initialPosition);
+            }
+        });
+
         View btnToggleTranslation = viewBinding.getRoot().findViewById(R.id.btnToggleTranslation);
         if (btnToggleTranslation != null) {
-            boolean isBilingual = ((FeedMedia) media).getTranscript().isBilingual();
+            boolean isBilingual = loadedTranscript.isBilingual();
             btnToggleTranslation.setVisibility(isBilingual ? View.VISIBLE : View.GONE);
         }
     }
 
     public void scrollToPosition(int pos) {
-        if (pos <= 0) {
+        if (pos < 0) {
             return;
         }
-        if (!viewBinding.followAudioCheckbox.isChecked() && !doInitialScroll) {
+        if (!viewBinding.followAudioCheckbox.isChecked()) {
             return;
         }
-        doInitialScroll = false;
 
-        boolean quickScroll = Math.abs(layoutManager.findFirstVisibleItemPosition() - pos) > 5;
-        if (layoutManager.findFirstVisibleItemPosition() < pos - 1
-                && !viewBinding.transcriptList.canScrollVertically(1)) {
+        int target = Math.max(0, pos - 1);
+        View targetView = layoutManager.findViewByPosition(target);
+        if (targetView != null && Math.abs(targetView.getTop()) < 20) {
+            return;
+        }
+        int firstVisible = layoutManager.findFirstVisibleItemPosition();
+        boolean quickScroll = Math.abs(firstVisible - pos) > 5;
+        if (firstVisible < target && !viewBinding.transcriptList.canScrollVertically(1)) {
             return;
         }
         if (quickScroll) {
-            viewBinding.transcriptList.scrollToPosition(pos - 1);
+            viewBinding.transcriptList.scrollToPosition(target);
         }
         LinearSmoothScroller smoothScroller = new LinearSmoothScroller(getContext()) {
             @Override
@@ -233,7 +281,7 @@ public class TranscriptDialogFragment extends DialogFragment
                 return (quickScroll ? 200 : 1000) / (float) displayMetrics.densityDpi;
             }
         };
-        smoothScroller.setTargetPosition(pos - 1);
+        smoothScroller.setTargetPosition(target);
         layoutManager.startSmoothScroll(smoothScroller);
     }
 

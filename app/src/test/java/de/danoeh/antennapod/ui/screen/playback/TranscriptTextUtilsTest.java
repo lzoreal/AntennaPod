@@ -19,11 +19,10 @@ public class TranscriptTextUtilsTest {
     }
 
     @Test
-    public void testCharIndexAtUsesPrimaryLineOnly() {
-        String text = "Hello\nWelt";
-        assertEquals(0, TranscriptTextUtils.charIndexAt(text, 0f));
-        assertEquals(5, TranscriptTextUtils.charIndexAt(text, 1f));
-        assertEquals(3, TranscriptTextUtils.charIndexAt(text, 0.5f));
+    public void testCharIndexAtUsesPrimaryBlockOnly() {
+        assertEquals(11, TranscriptTextUtils.charIndexAt("Hello there\n你好。", 1f));
+        assertEquals(6, TranscriptTextUtils.charIndexAt("Hello there\n你好。", 0.5f));
+        assertEquals(11, TranscriptTextUtils.charIndexAt("Hello there", 1f));
     }
 
     @Test
@@ -45,14 +44,22 @@ public class TranscriptTextUtilsTest {
     @Test
     public void testChunkStartsKeepDecimalNumbersTogether() {
         assertArrayEquals(new int[] {0, 21}, TranscriptTextUtils.chunkStarts("Price is 3.5 dollars."));
-        assertArrayEquals(new int[] {0, 26}, TranscriptTextUtils.chunkStarts("It costs 3.5. And 4.5 too."));
+        assertArrayEquals(new int[] {0, 13, 26}, TranscriptTextUtils.chunkStarts("It costs 3.5. And 4.5 too."));
+    }
+
+    @Test
+    public void testChunkStartsSplitAfterNumberedSentence() {
+        assertArrayEquals(new int[] {0, 12, 27},
+                TranscriptTextUtils.chunkStarts("At least 38. It is precise."));
+        assertArrayEquals(new int[] {0, 12, 32},
+                TranscriptTextUtils.chunkStarts("It was 1999. Everything changed."));
     }
 
     @Test
     public void testChunkStartsIncludeTrailingQuotes() {
         assertArrayEquals(new int[] {0, 13, 18}, TranscriptTextUtils.chunkStarts("He said \"Hi.\" Bye."));
         assertArrayEquals(new int[] {0, 10, 14}, TranscriptTextUtils.chunkStarts("Wait what? No."));
-        assertArrayEquals(new int[] {0, 11, 11, 15}, TranscriptTextUtils.chunkStarts("Wait what?! No."));
+        assertArrayEquals(new int[] {0, 11, 15}, TranscriptTextUtils.chunkStarts("Wait what?! No."));
     }
 
     @Test
@@ -68,9 +75,54 @@ public class TranscriptTextUtilsTest {
     }
 
     @Test
-    public void testSplitIntoSentencesKeepsSecondaryLanguageLine() {
-        assertEquals("Hello.\nWorld.\nHallo. Welt.",
+    public void testSplitIntoSentencesSplitsSameScriptLines() {
+        assertEquals("Hello.\nWorld.\nHallo.\nWelt.",
                 TranscriptTextUtils.splitIntoSentences("Hello. World.\nHallo. Welt."));
+    }
+
+    @Test
+    public void testLanguageSplitIndexLocatesTrailingLanguageBlock() {
+        assertEquals(-1, TranscriptTextUtils.languageSplitIndex("Hello\nWelt"));
+        assertEquals(5, TranscriptTextUtils.languageSplitIndex("Hello\n你好。\n世界。"));
+        assertEquals(13, TranscriptTextUtils.languageSplitIndex("Hello. World.\n你好。"));
+        assertEquals(13, TranscriptTextUtils.languageSplitIndex("Hello. World.\n你好。\n世界。"));
+        assertEquals(5, TranscriptTextUtils.languageSplitIndex("Hello\n\n你好。"));
+        assertEquals(10, TranscriptTextUtils.languageSplitIndex("Hi.\nThere.\n你好。\n世界。"));
+        assertEquals(-1, TranscriptTextUtils.languageSplitIndex("Hello. World."));
+        assertEquals(-1, TranscriptTextUtils.languageSplitIndex("Hello. World.\nHallo. Welt."));
+        assertEquals(-1, TranscriptTextUtils.languageSplitIndex("Hello\n"));
+        assertEquals(-1, TranscriptTextUtils.languageSplitIndex("Hello\n\n"));
+    }
+
+    @Test
+    public void testSplitIntoSentencesKeepsWrappedPrimarySentences() {
+        assertEquals("Hello.\nWorld.\n你好。",
+                TranscriptTextUtils.splitIntoSentences("Hello. World.\n你好。"));
+        assertEquals("Hello.\nWorld.\n你好。\n世界。",
+                TranscriptTextUtils.splitIntoSentences("Hello. World.\n你好。\n世界。"));
+        assertEquals("Hi.\nThere.\n你好。\n世界。",
+                TranscriptTextUtils.splitIntoSentences("Hi. There.\n你好。\n世界。"));
+        assertEquals("你好。\n世界。",
+                TranscriptTextUtils.splitIntoSentences("你好。世界。"));
+    }
+
+    @Test
+    public void testInterleavedScriptsFallBackToWholeText() {
+        assertEquals(-1, TranscriptTextUtils.languageSplitIndex("你好。\nHello.\n世界。"));
+    }
+
+    @Test
+    public void testEveryLanguageModeKeepsAllSentences() {
+        String cue = "Hello there my friend.\nHow are you doing today?\n你好，朋友。\n你今天怎么样？";
+        int split = TranscriptTextUtils.languageSplitIndex(cue);
+        assertEquals(47, split);
+        assertEquals("Hello there my friend.\nHow are you doing today?\n你好，朋友。\n你今天怎么样？",
+                TranscriptTextUtils.splitIntoSentences(cue));
+        assertEquals("Hello there my friend.\nHow are you doing today?",
+                TranscriptTextUtils.splitIntoSentences(cue.substring(0, split)));
+        assertEquals("你好，朋友。\n你今天怎么样？",
+                TranscriptTextUtils.splitIntoSentences(cue.substring(split + 1)));
+        assertEquals(47, TranscriptTextUtils.charIndexAt(TranscriptTextUtils.splitIntoSentences(cue), 1f));
     }
 
     @Test
@@ -86,11 +138,23 @@ public class TranscriptTextUtilsTest {
         String text = "One. Two. Three.";
         TranscriptSegment segment = segment(10000, 16000, text);
         assertEquals(10000, TranscriptTextUtils.sentenceStartTime(segment, text, 0, text.length()));
-        assertEquals(12000, TranscriptTextUtils.sentenceStartTime(segment, text, 1, text.length()));
-        assertEquals(14000, TranscriptTextUtils.sentenceStartTime(segment, text, 2, text.length()));
-        assertEquals(14000, TranscriptTextUtils.sentenceStartTime(segment, text, 99, text.length()));
+        assertEquals(11500, TranscriptTextUtils.sentenceStartTime(segment, text, 1, text.length()));
+        assertEquals(13375, TranscriptTextUtils.sentenceStartTime(segment, text, 2, text.length()));
+        assertEquals(13375, TranscriptTextUtils.sentenceStartTime(segment, text, 99, text.length()));
         String single = "Single sentence.";
         assertEquals(10000, TranscriptTextUtils.sentenceStartTime(segment, single, 3, single.length()));
+    }
+
+    @Test
+    public void testSentenceEndTime() {
+        String text = "One. Two. Three.";
+        TranscriptSegment segment = segment(10000, 16000, text);
+
+        assertEquals(11500, TranscriptTextUtils.sentenceEndTime(segment, text, 0, text.length()));
+        assertEquals(13375, TranscriptTextUtils.sentenceEndTime(segment, text, 1, text.length()));
+        assertEquals(16000, TranscriptTextUtils.sentenceEndTime(segment, text, 2, text.length()));
+        assertEquals(16000, TranscriptTextUtils.sentenceEndTime(segment, text, 99, text.length()));
+        assertEquals(16000, TranscriptTextUtils.sentenceEndTime(segment, "Single.", 0, 7));
     }
 
     private static TranscriptSegment segment(long start, long end, String words) {

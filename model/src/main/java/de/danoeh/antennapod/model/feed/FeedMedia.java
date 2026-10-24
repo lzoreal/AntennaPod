@@ -505,6 +505,30 @@ public class FeedMedia implements Playable {
         return getLocalFileUrl() + ".transcript";
     }
 
+    public String getTranscriptMetadataFileUrl() {
+        String transcriptFileUrl = getTranscriptFileUrl();
+        return transcriptFileUrl == null ? null : transcriptFileUrl + ".source";
+    }
+
+    public void deleteTranscriptFiles() {
+        String transcriptFileUrl = getTranscriptFileUrl();
+        if (transcriptFileUrl == null) {
+            return;
+        }
+        File transcriptFile = new File(transcriptFileUrl);
+        if (transcriptFile.exists() && !transcriptFile.delete()) {
+            return;
+        }
+        File metadataFile = new File(getTranscriptMetadataFileUrl());
+        if (metadataFile.exists()) {
+            metadataFile.delete();
+        }
+        File tempFile = new File(transcriptFileUrl + ".tmp");
+        if (tempFile.exists()) {
+            tempFile.delete();
+        }
+    }
+
     public void setTranscript(Transcript t) {
         if (item == null)  {
             return;

@@ -32,6 +32,30 @@ public class SrtTranscriptParserTest {
     }
 
     @Test
+    public void testSpeakerKeepsTextAfterSecondColon() {
+        String srt = "1\n"
+                + "00:00:00,000 --> 00:00:10,000\n"
+                + "John Doe: Meet at 10:30";
+        Transcript result = SrtTranscriptParser.parse(srt);
+
+        assertEquals("John Doe", result.getSegmentAtTime(0L).getSpeaker());
+        assertEquals("Meet at 10:30", result.getSegmentAtTime(0L).getWords());
+    }
+
+    @Test
+    public void testColonInLaterLineIsNotTreatedAsSpeaker() {
+        String srt = "1\n"
+                + "00:00:00,000 --> 00:00:10,000\n"
+                + "We went home.\n"
+                + "Then he said: it was late.";
+        Transcript result = SrtTranscriptParser.parse(srt);
+
+        assertEquals("", result.getSegmentAtTime(0L).getSpeaker());
+        assertEquals("We went home. Then he said: it was late.",
+                result.getSegmentAtTime(0L).getWords());
+    }
+
+    @Test
     public void testParse() {
         String type = "application/srr";
         Transcript result;

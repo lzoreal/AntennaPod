@@ -118,6 +118,7 @@ public class DBWriter {
     private static void deleteFeedMediaSynchronous(@NonNull Context context, @NonNull FeedMedia media) {
         Log.i(TAG, String.format(Locale.US, "Requested to delete FeedMedia [id=%d, title=%s, downloaded=%s",
                 media.getId(), media.getEpisodeTitle(), media.isDownloaded()));
+        UserPreferences.removeTranscriptTimeOffset(media.getId());
         boolean localDelete = false;
         if (media.getLocalFileUrl() != null && media.getLocalFileUrl().startsWith("content://")) {
             // Local feed
@@ -129,12 +130,7 @@ public class DBWriter {
             localDelete = true;
         } else if (media.getLocalFileUrl() != null) {
             // delete transcript file before the media file because the fileurl is needed
-            if (media.getTranscriptFileUrl() != null) {
-                File transcriptFile = new File(media.getTranscriptFileUrl());
-                if (transcriptFile.exists() && !transcriptFile.delete()) {
-                    Log.d(TAG, "Deletion of transcript file failed.");
-                }
-            }
+            media.deleteTranscriptFiles();
 
             // delete downloaded media file
             File mediaFile = new File(media.getLocalFileUrl());
@@ -218,6 +214,7 @@ public class DBWriter {
                 removedFromQueue.add(item);
             }
             if (item.getMedia() != null) {
+                UserPreferences.removeTranscriptTimeOffset(item.getMedia().getId());
                 if (item.getMedia().getId() == PlaybackPreferences.getCurrentlyPlayingFeedMediaId()) {
                     // Applies to both downloaded and streamed media
                     PlaybackPreferences.writeNoMediaPlaying();
