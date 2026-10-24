@@ -517,10 +517,20 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
 
-        int viewportHeight = viewBinding.recyclerView.getHeight();
+        RecyclerView recyclerView = viewBinding.recyclerView;
+        if (recyclerView.getScrollState() != RecyclerView.SCROLL_STATE_IDLE) {
+            return;
+        }
+        int viewportHeight = recyclerView.getHeight();
         int screenY = holder.itemView.getTop() + (bounds[0] + bounds[1]) / 2;
         int delta = screenY - viewportHeight / 2;
         if (Math.abs(delta) < 16) {
+            return;
+        }
+        if (delta < 0 && !recyclerView.canScrollVertically(-1)) {
+            return;
+        }
+        if (delta > 0 && !recyclerView.canScrollVertically(1)) {
             return;
         }
         long now = System.currentTimeMillis();
@@ -528,8 +538,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         lastFollowScrollTime = now;
-        viewBinding.recyclerView.stopScroll();
-        viewBinding.recyclerView.smoothScrollBy(0, delta);
+        recyclerView.smoothScrollBy(0, delta);
     }
 
     private int[] sentenceBounds(View targetView) {
@@ -557,12 +566,20 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         // No need to scroll if the current sentence is already centered
         View targetView = lm.findViewByPosition(pos);
         if (targetView != null) {
-            int rvHeight = viewBinding.recyclerView.getHeight();
+            RecyclerView recyclerView = viewBinding.recyclerView;
+            int rvHeight = recyclerView.getHeight();
             int[] bounds = sentenceBounds(targetView);
             int centerY = bounds != null
                     ? targetView.getTop() + (bounds[0] + bounds[1]) / 2
                     : (targetView.getTop() + targetView.getBottom()) / 2;
-            if (Math.abs(centerY - rvHeight / 2) < 20) {
+            int delta = centerY - rvHeight / 2;
+            if (Math.abs(delta) < 20) {
+                return;
+            }
+            if (delta < 0 && !recyclerView.canScrollVertically(-1)) {
+                return;
+            }
+            if (delta > 0 && !recyclerView.canScrollVertically(1)) {
                 return;
             }
         }
@@ -596,13 +613,19 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                     centerY = targetView.getTop() + (bounds[0] + bounds[1]) / 2;
                 }
                 int dy = centerY - viewportHeight / 2;
+                RecyclerView recyclerView = viewBinding.recyclerView;
+                if (dy < 0 && !recyclerView.canScrollVertically(-1)) {
+                    dy = 0;
+                } else if (dy > 0 && !recyclerView.canScrollVertically(1)) {
+                    dy = 0;
+                }
                 int duration = Math.max(1, calculateTimeForDeceleration(Math.abs(dy)));
                 action.update(0, dy, duration, new DecelerateInterpolator());
             }
 
             @Override
             protected float calculateSpeedPerPixel(DisplayMetrics displayMetrics) {
-                return (fast ? 100 : quickScroll ? 200 : 1400) / (float) displayMetrics.densityDpi;
+                return (fast ? 100 : quickScroll ? 200 : 1600) / (float) displayMetrics.densityDpi;
             }
         };
         smoothScroller.setTargetPosition(pos);
