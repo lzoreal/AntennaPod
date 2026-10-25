@@ -118,7 +118,6 @@ public class DBWriter {
     private static void deleteFeedMediaSynchronous(@NonNull Context context, @NonNull FeedMedia media) {
         Log.i(TAG, String.format(Locale.US, "Requested to delete FeedMedia [id=%d, title=%s, downloaded=%s",
                 media.getId(), media.getEpisodeTitle(), media.isDownloaded()));
-        UserPreferences.removeTranscriptTimeOffset(media.getId());
         boolean localDelete = false;
         if (media.getLocalFileUrl() != null && media.getLocalFileUrl().startsWith("content://")) {
             // Local feed

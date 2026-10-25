@@ -49,6 +49,13 @@ tt_scenario_layout() {
   capture_screen "$WORK/layout_09_reset.png" || return
   tap_node "$WORK/layout_08_reset.xml" \
     'content-desc="(声音文字排版|Transcript appearance)"' "收起排版面板"
+  sleep 1
+  dump_ui "$WORK/layout_10_closed.xml" || { record_fail "排版：收起后 UI dump 为空"; return; }
+  if grep -q 'resource-id="[^"]*:id/btnLayoutReset"' "$WORK/layout_10_closed.xml"; then
+    record_fail "收起一级控制条后排版面板仍可见"
+  else
+    record_pass "收起一级控制条后排版面板同步隐藏"
+  fi
   record_pass "排版面板截图已保存（$WORK/layout_04_panel.png / layout_09_reset.png）"
 }
 

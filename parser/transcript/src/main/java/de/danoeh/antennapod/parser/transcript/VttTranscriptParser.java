@@ -163,13 +163,12 @@ public class VttTranscriptParser {
         }
         int primaryScript = TranscriptSentenceUtils.SCRIPT_UNKNOWN;
         int otherScript = TranscriptSentenceUtils.SCRIPT_UNKNOWN;
-        int previousScript = TranscriptSentenceUtils.SCRIPT_UNKNOWN;
         int primaryCount = 0;
         int otherCount = 0;
         for (Cue cue : cues) {
             int script = TranscriptSentenceUtils.scriptOf(String.join(" ", cue.lines()));
             if (script == TranscriptSentenceUtils.SCRIPT_UNKNOWN) {
-                return TranscriptSentenceUtils.SCRIPT_UNKNOWN;
+                continue;
             }
             if (primaryScript == TranscriptSentenceUtils.SCRIPT_UNKNOWN) {
                 primaryScript = script;
@@ -184,11 +183,6 @@ public class VttTranscriptParser {
                 }
                 otherCount++;
             }
-            if (previousScript != TranscriptSentenceUtils.SCRIPT_UNKNOWN
-                    && script == previousScript) {
-                return TranscriptSentenceUtils.SCRIPT_UNKNOWN;
-            }
-            previousScript = script;
         }
         if (primaryCount < 2 || otherCount < 2) {
             return TranscriptSentenceUtils.SCRIPT_UNKNOWN;
@@ -209,10 +203,15 @@ public class VttTranscriptParser {
                 continue;
             }
             Cue translationCue = null;
-            if (index + 1 < cues.size()
-                    && TranscriptSentenceUtils.scriptOf(String.join(" ", cues.get(index + 1).lines()))
-                    != primaryScript) {
-                translationCue = cues.get(index + 1);
+            if (index + 1 < cues.size()) {
+                int nextScript = TranscriptSentenceUtils.scriptOf(
+                        String.join(" ", cues.get(index + 1).lines()));
+                if (nextScript != TranscriptSentenceUtils.SCRIPT_UNKNOWN
+                        && nextScript != primaryScript) {
+                    translationCue = cues.get(index + 1);
+                }
+            }
+            if (translationCue != null) {
                 index += 2;
             } else {
                 index++;

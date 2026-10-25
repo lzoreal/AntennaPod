@@ -37,12 +37,16 @@ public class JsonTranscriptParser {
 
             for (int i = 0; i < objSegments.length(); i++) {
                 JSONObject jsonObject = objSegments.getJSONObject(i);
-                segmentEndTime = endTime;
-                startTime = Double.valueOf(jsonObject.optDouble("startTime", -1) * 1000L).longValue();
-                endTime = Double.valueOf(jsonObject.optDouble("endTime", -1) * 1000L).longValue();
-                if (startTime < 0 || endTime <= startTime) {
+                long parsedStartTime =
+                        Double.valueOf(jsonObject.optDouble("startTime", -1) * 1000L).longValue();
+                long parsedEndTime =
+                        Double.valueOf(jsonObject.optDouble("endTime", -1) * 1000L).longValue();
+                if (parsedStartTime < 0 || parsedEndTime <= parsedStartTime) {
                     continue;
                 }
+                segmentEndTime = endTime;
+                startTime = parsedStartTime;
+                endTime = parsedEndTime;
                 if (segmentStartTime == -1L) {
                     segmentStartTime = startTime;
                 }
@@ -58,7 +62,7 @@ public class JsonTranscriptParser {
                 }
                 String body = jsonObject.optString("body");
                 if (!prevSpeaker.equals(speaker)) {
-                    if (StringUtils.isNotEmpty(segmentBody)) {
+                    if (StringUtils.isNotEmpty(segmentBody) && segmentEndTime > segmentStartTime) {
                         segmentBody = StringUtils.trim(segmentBody);
                         transcript.addSegment(new TranscriptSegment(segmentStartTime,
                                 segmentEndTime,

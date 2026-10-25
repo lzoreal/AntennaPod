@@ -309,6 +309,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     public void onDestroyView() {
         super.onDestroyView();
         stopFollowFrame();
+        if (viewBinding != null) {
+            viewBinding.recyclerView.setAdapter(null);
+        }
         viewBinding = null;
         adapter = null;
     }

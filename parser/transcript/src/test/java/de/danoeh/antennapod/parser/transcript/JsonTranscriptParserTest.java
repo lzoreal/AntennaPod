@@ -73,6 +73,20 @@ public class JsonTranscriptParserTest {
     }
 
     @Test
+    public void testInvalidSegmentDoesNotBreakNextSpeakerChange() {
+        String json = "{\"segments\":["
+                + "{\"speaker\":\"Alice\",\"startTime\":0,\"endTime\":2,\"body\":\"First.\"},"
+                + "{\"speaker\":\"Alice\",\"body\":\"Broken\"},"
+                + "{\"speaker\":\"Bob\",\"startTime\":4,\"endTime\":6,\"body\":\"Third.\"},"
+                + "{\"speaker\":\"Bob\",\"startTime\":6,\"endTime\":8,\"body\":\"Fourth.\"}]}";
+        Transcript result = JsonTranscriptParser.parse(json);
+
+        assertNotNull(result);
+        assertEquals(0L, result.getSegmentAt(0).getStartTime());
+        assertEquals(2000L, result.getSegmentAt(0).getEndTime());
+    }
+
+    @Test
     public void testParse() {
         String type = "application/json";
         Transcript result = TranscriptParser.parse(jsonStr, type);

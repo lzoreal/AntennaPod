@@ -56,6 +56,45 @@ public class SrtTranscriptParserTest {
     }
 
     @Test
+    public void testProseColonIsNotTreatedAsSpeaker() {
+        String srt = "1\n"
+                + "00:00:00,000 --> 00:00:10,000\n"
+                + "Alice: Hello everyone.\n\n"
+                + "2\n"
+                + "00:00:10,000 --> 00:00:20,000\n"
+                + "Note: this transcript was edited.\n\n"
+                + "3\n"
+                + "00:00:20,000 --> 00:00:30,000\n"
+                + "Alice: Goodbye.";
+        Transcript result = SrtTranscriptParser.parse(srt);
+
+        assertEquals("Note: this transcript was edited.",
+                result.getSegmentAtTime(10000L).getWords());
+        assertEquals("Alice", result.getSegmentAtTime(10000L).getSpeaker());
+    }
+
+    @Test
+    public void testInvalidCueDoesNotBreakNextSegment() {
+        String srt = "1\n"
+                + "00:00:00,000 --> 00:00:02,000\n"
+                + "Alice: First.\n\n"
+                + "2\n"
+                + "bad --> 00:00:06,000\n"
+                + "Alice: Broken.\n\n"
+                + "3\n"
+                + "00:00:06,000 --> 00:00:08,000\n"
+                + "Bob: Third.\n\n"
+                + "4\n"
+                + "00:00:08,000 --> 00:00:10,000\n"
+                + "Bob: Fourth.";
+        Transcript result = SrtTranscriptParser.parse(srt);
+
+        assertEquals(0L, result.getSegmentAt(0).getStartTime());
+        assertEquals(2000L, result.getSegmentAt(0).getEndTime());
+        assertEquals("First.", result.getSegmentAt(0).getWords());
+    }
+
+    @Test
     public void testParse() {
         String type = "application/srr";
         Transcript result;

@@ -314,6 +314,46 @@ public class VttTranscriptParserTest {
     }
 
     @Test
+    public void testAlternatingBilingualSkipsNonLetterCue() {
+        String vtt = "WEBVTT\n\n"
+                + "00:00.000 --> 00:02.000\n"
+                + "This is the first sentence\n\n"
+                + "00:00:02.000 --> 00:04.000\n"
+                + "这是第一句\n\n"
+                + "00:00:04.000 --> 00:06.000\n"
+                + "♪\n\n"
+                + "00:00:06.000 --> 00:08.000\n"
+                + "This is the second sentence\n\n"
+                + "00:00:08.000 --> 00:10.000\n"
+                + "这是第二句";
+        Transcript result = VttTranscriptParser.parse(vtt);
+
+        assertNotNull(result);
+        assertTrue(result.isBilingual());
+        assertEquals("This is the first sentence\n这是第一句", result.getSegmentAt(0).getWords());
+        assertEquals("♪", result.getSegmentAt(1).getWords());
+        assertEquals("This is the second sentence\n这是第二句",
+                result.getSegmentAt(2).getWords());
+    }
+
+    @Test
+    public void testAlternatingBilingualToleratesRepeatedLanguage() {
+        String vtt = "WEBVTT\n\n"
+                + "00:00.000 --> 00:02.000\n"
+                + "This is the first sentence\n\n"
+                + "00:00:02.000 --> 00:04.000\n"
+                + "This is the second sentence\n\n"
+                + "00:00:04.000 --> 00:06.000\n"
+                + "这是第一句\n\n"
+                + "00:00:06.000 --> 00:08.000\n"
+                + "这是第二句";
+        Transcript result = VttTranscriptParser.parse(vtt);
+
+        assertNotNull(result);
+        assertTrue(result.isBilingual());
+    }
+
+    @Test
     public void testParse() {
         String type = "text/vtt";
         Transcript result;

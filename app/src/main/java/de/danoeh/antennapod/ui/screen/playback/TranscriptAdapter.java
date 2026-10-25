@@ -133,8 +133,8 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
                 TranscriptItemBinding.inflate(LayoutInflater.from(context), viewGroup, false));
         holder.viewContent.setOnTouchListener((v, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                lastTouchX = event.getX();
-                lastTouchY = event.getY();
+                lastTouchX = event.getX() - holder.viewContent.getTotalPaddingLeft();
+                lastTouchY = event.getY() - holder.viewContent.getTotalPaddingTop();
             }
             return false;
         });

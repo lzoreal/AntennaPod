@@ -362,10 +362,11 @@ public class TranscriptFloatingWindowService extends Service {
         if (loadDisposable != null && !loadDisposable.isDisposed()) {
             loadDisposable.dispose();
         }
-        transcript = null;
         if (!keepPosition) {
+            transcript = null;
             lastPlaybackPosition = -1;
             currentFeedId = -1;
+            hideTranscript();
         }
         lastSentenceSegmentStart = -1;
         lastSentenceIndex = -1;
@@ -373,7 +374,6 @@ public class TranscriptFloatingWindowService extends Service {
         sentenceCacheWords = null;
         sentenceCacheStarts = null;
         translationCacheStarts = null;
-        hideTranscript();
         loadDisposable = Observable.fromCallable(() -> {
             FeedMedia media = DBReader.getFeedMedia(mediaId);
             if (media == null || media.getItem() == null) {
@@ -385,21 +385,33 @@ public class TranscriptFloatingWindowService extends Service {
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(media -> {
+                    if (media == null || media.getItem() == null) {
+                        if (!keepPosition) {
+                            hideTranscript();
+                            stopSelf();
+                        }
+                        return;
+                    }
                     currentFeedId = media.getItem().getFeedId();
                     if (lastPlaybackPosition < 0) {
                         lastPlaybackPosition = Math.max(0, media.getPosition());
                     }
-                    this.transcript = media.getTranscript();
-                    if (transcript == null || transcript.getSegmentCount() == 0) {
-                        hideTranscript();
-                        stopSelf();
+                    Transcript loaded = media.getTranscript();
+                    if (loaded == null || loaded.getSegmentCount() == 0) {
+                        if (!keepPosition || transcript == null) {
+                            hideTranscript();
+                            stopSelf();
+                        }
                         return;
                     }
+                    this.transcript = loaded;
                     updateTranscript(true);
                 }, e -> {
                     Log.e(TAG, "Unable to load transcript", e);
-                    hideTranscript();
-                    stopSelf();
+                    if (!keepPosition) {
+                        hideTranscript();
+                        stopSelf();
+                    }
                 });
     }
 
