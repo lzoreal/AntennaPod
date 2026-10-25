@@ -59,6 +59,14 @@
             android:src="@drawable/ic_transcript_loop" />
 
         <ImageButton
+            android:id="@+id/btnSearch"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/transcript_search_description"
+            android:src="@drawable/ic_search" />
+
+        <ImageButton
             android:id="@+id/btnImmersive"
             android:layout_width="40dp"
             android:layout_height="48dp"
@@ -66,6 +74,83 @@
             android:paddingEnd="13dp"
             android:contentDescription="@string/immersive_mode"
             android:src="@drawable/ic_fullscreen" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/searchBar"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:background="?attr/colorSurface"
+        android:elevation="2dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingEnd="4dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_search" />
+
+        <EditText
+            android:id="@+id/searchInput"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="@null"
+            android:hint="@string/transcript_search_hint"
+            android:imeOptions="actionSearch"
+            android:importantForAutofill="no"
+            android:inputType="text"
+            android:maxLines="1"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:singleLine="true"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textColorHint="?android:attr/textColorSecondary"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/txtSearchCount"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:minWidth="44dp"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/btnSearchPrev"
+            android:layout_width="40dp"
+            android:layout_height="match_parent"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/transcript_search_previous"
+            android:gravity="center"
+            android:text="@string/transcript_search_previous_symbol"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="18sp" />
+
+        <TextView
+            android:id="@+id/btnSearchNext"
+            android:layout_width="40dp"
+            android:layout_height="match_parent"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/transcript_search_next"
+            android:gravity="center"
+            android:text="@string/transcript_search_next_symbol"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="18sp" />
+
+        <ImageButton
+            android:id="@+id/btnSearchClose"
+            android:layout_width="40dp"
+            android:layout_height="match_parent"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/transcript_search_close"
+            android:src="@drawable/ic_close" />
     </LinearLayout>
 
     <FrameLayout

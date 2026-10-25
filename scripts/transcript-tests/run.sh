@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TT_USAGE_ENTRY="scripts/transcript-tests/run.sh"
 source "$SCRIPT_DIR/lib.sh"
 
-ORDER=(smoke highlight layout offset floating)
+ORDER=(smoke highlight layout offset floating search)
 
 declare -A SCENARIO_FILE=(
   [smoke]=00_smoke.sh
@@ -22,6 +22,7 @@ declare -A SCENARIO_FILE=(
   [layout]=30_layout_panel.sh
   [offset]=40_offset_loop.sh
   [floating]=50_floating_window.sh
+  [search]=60_search.sh
 )
 declare -A SCENARIO_FN=(
   [smoke]=tt_scenario_smoke
@@ -29,6 +30,7 @@ declare -A SCENARIO_FN=(
   [layout]=tt_scenario_layout
   [offset]=tt_scenario_offset
   [floating]=tt_scenario_floating
+  [search]=tt_scenario_search
 )
 declare -A SCENARIO_DESC=(
   [smoke]="转录页打开、无崩溃、双语行、本地下载"
@@ -36,6 +38,7 @@ declare -A SCENARIO_DESC=(
   [layout]="Aa 排版面板：默认值、调节、恢复默认"
   [offset]="偏移控制条：重置、+30 秒"
   [floating]="悬浮窗开关与服务状态"
+  [search]="转录内搜索：命中计数、上下条、无匹配、关闭"
 )
 
 list_scenarios() {
@@ -59,7 +62,7 @@ while [ $# -gt 0 ]; do
     all)
       SELECTED=("${ORDER[@]}")
       shift;;
-    smoke|highlight|layout|offset|floating)
+    smoke|highlight|layout|offset|floating|search)
       SELECTED+=("$1")
       shift;;
     *)

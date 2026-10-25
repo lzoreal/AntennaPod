@@ -231,6 +231,15 @@
     <string name="transcript_segment_loop_description">循环当前片段</string>
     <string name="transcript_segment_loop_message">正在循环当前片段</string>
     <string name="transcript_segment_loop_disabled_message">已停止循环</string>
+    <string name="transcript_search_description">搜索转录</string>
+    <string name="transcript_search_hint">搜索转录</string>
+    <string name="transcript_search_previous">上一个匹配</string>
+    <string name="transcript_search_next">下一个匹配</string>
+    <string name="transcript_search_close">关闭搜索</string>
+    <string name="transcript_search_previous_symbol">↑</string>
+    <string name="transcript_search_next_symbol">↓</string>
+    <string name="transcript_search_count">%1$d/%2$d</string>
+    <string name="transcript_search_no_results">无匹配</string>
     <string name="transcript_floating_close">关闭悬浮窗</string>
     <string name="transcript_floating_lock">锁定位置</string>
     <string name="transcript_floating_unlock">解锁位置</string>

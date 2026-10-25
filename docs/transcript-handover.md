@@ -24,9 +24,9 @@
 
 | 能力 | 行为 | 位置 |
 |---|---|---|
-| 音频播放器转录页 | 播放器内的整屏转录列表，含控制条 | [TranscriptPageFragment.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L58)，布局 [transcript_page_fragment.xml](file:///D:/AntennaPod/app/src/main/res/layout/transcript_page_fragment.xml) |
+| 音频播放器转录页 | 播放器内的整屏转录列表，含控制条 | [TranscriptPageFragment.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L64)，布局 [transcript_page_fragment.xml](file:///D:/AntennaPod/app/src/main/res/layout/transcript_page_fragment.xml) |
 | 视频/浮层转录弹窗 | `DialogFragment`，复用同一 adapter | [TranscriptDialogFragment.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptDialogFragment.java#L42)，布局 [transcript_dialog.xml](file:///D:/AntennaPod/app/src/main/res/layout/transcript_dialog.xml) |
-| 单行渲染 | 发言人 + 正文，正文用可点击/可选词的 TextView | [TranscriptAdapter.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java#L216)、[TranscriptTextView.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptTextView.java)、布局 [transcript_item.xml](file:///D:/AntennaPod/app/src/main/res/layout/transcript_item.xml) |
+| 单行渲染 | 发言人 + 正文，正文用可点击/可选词的 TextView | [TranscriptAdapter.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java#L230)、[TranscriptTextView.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptTextView.java)、布局 [transcript_item.xml](file:///D:/AntennaPod/app/src/main/res/layout/transcript_item.xml) |
 | 悬浮窗（其他应用之上） | 只显示当前句的双语小窗 | [TranscriptFloatingWindowService.java](file:///D:/AntennaPod/ui/transcript/src/main/java/de/danoeh/antennapod/ui/transcript/TranscriptFloatingWindowService.java#L45)，布局 [floating_transcript_layout.xml](file:///D:/AntennaPod/ui/transcript/src/main/res/layout/floating_transcript_layout.xml) |
 | 菜单开关 | `transcript_menu_item`（进入转录页）、`floating_transcript_item`（悬浮窗，checkable）、`transcript_item`（旧入口） | [mediaplayer.xml](file:///D:/AntennaPod/app/src/main/res/menu/mediaplayer.xml#L5) |
 | 外部拉起播放器并打开转录页 | `am start ... --ez open_player true --ez open_transcript true` | [MainActivity.java:740-745](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/activity/MainActivity.java#L740) |
@@ -41,7 +41,7 @@
 | VTT 结构 | 忽略 `NOTE`/`STYLE`，解析 cue timing/`<v.speaker>` voice span，跳过非法或零时长 cue | [VttTranscriptParser.java:33](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/VttTranscriptParser.java#L33) |
 | 双语判定 | 双语 cue 占比过半即 `bilingual`；无双语 cue 时检测“交替单语言 cue”（两种文字体系严格交替，各 ≥2 条，≥4 cue） | `VttTranscriptParser.detectAlternatingPrimaryScript()` |
 | 交替配对 | 主语言 cue + 下一条译文 cue 合并为一个 segment（`primary\ntranslation`） | [VttTranscriptParser.java:199](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/VttTranscriptParser.java#L199) |
-| 长双语 cue 不拆句 | 一条 cue 一个 segment（原文 + 换行 + 译文）；段内句子仍按**字符位置比例**估算时间，供高亮/点击/悬浮窗使用。逐句换行开启时，adapter 在显示层把同一 cue 按句配对交替（EN1/ZH1/EN2/ZH2），译文多则并入最后一行、少则重复最后一句 | [VttTranscriptParser.java:100](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/VttTranscriptParser.java#L100)、[TranscriptAdapter.java:325](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java#L325) |
+| 长双语 cue 不拆句 | 一条 cue 一个 segment（原文 + 换行 + 译文）；段内句子仍按**字符位置比例**估算时间，供高亮/点击/悬浮窗使用。逐句换行开启时，adapter 在显示层把同一 cue 按句配对交替（EN1/ZH1/EN2/ZH2），译文多则并入最后一行、少则重复最后一句 | [VttTranscriptParser.java:100](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/VttTranscriptParser.java#L100)、[TranscriptAdapter.java:339](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java#L339) |
 | 语言切换边界 | 按文字体系（Latin / CJK+假名+韩文 / 其他）判定主/译边界，纯符号行忽略 | [TranscriptSentenceUtils.java:22](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/TranscriptSentenceUtils.java#L22) |
 | 句子切分 | `。！？…` 直接断句；`.` 需后随空白/引号，且**两侧都是数字时不断**（避免把 `2024.` 当小数）；收尾标点并入前句 | [TranscriptSentenceUtils.java:106](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/TranscriptSentenceUtils.java#L106) |
 | SRT | 仅看首行做发言人识别；候选名需在文件内重复出现（或为唯一候选标签），否则整行保留为正文；支持纯发言人行、保留额外冒号后文本 | [SrtTranscriptParser.java](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/SrtTranscriptParser.java) |
@@ -57,22 +57,23 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 |---|---|---|
 | 语言模式三态 | 双语 / 仅原文 / 仅译文，循环切换并持久化 | `UserPreferences.TRANSCRIPT_LANGUAGE_MODE_*`（[UserPreferences.java:139](file:///D:/AntennaPod/storage/preferences/src/main/java/de/danoeh/antennapod/storage/preferences/UserPreferences.java#L139)）、`TranscriptAdapter.setLanguageMode()` |
 | 逐句换行 | 开启时同一条 cue 内按句配对交替（EN1/ZH1/EN2/ZH2）；关闭时原文段落 + 译文段落 | `isTranscriptSentencePerLine()`、`TranscriptPageFragment.toggleSentencePerLine()` |
-| 排版面板 | 控制条 `Aa` 展开的卡片式面板：字号（正文 `16 + step*2` sp，时间戳同步 `14 + step*2` sp，`A−`/`A+` 圆形步进）、行距（1.0/1.15/1.3×）、左右边距（16/24/32dp）、上下留白（紧凑/标准/宽松，含列表首尾）、数值胶囊与恢复默认 | [TranscriptPageFragment.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L922)、[TranscriptAdapter.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java#L92) |
+| 排版面板 | 控制条 `Aa` 展开的卡片式面板：字号（正文 `16 + step*2` sp，时间戳同步 `14 + step*2` sp，`A−`/`A+` 圆形步进）、行距（1.0/1.15/1.3×）、左右边距（16/24/32dp）、上下留白（紧凑/标准/宽松，含列表首尾）、数值胶囊与恢复默认 | [TranscriptPageFragment.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1246)、[TranscriptAdapter.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java#L98) |
 | 控制条与二级面板 | 工具栏转录按钮开合 `controlsBar`；收起一级控制条（或进入沉浸）时同步收起偏移/排版二级面板，重新打开保持收起 | `toggleControlsBar()`、`hideControlPanels()` |
 | 分级高亮 | 当前段（一条 cue）整块全亮+加粗，其他段半透明；**全列表统一字号**（避免换段时字号重排；加粗仍可能改变个别语料的换行，跟随器按最终布局测量），段内三档：当前句全色+加粗、已播句 `0xA6`、未播句 `0x8C`，交错显示时同一对的主/译行同档 | `TranscriptAdapter.highlightViewHolder()` / `applyGradedHighlight()` |
-| 跟随音频 | 整屏页 RESUMED 且播放中时以 250ms 轮询位置，高亮与滚动同源，期间忽略 1 秒 `PlaybackPositionEvent`；ticker 只刷新目标，滚动全部由 `OnPreDraw`（每帧布局完成、绘制前）驱动，保证读到的行高/句子位置是最新布局：`error = 当前句中心 - 视口中心`；采用迟滞（偏离 ≥64dp 才起步、回到 ≤2dp 停），速度按 dt 计算（时间常数 140ms、上限 500dp/s），与刷新率无关；相邻 cue（±1 段）只走这条跟随，目标行未布局时按 10dp/帧朝它推进；初始定位/重开/seek/偏移/回到当前句等跨行定位在目标行不可见时直接 `scrollToPosition` + 下一帧一次性居中（snap），不再用 `LinearSmoothScroller` 的远距离缓动；用户拖动/暂停/离屏时停表，且手动拖动后即使高亮句仍在屏幕内也不自动跳回（需点“回到当前句”/点击句子/调偏移恢复），到顶/到底不再尝试滚动；居中单位是当前句（主/译成对）；弹窗/悬浮窗仍按 1 秒事件 | `TranscriptPageFragment` 的 `highlightTicker`/`followPreDrawListener`/`scrollTowardsCurrentSentence`/`stepTowardsRow`/`scrollToPosition`/`pendingSnapToHighlight`/`userScrolling`/`returnToCurrentSentence()` |
+| 跟随音频 | 整屏页 RESUMED 且播放中时以 250ms 轮询位置，高亮与滚动同源，期间忽略 1 秒 `PlaybackPositionEvent`；ticker 只刷新目标，滚动全部由 `OnPreDraw`（每帧布局完成、绘制前）驱动，保证读到的行高/句子位置是最新布局。目标为当前句（主/译成对）中心，阅读线固定在视口高度 **45%**（`TranscriptFollowMotion.ANCHOR_RATIO`）。目标变化时：误差 ≤2dp 停、≤8dp 不起步；`|error| > 0.75 × 视口` 直接 snap；其余按 **320–520ms 三次缓出**（距离越远时长越长）单向趋近 45%，动画中目标变化从当前误差重新计时；系统关闭动画时直接 snap。目标行未布局时按 10dp/帧推进；初始定位/重开/seek/偏移/回到当前句在目标行不可见时 `scrollToPosition` + 下一帧 snap。用户拖动/暂停/离屏时停表，手动拖动后即使高亮句仍在屏幕内也不自动跳回（需点“回到当前句”/点击句子/调偏移恢复）。**首尾暂不做 padding/居中**，边界只滚到可滚范围。居中单位是当前句（主/译成对）；弹窗/悬浮窗仍按 1 秒事件 | `TranscriptPageFragment` 的 `highlightTicker`/`followPreDrawListener`/`scrollTowardsCurrentSentence`/`snapToError`/`areFollowAnimationsEnabled`/`stepTowardsRow`/`scrollToPosition`/`pendingSnapToHighlight`/`userScrolling`/`returnToCurrentSentence()`；策略与单测见 [TranscriptFollowMotion.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptFollowMotion.java)、[TranscriptFollowMotionTest.java](file:///D:/AntennaPod/app/src/test/java/de/danoeh/antennapod/ui/screen/playback/TranscriptFollowMotionTest.java) |
 | 沉浸模式 | 隐藏播放器其他区块，只看转录 | `btnImmersive`、提交 `0792497f4` |
-| 回到当前句 | `btnBackToCurrent`，仅在偏离时可见 | [TranscriptPageFragment.java:724](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L724) |
+| 回到当前句 | `btnBackToCurrent`，仅在偏离时可见 | [TranscriptPageFragment.java:799](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L799) |
+| 文内搜索 | 控制条放大镜打开搜索条：输入即搜（200ms 防抖）、命中背景高亮、当前命中更深、`N/M` 计数、上/下一条循环、关闭清除；只匹配当前显示文本（双语模式主/译都搜，语言模式或逐句开关变化后重算）；定位命中行时暂停自动跟随并显示“回到当前句”，**不改变播放位置**；浮窗与视频弹窗不提供搜索 | `TranscriptPageFragment.setupSearchControls()`([L818](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L818))/`toggleSearchBar()`([L849](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L849))/`runSearch()`([L887](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L887))/`jumpToSearchHit()`([L934](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L934))/`scheduleSearchScroll()`([L962](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L962))、`TranscriptAdapter.setSearchQuery()`([L636](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java#L636))/`applySearchHighlights()`([L610](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java#L610))/`getSearchHitBounds()`([L685](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java#L685))、[TranscriptSearch.java:11](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptSearch.java#L11) |
 
 ### 1.4 时间操作
 
 | 能力 | 行为 | 位置 |
 |---|---|---|
-| 点击跳转 | 点击落到**所点句子**的起止区间（非整段），双语时按触摸落在主/译区域分别映射 | [TranscriptAdapter.java:542](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java#L542) → `SegmentClickListener.onTranscriptClicked(pos, seg, start, end)` |
-| 选词 | 长按选中文本触发 `onTranscriptWordSelected` | [TranscriptPageFragment.java:744](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L744) |
-| 偏移控制条 | 卡片式面板：偏移量胶囊 + 显式重置；细调 ±0.5s、粗调 ±5/±10/±30s | `toggleOffsetBar()`、`setupOffsetButtons()`（[TranscriptPageFragment.java:867](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L867)） |
-| 偏移持久化 | **按 media id** 存 JSON map；旧的单槽偏好首次读取时迁移；删除条目时移除（删除下载不再清除）；范围在 `applyTimeOffset()` 中 clamp 到 ±时长 | [UserPreferences.java:965-1011](file:///D:/AntennaPod/storage/preferences/src/main/java/de/danoeh/antennapod/storage/preferences/UserPreferences.java#L965)、[DBWriter.java:216](file:///D:/AntennaPod/storage/database/src/main/java/de/danoeh/antennapod/storage/database/DBWriter.java#L216)、[TranscriptPageFragment.java:831](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L831) |
-| 单段循环 | 循环当前 `TranscriptSegment` 区间，偏移变化后若区间无效自动停止 | [TranscriptPageFragment.java:752](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L752) |
+| 点击跳转 | 点击落到**所点句子**的起止区间（非整段），双语时按触摸落在主/译区域分别映射 | [TranscriptAdapter.java:556](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java#L556) → `SegmentClickListener.onTranscriptClicked(pos, seg, start, end)` |
+| 选词 | 长按选中文本触发 `onTranscriptWordSelected`（目前仅暂停播放，便于选词） | [TranscriptPageFragment.java:1068](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1068) |
+| 偏移控制条 | 卡片式面板：偏移量胶囊 + 显式重置；细调 ±0.5s、粗调 ±5/±10/±30s | `toggleOffsetBar()`、`setupOffsetButtons()`（[TranscriptPageFragment.java:1191](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1191)） |
+| 偏移持久化 | **按 media id** 存 JSON map；旧的单槽偏好首次读取时迁移；删除条目时移除（删除下载不再清除）；范围在 `applyTimeOffset()` 中 clamp 到 ±时长 | [UserPreferences.java:965-1011](file:///D:/AntennaPod/storage/preferences/src/main/java/de/danoeh/antennapod/storage/preferences/UserPreferences.java#L965)、[DBWriter.java:216](file:///D:/AntennaPod/storage/database/src/main/java/de/danoeh/antennapod/storage/database/DBWriter.java#L216)、[TranscriptPageFragment.java:1155](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1155) |
+| 单段循环 | 循环当前 `TranscriptSegment` 区间，偏移变化后若区间无效自动停止 | [TranscriptPageFragment.java:1076](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1076) |
 
 ### 1.5 悬浮窗细节
 
@@ -149,14 +150,16 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 ### `:app` — 页面与交互
 | 文件 | 职责 |
 |---|---|
-| [TranscriptPageFragment.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java) | 转录页全部逻辑（加载 L320/L324、事件 L450-L497、滚动 L571-L697、点击 L697、循环 L752、偏移 L831-L937、语言/换行/字号 L1048-L1067） |
-| [TranscriptAdapter.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java) | `onCreateViewHolder`(L152 绑定监听器)、`getDisplayInfo`(L275 显示缓存)、`buildInterleavedInfo`(L325 逐句交替)、`applyLayout`(L92 排版/时间戳字号)、`getSentenceBounds`(L494 居中)、高亮(L573/L397)、句子时间(L542)、`SegmentClickListener`(L699) |
+| [TranscriptPageFragment.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java) | 转录页全部逻辑（加载 L324/L328、事件 L485-L527、滚动 L607-L739、点击 L772、搜索 L818-L1065、循环 L1076、偏移 L1155、语言/换行/字号 L1365-L1396） |
+| [TranscriptFollowMotion.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptFollowMotion.java) | 跟随策略纯函数：45% 锚点、8dp 起步/2dp 停、0.75 视口 snap、320–520ms 三次缓出、距离→时长；单测 [TranscriptFollowMotionTest.java](file:///D:/AntennaPod/app/src/test/java/de/danoeh/antennapod/ui/screen/playback/TranscriptFollowMotionTest.java) |
+| [TranscriptSearch.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptSearch.java) | 搜索匹配纯函数：大小写不敏感、CJK 子串、非重叠多次命中；单测 [TranscriptSearchTest.java](file:///D:/AntennaPod/app/src/test/java/de/danoeh/antennapod/ui/screen/playback/TranscriptSearchTest.java) |
+| [TranscriptAdapter.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java) | `onCreateViewHolder`(L160 绑定监听器)、`getDisplayInfo`(L289 显示缓存)、`buildInterleavedInfo`(L339 逐句交替)、`applyLayout`(L98 排版/时间戳字号)、`getSentenceBounds`(L508 居中)、高亮(L587/L411)、句子时间(L556)、搜索(L610-L728)、`SegmentClickListener`(L834) |
 | [TranscriptDialogFragment.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptDialogFragment.java) | 视频弹窗：`onTranscriptClicked`(L106)、`onFeedListUpdateEvent`(L153)、`loadMediaInfo`(L173/L177)、`scrollToPosition` |
 | [TranscriptTextView.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptTextView.java) | 点击 + 选词 TextView |
 | [AudioPlayerFragment.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/audio/AudioPlayerFragment.java) | 悬浮窗开关(L249/L251)、菜单可见性、`FeedListUpdateEvent` 重载 |
 | [PlayActionButton.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/actionbutton/PlayActionButton.java) | 本地文件缺失时一并清理转录文件与偏移 |
-| 布局 | [transcript_page_fragment.xml](file:///D:/AntennaPod/app/src/main/res/layout/transcript_page_fragment.xml)（`recyclerView`/`controlsBar`/`offsetControls`/`layoutControls`/`btnBackToCurrent`/`btnImmersive`/`btnLineBreakToggle`/`btnTranslationToggle`/`btnLayout`/`btn{FontSize,LineSpacing,SideMargins,VerticalSpacing}{Down,Up}`/`txt{FontSize,LineSpacing,SideMargins,VerticalSpacing}Value`/`btnLayoutReset`/`btnSegmentLoop`/`btnOffsetToggle`/`txtOffsetValue`/`emptyView`/`progLoading`）、[transcript_dialog.xml](file:///D:/AntennaPod/app/src/main/res/layout/transcript_dialog.xml)（`transcript_list`/`followAudioCheckbox`）、[transcript_item.xml](file:///D:/AntennaPod/app/src/main/res/layout/transcript_item.xml)（`speaker`/`content`） |
-| 图标 | `app/src/main/res/drawable/`：`ic_transcript_*`、`ic_fullscreen*.xml`、`bg_transcript_offset_button.xml`；`ui/transcript/src/main/res/drawable/`：`bg_floating_control.xml`、`ic_transcript_{close,lock,unlock}.xml` |
+| 布局 | [transcript_page_fragment.xml](file:///D:/AntennaPod/app/src/main/res/layout/transcript_page_fragment.xml)（`recyclerView`/`controlsBar`/`searchBar`/`searchInput`/`txtSearchCount`/`btnSearch`/`btnSearchPrev`/`btnSearchNext`/`btnSearchClose`/`offsetControls`/`layoutControls`/`btnBackToCurrent`/`btnImmersive`/`btnLineBreakToggle`/`btnTranslationToggle`/`btnLayout`/`btn{FontSize,LineSpacing,SideMargins,VerticalSpacing}{Down,Up}`/`txt{FontSize,LineSpacing,SideMargins,VerticalSpacing}Value`/`btnLayoutReset`/`btnSegmentLoop`/`btnOffsetToggle`/`txtOffsetValue`/`emptyView`/`progLoading`）、[transcript_dialog.xml](file:///D:/AntennaPod/app/src/main/res/layout/transcript_dialog.xml)（`transcript_list`/`followAudioCheckbox`）、[transcript_item.xml](file:///D:/AntennaPod/app/src/main/res/layout/transcript_item.xml)（`speaker`/`content`） |
+| 图标 | `app/src/main/res/drawable/`：`ic_transcript_*`、`ic_fullscreen*.xml`、`bg_transcript_offset_button.xml`；`ui/transcript/src/main/res/drawable/`：`bg_floating_control.xml`、`ic_transcript_{close,lock,unlock}.xml`；搜索/关闭复用 `ui/common` 的 `ic_search`、`ic_close` |
 
 ### 其他
 | 文件 | 职责 |
@@ -164,7 +167,7 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 | [UserPreferences.java](file:///D:/AntennaPod/storage/preferences/src/main/java/de/danoeh/antennapod/storage/preferences/UserPreferences.java) | 所有转录偏好（L129-L154 keys，L947-L1108 getters/setters） |
 | [DBWriter.java](file:///D:/AntennaPod/storage/database/src/main/java/de/danoeh/antennapod/storage/database/DBWriter.java) | 删除媒体/条目时清理转录文件与偏移(L121/L133/L217) |
 | [FeedListUpdateEvent.java](file:///D:/AntennaPod/event/src/main/java/de/danoeh/antennapod/event/FeedListUpdateEvent.java) | `contains(Feed)` / `contains(long)` |
-| [strings.xml](file:///D:/AntennaPod/ui/i18n/src/main/res/values/strings.xml)、[strings.xml (zh-rCN)](file:///D:/AntennaPod/ui/i18n/src/main/res/values-zh-rCN/strings.xml) | `transcript_*`、`pref_floating_transcript_*`、`show_transcript`、`no_transcript_label`；英文与简体中文同步维护 |
+| [strings.xml](file:///D:/AntennaPod/ui/i18n/src/main/res/values/strings.xml)、[strings.xml (zh-rCN)](file:///D:/AntennaPod/ui/i18n/src/main/res/values-zh-rCN/strings.xml) | `transcript_*`（含 `transcript_search_*`）、`pref_floating_transcript_*`、`show_transcript`、`no_transcript_label`；英文与简体中文同步维护 |
 | DB 列 | `FeedItems.podcastindex_transcript_url`、`FeedItems.podcastindex_transcript_type`（**不在 FeedMedia**） |
 
 ## 4. 偏好键与默认值
@@ -209,6 +212,7 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 ```bash
 bash scripts/transcript-tests/run.sh --list      # 列出场景
 bash scripts/transcript-tests/run.sh layout      # 只跑排版面板
+bash scripts/transcript-tests/run.sh search      # 只跑转录内搜索
 bash scripts/transcript-tests/run.sh smoke layout offset
 bash scripts/transcript-tests/scenarios/30_layout_panel.sh   # 单场景脚本，自带备份/恢复
 ```
@@ -220,6 +224,7 @@ bash scripts/transcript-tests/scenarios/30_layout_panel.sh   # 单场景脚本�
 | layout | `scenarios/30_layout_panel.sh` | Aa 面板四行齐全、默认 1×/24dp/标准、调节到 1.15×/32dp、重置、收起一级控制条后二级面板同步隐藏 |
 | offset | `scenarios/40_offset_loop.sh` | 重置为 0、+30 秒、再重置 |
 | floating | `scenarios/50_floating_window.sh` | 悬浮窗菜单开关、服务状态、截图 |
+| search | `scenarios/60_search.sh` | 打开搜索条、输入 `the` 得到 `1/N`、下一条变 `2/N`、追加 `zzzz` 显示无匹配、关闭后输入框隐藏；截图人工确认黄色命中高亮 |
 
 一次运行（`run.sh all` 或兼容入口）只做一次备份/安装/启动，然后按顺序跑选中场景；单独跑场景脚本会自己完成整套准备与恢复。三档句色、当前句居中这类像素效果仍以截图人工确认为准。
 
@@ -259,6 +264,13 @@ bash scripts/transcript-tests/scenarios/30_layout_panel.sh   # 单场景脚本�
 
 2026-10-25 性能优化（工作树，基于 `81cb1171a`）真机回归：`run.sh smoke highlight layout offset floating --media-id 7286 --position 5000` **100 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`，无 `FATAL EXCEPTION`；截图确认字号、时间戳与双语行渲染不变。优化内容：偏移读取按偏好串缓存（不再每 tick 解析 JSON）、Adapter bind 仅在值变化时 requestLayout、悬浮窗缓存 `languageSplitIndex`、VTT 每个 cue 只计算一次文字体系、应用在内存紧张时清空转录内存缓存。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261025-185758/`。
 
+2026-10-25 方案 A MVP（固定 45% 阅读线 + 离散缓动 + 距离 snap；首尾暂不居中）在父基线 `d85105ca2` 的未提交工作树上真机验证（脚本未改，基线 `d85105ca2`；Redmi 2407FRK8EC `4LSGLZEYOFCQBIQC`，本地 VTT + 真实播放）：`run.sh smoke highlight layout offset --media-id 1 --position 5000` **47 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`、`adb reverse` 已清空。`--keep` 现场人工确认：换句/跨 cue 时视口单向趋近 45% 阅读线，无反向修正；手动拖动后高亮句仍在屏幕内也不自动跳回，“回到当前句”可 snap 回位；暂停 2s 播放位置不变，恢复后继续；无 `FATAL EXCEPTION`。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261025-223514`（自动场景，`results.txt`）与 `run-20261025-223741`（`--keep` 手动截图/录屏，已用 `--restore-only` 恢复）。**MVP 限制**：未做首尾 padding，首/末段不能居中，见 §5.4 与 §7。
+
+2026-10-25 用户反馈当前句移动过快；将 `TranscriptFollowMotion` 的补间时长从 220–300ms 调整为 **320–520ms**（`260 + 2.5 × dp`，最短 320、最长 520），锚点、阈值、三次缓出均未改。属主观手感调整，未重跑设备脚本；`TranscriptFollowMotionTest` 已同步更新并通过，编译通过，已安装到设备待人工确认。
+
+2026-10-26 文内搜索（代码父基线 `d85105ca2` + 未提交工作树；脚本未提交）在 Redmi 2407FRK8EC 上跑通：`run.sh search --media-id 1 --position 5000` **20 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`、偏好与数据库按字节还原。场景断言：打开搜索条、输入 `the` 显示 `1/560`、下一条变 `2/560`、追加 `zzzz` 显示“无匹配”、关闭后输入框隐藏。截图确认：搜索条（输入 + 计数 + ↑/↓ + 关闭）、`the` 的黄色背景命中高亮、命中行滚动到 45% 附近、跟随暂停后显示“回到当前句”、音频高亮与搜索高亮共存。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261026-003045/`（`results.txt`、`search_05_results.png`、`search_07_next.png`）。
+注意：该设备 media 1 有旧的本地 `.transcript` 缓存（无 `.source` 时会被收编），注入了 `1._Greatness.vtt` 但页面仍显示旧转录，所以场景用通用词 `the`，避免依赖注入语料的具体内容；见 §6。
+
 ### 5.3 语料基线（人工比对用）
 
 真实双语语料：`D:\MyTranscript\site\the-rest-is-history\transcripts\zh\`（远端镜像 `https://lzoreal.github.io/TMLT/transcripts/zh/`）。
@@ -271,10 +283,11 @@ bash scripts/transcript-tests/scenarios/30_layout_panel.sh   # 单场景脚本�
 - [ ] 字号放大/缩小后高亮行同步
 - [ ] 排版面板：字号/行距/左右边距/上下留白各档生效，“恢复默认”回到标准，强制停止后重启仍保留
 - [ ] 点击句子从该句起点播到该句终点；单段循环可开关
+- [ ] 文内搜索：放大镜打开搜索条，输入主/译文本有命中背景高亮与 `N/M` 计数；上/下一条定位到命中行并暂停跟随；无匹配显示提示；关闭清除高亮
 - [ ] 偏移粗调/细调/重置，切集后再切回仍保留；删除单集后偏移消失
-- [ ] 手动滚动暂停跟随，且高亮句仍在屏幕内也不自动跳回；“回到当前句”恢复；跟随滚动以当前句（主/译成对）为中心，首段也能滚动到位
+- [ ] 手动滚动暂停跟随，且高亮句仍在屏幕内也不自动跳回；“回到当前句”恢复；跟随滚动把当前句（主/译成对）放在视口 45% 阅读线；**首尾暂不保证居中**（MVP，边界只滚到可滚范围）
 - [ ] 收起一级控制条或进入沉浸时，偏移/排版二级面板一并收起
-- [ ] 换句高亮在句边界约 250ms 内切换，无整行淡入淡出；相邻句与换段动画速度一致，重启/离屏跨段定位瞬时到位
+- [ ] 换句高亮在句边界约 250ms 内切换，无整行淡入淡出；相邻句与换段滚动为 320–520ms 单向三次缓出（距离越远时长越长），远跳/离屏跨段瞬时到位；系统关闭动画时直接跳位
 - [ ] feed 刷新后（转录 URL 变化）页面/弹窗/悬浮窗/菜单自动更新
 - [ ] 悬浮窗只显示当前句、双语间距、暂停不滚动、锁定/关闭 4s 自动隐藏、拖动水平吸附、点击回转录页
 - [ ] 断网 + 已有本地文件时可离线显示；本地文件损坏时能重新下载
@@ -299,14 +312,20 @@ bash scripts/transcript-tests/scenarios/30_layout_panel.sh   # 单场景脚本�
 | 流媒体播放失败 | 测试机 DNS 被污染（环境问题，非 App bug） | 用本地 VTT + `adb reverse`，或 `--isolate-network` |
 | 播放器加载的不是目标单集 | 转录页打开 `currentlyPlayingMedia`；脚本按“进度最大”推断的 media 可能与播放器恢复的 `lastPlayedFeedMediaId` 不一致 | 先在 UI 播放该集，或显式传 `--media-id <正在播放的 FeedMedia.id>` |
 | 设备测试里高亮长时间停在第一句 | 设备偏好中该 media 有时间偏移（`prefTranscriptTimeOffsets`） | 测试前清零该 media 的偏移或换 media id；测完按字节还原偏好 |
+| 手动验证跟随时页面一直不动 | 脚本只负责打开转录页，播放器可能仍是暂停态（`media_session` 为 `PAUSED`/`NONE`），ticker 不更新 | 先点播放或 `adb shell input keyevent 126`，确认 `state=PLAYING(3)` 再录屏 |
+| 搜索注入 VTT 里的词却显示“无匹配” | 设备上该 media 有旧的本地 `.transcript`（无 `.source` 时会被收编），盖过脚本注入的 VTT | 用当前页面可见的通用词（search 场景用 `the`），或换没有缓存转录的 media；不要为此删用户转录缓存 |
 
 ## 7. 已知限制 / 未完成
 
-- 没有转录搜索/过滤。
+- 搜索只在整屏转录页；浮窗和视频弹窗没有搜索。
+- 搜索只匹配当前显示文本（语言模式决定主/译范围），是大小写不敏感的子串匹配，没有整词/正则/跨集搜索；命中只定位、不自动 seek，点击命中句才按现有逻辑跳播。
+- 搜索输入在 200ms 防抖后于主线程扫描全部 segment 的显示文本；超长转录（数千段）未做后台索引，首次搜索可能有短暂卡顿。
+- 搜索状态不持久化：切集、转录重载、页面重建（旋转）后清空。
 - SRT：首行冒号前的文字只有全文件重复出现（或为唯一候选标签）时才当发言人；一次性的散文标签（如 `Note: ...`）会保留在正文里。
 - 悬浮窗/页面在 fragment 停止期间发生外部 seek 时，要等下一个 `PlaybackPositionEvent` 才刷新。
 - 换句高亮的 250ms 刷新只接在整屏转录页；弹窗与悬浮窗仍按 1 秒 `PlaybackPositionEvent` 更新（弹窗视为废弃，仅视频播放器入口保留）。
 - 悬浮窗不显示发言人（用户要求移除）；`TranscriptSegment.speaker` 仍供转录页使用。
+- 转录页跟随 MVP 把当前句放在 45% 阅读线，但未给 RecyclerView 加首尾 anchor padding，因此第一条/最后一条 cue 只能滚到可滚范围，不能居中；若产品要求首尾也居中，再补 padding/spacer 并复跑设备场景（需同时处理 `applyTranscriptLayout()` 的上下留白）。
 - 音频转录页的“跟随音频”开关与视频弹窗的其他增强：用户明确表示**暂不做**（“那不用管这个功能”），未被再次要求前不要实现或重提。
 - `checkstyle`/`lint` 在 transcript 相关模块存在**既有**违规（未格式化历史代码），按 `AGENTS.md`「不修自己改动之外的告警」保持原样；只在被要求时跑 `./gradlew checkstyle lint`。
 
