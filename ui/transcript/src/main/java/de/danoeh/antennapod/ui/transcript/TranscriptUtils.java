@@ -254,6 +254,10 @@ public class TranscriptUtils {
         }
     }
 
+    public static synchronized void clearCache() {
+        TRANSCRIPT_CACHE.clear();
+    }
+
     private static Transcript parseTranscript(String text, String transcriptType) {
         Transcript transcript = TranscriptParser.parse(text, transcriptType);
         if (transcript != null && !transcript.isBilingual()) {

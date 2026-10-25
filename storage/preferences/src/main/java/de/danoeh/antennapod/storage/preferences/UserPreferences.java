@@ -27,6 +27,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 
 import de.danoeh.antennapod.model.download.ProxyConfig;
@@ -962,8 +963,21 @@ public abstract class UserPreferences {
         prefs.unregisterOnSharedPreferenceChangeListener(listener);
     }
 
-    public static long getTranscriptTimeOffset(long mediaId) {
-        return getTranscriptTimeOffsets().optLong(String.valueOf(mediaId), 0);
+    private static long cachedTranscriptOffsetMediaId = Long.MIN_VALUE;
+    private static String cachedTranscriptOffsetJson;
+    private static long cachedTranscriptOffsetValue;
+
+    public static synchronized long getTranscriptTimeOffset(long mediaId) {
+        String json = prefs.getString(PREF_TRANSCRIPT_TIME_OFFSETS, null);
+        if (mediaId == cachedTranscriptOffsetMediaId
+                && Objects.equals(json, cachedTranscriptOffsetJson)) {
+            return cachedTranscriptOffsetValue;
+        }
+        long offset = getTranscriptTimeOffsets().optLong(String.valueOf(mediaId), 0);
+        cachedTranscriptOffsetMediaId = mediaId;
+        cachedTranscriptOffsetJson = prefs.getString(PREF_TRANSCRIPT_TIME_OFFSETS, null);
+        cachedTranscriptOffsetValue = offset;
+        return offset;
     }
 
     public static synchronized void setTranscriptTimeOffset(long mediaId, long offsetMs) {

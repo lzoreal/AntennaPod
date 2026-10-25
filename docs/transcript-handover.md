@@ -257,6 +257,8 @@ bash scripts/transcript-tests/scenarios/30_layout_panel.sh   # 单场景脚本�
 
 注意：`run.sh` 省略 `--media-id` 时按“播放进度最大”推断媒体（本次为 1），而播放器实际恢复 `lastPlayedFeedMediaId`（7286），页面显示 7286 的旧转录，双语断言会误报 FAIL；测播放中的剧集必须显式传 `--media-id`。
 
+2026-10-25 性能优化（工作树，基于 `81cb1171a`）真机回归：`run.sh smoke highlight layout offset floating --media-id 7286 --position 5000` **100 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`，无 `FATAL EXCEPTION`；截图确认字号、时间戳与双语行渲染不变。优化内容：偏移读取按偏好串缓存（不再每 tick 解析 JSON）、Adapter bind 仅在值变化时 requestLayout、悬浮窗缓存 `languageSplitIndex`、VTT 每个 cue 只计算一次文字体系、应用在内存紧张时清空转录内存缓存。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261025-185758/`。
+
 ### 5.3 语料基线（人工比对用）
 
 真实双语语料：`D:\MyTranscript\site\the-rest-is-history\transcripts\zh\`（远端镜像 `https://lzoreal.github.io/TMLT/transcripts/zh/`）。

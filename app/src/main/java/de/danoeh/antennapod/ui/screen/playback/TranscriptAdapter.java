@@ -13,6 +13,7 @@ import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.appcompat.R;
 import androidx.core.graphics.ColorUtils;
@@ -89,15 +90,35 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     }
 
     private void applyLayout(TranscriptViewholder holder) {
-        holder.viewContent.setLineSpacing(0, lineSpacingMultiplier);
-        holder.viewContent.setPadding(horizontalPaddingPx, 0, horizontalPaddingPx, 0);
-        holder.viewTimecode.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14 + fontSizeStep * 2);
-        holder.viewTimecode.setPadding(horizontalPaddingPx, 0, horizontalPaddingPx, 0);
-        ViewGroup.MarginLayoutParams params =
-                (ViewGroup.MarginLayoutParams) holder.viewTimecode.getLayoutParams();
-        params.topMargin = verticalSpacingPx;
-        params.bottomMargin = verticalSpacingPx;
-        holder.viewTimecode.setLayoutParams(params);
+        TextView content = holder.viewContent;
+        TextView timecode = holder.viewTimecode;
+        if (content.getLineSpacingMultiplier() != lineSpacingMultiplier) {
+            content.setLineSpacing(0, lineSpacingMultiplier);
+        }
+        if (content.getPaddingLeft() != horizontalPaddingPx
+                || content.getPaddingRight() != horizontalPaddingPx) {
+            content.setPadding(horizontalPaddingPx, 0, horizontalPaddingPx, 0);
+        }
+        float contentTextSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP,
+                16 + fontSizeStep * 2, content.getResources().getDisplayMetrics());
+        if (content.getTextSize() != contentTextSize) {
+            content.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16 + fontSizeStep * 2);
+        }
+        float timecodeTextSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP,
+                14 + fontSizeStep * 2, content.getResources().getDisplayMetrics());
+        if (timecode.getTextSize() != timecodeTextSize) {
+            timecode.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14 + fontSizeStep * 2);
+        }
+        if (timecode.getPaddingLeft() != horizontalPaddingPx
+                || timecode.getPaddingRight() != horizontalPaddingPx) {
+            timecode.setPadding(horizontalPaddingPx, 0, horizontalPaddingPx, 0);
+        }
+        ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) timecode.getLayoutParams();
+        if (params.topMargin != verticalSpacingPx || params.bottomMargin != verticalSpacingPx) {
+            params.topMargin = verticalSpacingPx;
+            params.bottomMargin = verticalSpacingPx;
+            timecode.setLayoutParams(params);
+        }
     }
 
     public static final int LANGUAGE_MODE_BOTH = UserPreferences.TRANSCRIPT_LANGUAGE_MODE_BOTH;
@@ -551,7 +572,6 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
 
     private void highlightViewHolder(TranscriptViewholder holder, boolean highlight) {
         if (highlight) {
-            holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16 + fontSizeStep * 2);
             holder.viewContent.setAlpha(1.0f);
             holder.viewContent.setTypeface(null, Typeface.BOLD);
 
@@ -560,7 +580,6 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             holder.viewTimecode.setAlpha(0.8f);
 
         } else {
-            holder.viewContent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16 + fontSizeStep * 2);
             holder.viewContent.setAlpha(0.45f);
             holder.viewContent.setTypeface(null, Typeface.NORMAL);
 

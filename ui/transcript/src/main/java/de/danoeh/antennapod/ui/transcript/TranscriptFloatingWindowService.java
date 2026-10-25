@@ -66,6 +66,7 @@ public class TranscriptFloatingWindowService extends Service {
     private int lastSentenceIndex = -1;
     private TranscriptSegment sentenceCacheSegment;
     private String sentenceCacheWords;
+    private int sentenceCacheSplit = -1;
     private int[] sentenceCacheStarts;
     private int[] translationCacheStarts;
     private volatile long lastPlaybackPosition = -1;
@@ -372,6 +373,7 @@ public class TranscriptFloatingWindowService extends Service {
         lastSentenceIndex = -1;
         sentenceCacheSegment = null;
         sentenceCacheWords = null;
+        sentenceCacheSplit = -1;
         sentenceCacheStarts = null;
         translationCacheStarts = null;
         loadDisposable = Observable.fromCallable(() -> {
@@ -459,13 +461,15 @@ public class TranscriptFloatingWindowService extends Service {
         TranscriptSegment segment = transcript.getSegmentAtTime(position);
 
         String words = segment.getWords();
-        int split = TranscriptTextUtils.languageSplitIndex(words);
+        boolean cacheHit = segment == sentenceCacheSegment && words.equals(sentenceCacheWords);
+        int split = cacheHit ? sentenceCacheSplit : TranscriptTextUtils.languageSplitIndex(words);
         boolean bilingual = split >= 0;
         String primaryText = bilingual ? words.substring(0, split) : words;
         int primaryLength = primaryText.length();
-        if (segment != sentenceCacheSegment || !words.equals(sentenceCacheWords)) {
+        if (!cacheHit) {
             sentenceCacheSegment = segment;
             sentenceCacheWords = words;
+            sentenceCacheSplit = split;
             sentenceCacheStarts = TranscriptTextUtils.chunkStarts(primaryText, primaryLength);
             if (bilingual) {
                 String translation = words.substring(split + 1);
