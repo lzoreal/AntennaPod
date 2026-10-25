@@ -312,6 +312,7 @@
     <string name="transcript_offset_forward_fine_description">Shift transcript %1$s seconds later</string>
     <string name="transcript_offset_value_format">%1$s s</string>
     <string name="transcript_offset_label">Offset: %1$s</string>
+    <string name="transcript_offset_title">Transcript offset</string>
     <string name="transcript_offset_reset_description">Reset transcript offset</string>
     <string name="transcript_offset_message">Transcript offset: %1$s</string>
     <string name="transcript_offset_toggle_description">Transcript offset controls</string>
@@ -322,6 +323,7 @@
     <string name="transcript_layout_toggle">Aa</string>
     <string name="transcript_layout_toggle_description">Transcript appearance</string>
     <string name="transcript_layout_font_size">Font size</string>
+    <string name="transcript_layout_title">Appearance</string>
     <string name="transcript_layout_line_spacing">Line spacing</string>
     <string name="transcript_layout_side_margins">Side margins</string>
     <string name="transcript_layout_vertical_spacing">Vertical spacing</string>
@@ -335,6 +337,8 @@
     <string name="transcript_layout_increase">Increase</string>
     <string name="transcript_layout_decrease_symbol">−</string>
     <string name="transcript_layout_increase_symbol">+</string>
+    <string name="transcript_font_size_decrease_symbol">A−</string>
+    <string name="transcript_font_size_increase_symbol">A+</string>
     <string name="transcript_segment_loop_toggle">⟲</string>
     <string name="transcript_segment_loop_description">Loop current segment</string>
     <string name="transcript_segment_loop_message">Looping current segment</string>

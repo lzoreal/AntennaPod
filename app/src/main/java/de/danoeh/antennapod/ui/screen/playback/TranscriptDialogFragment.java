@@ -286,6 +286,14 @@ public class TranscriptDialogFragment extends DialogFragment
     }
 
     @Override
+    public void onDestroyView() {
+        if (viewBinding != null) {
+            viewBinding.transcriptList.setAdapter(null);
+        }
+        super.onDestroyView();
+    }
+
+    @Override
     public void onStop() {
         super.onStop();
         if (disposable != null) {

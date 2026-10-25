@@ -28,7 +28,43 @@ public class VttTranscriptParser {
 
     private record Timings(long start, long end) {}
 
-    private record Cue(long start, long end, List<String> lines, String speaker) {}
+    private static final class Cue {
+        private final long start;
+        private final long end;
+        private final List<String> lines;
+        private final String speaker;
+        private int script = Integer.MIN_VALUE;
+
+        private Cue(long start, long end, List<String> lines, String speaker) {
+            this.start = start;
+            this.end = end;
+            this.lines = lines;
+            this.speaker = speaker;
+        }
+
+        long start() {
+            return start;
+        }
+
+        long end() {
+            return end;
+        }
+
+        List<String> lines() {
+            return lines;
+        }
+
+        String speaker() {
+            return speaker;
+        }
+
+        int script() {
+            if (script == Integer.MIN_VALUE) {
+                script = TranscriptSentenceUtils.scriptOf(String.join(" ", lines));
+            }
+            return script;
+        }
+    }
 
     public static Transcript parse(String str) {
         if (StringUtils.isBlank(str)) {
@@ -163,13 +199,12 @@ public class VttTranscriptParser {
         }
         int primaryScript = TranscriptSentenceUtils.SCRIPT_UNKNOWN;
         int otherScript = TranscriptSentenceUtils.SCRIPT_UNKNOWN;
-        int previousScript = TranscriptSentenceUtils.SCRIPT_UNKNOWN;
         int primaryCount = 0;
         int otherCount = 0;
         for (Cue cue : cues) {
-            int script = TranscriptSentenceUtils.scriptOf(String.join(" ", cue.lines()));
+            int script = cue.script();
             if (script == TranscriptSentenceUtils.SCRIPT_UNKNOWN) {
-                return TranscriptSentenceUtils.SCRIPT_UNKNOWN;
+                continue;
             }
             if (primaryScript == TranscriptSentenceUtils.SCRIPT_UNKNOWN) {
                 primaryScript = script;
@@ -184,11 +219,6 @@ public class VttTranscriptParser {
                 }
                 otherCount++;
             }
-            if (previousScript != TranscriptSentenceUtils.SCRIPT_UNKNOWN
-                    && script == previousScript) {
-                return TranscriptSentenceUtils.SCRIPT_UNKNOWN;
-            }
-            previousScript = script;
         }
         if (primaryCount < 2 || otherCount < 2) {
             return TranscriptSentenceUtils.SCRIPT_UNKNOWN;
@@ -201,18 +231,21 @@ public class VttTranscriptParser {
         int index = 0;
         while (index < cues.size()) {
             Cue primaryCue = cues.get(index);
-            if (TranscriptSentenceUtils.scriptOf(String.join(" ", primaryCue.lines()))
-                    != primaryScript) {
+            if (primaryCue.script() != primaryScript) {
                 transcript.addSegment(new TranscriptSegment(primaryCue.start(), primaryCue.end(),
                         String.join(" ", primaryCue.lines()), primaryCue.speaker()));
                 index++;
                 continue;
             }
             Cue translationCue = null;
-            if (index + 1 < cues.size()
-                    && TranscriptSentenceUtils.scriptOf(String.join(" ", cues.get(index + 1).lines()))
-                    != primaryScript) {
-                translationCue = cues.get(index + 1);
+            if (index + 1 < cues.size()) {
+                int nextScript = cues.get(index + 1).script();
+                if (nextScript != TranscriptSentenceUtils.SCRIPT_UNKNOWN
+                        && nextScript != primaryScript) {
+                    translationCue = cues.get(index + 1);
+                }
+            }
+            if (translationCue != null) {
                 index += 2;
             } else {
                 index++;

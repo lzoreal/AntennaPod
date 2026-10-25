@@ -4,9 +4,11 @@ import org.apache.commons.lang3.StringUtils;
 import org.jsoup.internal.StringUtil;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -25,6 +27,7 @@ public class SrtTranscriptParser {
 
         Transcript transcript = new Transcript();
         List<String> lines = Arrays.asList(str.split("\n"));
+        Set<String> speakerLabels = findSpeakerLabels(lines);
         Iterator<String> iter = lines.iterator();
         String speaker = "";
         String prevSpeaker = "";
@@ -47,17 +50,19 @@ public class SrtTranscriptParser {
                 continue;
             }
 
-            spanEndTimecode = endTimecode;
             if (line.contains("-->")) {
                 String[] timecodes = line.split("-->");
                 if (timecodes.length < 2) {
                     continue;
                 }
-                startTimecode = parseTimecode(timecodes[0].trim());
-                endTimecode = parseTimecode(timecodes[1].trim());
-                if (startTimecode == -1 || endTimecode == -1) {
+                long parsedStartTimecode = parseTimecode(timecodes[0].trim());
+                long parsedEndTimecode = parseTimecode(timecodes[1].trim());
+                if (parsedStartTimecode == -1 || parsedEndTimecode == -1) {
                     continue;
                 }
+                spanEndTimecode = endTimecode;
+                startTimecode = parsedStartTimecode;
+                endTimecode = parsedEndTimecode;
 
                 if (spanStartTimecode == -1) {
                     spanStartTimecode = startTimecode;
@@ -95,7 +100,7 @@ public class SrtTranscriptParser {
                     candidateSpeaker = firstPayloadLine.substring(0, colon).strip();
                 }
             }
-            if (colon > 0 && isValidSpeaker(candidateSpeaker)) {
+            if (colon > 0 && speakerLabels.contains(candidateSpeaker)) {
                 prevSpeaker = speaker;
                 speaker = candidateSpeaker;
                 speakers.add(speaker);
@@ -103,7 +108,7 @@ public class SrtTranscriptParser {
                 String remainingBody = body.substring(firstPayloadLine.length()).strip();
                 body = new StringBuilder((firstLineBody + " " + remainingBody).strip());
                 if (StringUtils.isNotEmpty(prevSpeaker) && !StringUtils.equals(speaker, prevSpeaker)) {
-                    if (StringUtils.isNotEmpty(segmentBody)) {
+                    if (StringUtils.isNotEmpty(segmentBody) && spanEndTimecode > spanStartTimecode) {
                         transcript.addSegment(new TranscriptSegment(spanStartTimecode,
                                 spanEndTimecode, segmentBody, prevSpeaker));
                         duration = 0L;
@@ -150,6 +155,30 @@ public class SrtTranscriptParser {
         long seconds = Integer.parseInt(matcher.group(3));
         long milliseconds = Integer.parseInt(matcher.group(4));
         return (hours * 60 * 60 * 1000) + (minutes * 60 * 1000) + (seconds * 1000) + milliseconds;
+    }
+
+    private static Set<String> findSpeakerLabels(List<String> lines) {
+        Map<String, Integer> counts = new HashMap<>();
+        for (String line : lines) {
+            int colon = line.indexOf(": ");
+            String candidate = null;
+            if (colon > 0) {
+                candidate = line.substring(0, colon).strip();
+            } else if (line.endsWith(":") && line.length() > 1) {
+                candidate = line.substring(0, line.length() - 1).strip();
+            }
+            if (candidate != null && isValidSpeaker(candidate)) {
+                counts.merge(candidate, 1, Integer::sum);
+            }
+        }
+        Set<String> labels = new HashSet<>();
+        for (Map.Entry<String, Integer> entry : counts.entrySet()) {
+            // A label is only a speaker if it repeats or is the only candidate (single-speaker file)
+            if (counts.size() == 1 || entry.getValue() >= 2) {
+                labels.add(entry.getKey());
+            }
+        }
+        return labels;
     }
 
     private static boolean isValidSpeaker(String name) {

@@ -15,7 +15,7 @@ tt_scenario_offset() {
   assert_dump_has "$WORK/offset_03_panel.xml" 'text="(偏移：|Offset: )' "偏移控制条已展开"
 
   # 先归零，避免受设备上已有的偏移影响
-  tt_tap_and_wait "$WORK/offset_03_panel.xml" 'resource-id="[^"]*:id/txtOffsetValue"' \
+  tt_tap_and_wait "$WORK/offset_03_panel.xml" 'resource-id="[^"]*:id/btnOffsetReset"' \
     "重置偏移" 'text="(偏移：0 秒|Offset: 0 s)"' 4 || return
   record_pass "偏移为 0"
 
@@ -23,7 +23,7 @@ tt_scenario_offset() {
     "偏移 +30 秒" 'text="(偏移：\+30 秒|Offset: \+30 s)"' 4 || return
   record_pass "偏移显示 +30"
 
-  tt_tap_and_wait "$WORK/offset_03_panel.xml" 'resource-id="[^"]*:id/txtOffsetValue"' \
+  tt_tap_and_wait "$WORK/offset_03_panel.xml" 'resource-id="[^"]*:id/btnOffsetReset"' \
     "再次重置偏移" 'text="(偏移：0 秒|Offset: 0 s)"' 4 || return
   record_pass "偏移重置为 0"
   capture_screen "$WORK/offset_07.png" || return

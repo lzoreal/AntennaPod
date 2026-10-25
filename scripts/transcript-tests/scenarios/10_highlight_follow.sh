@@ -28,7 +28,7 @@ tt_scenario_highlight() {
   fi
 
   capture_screen "$WORK/highlight_01.png" || return
-  record_pass "高亮截图已保存（整块 19sp、块内已播/当前/未播三档，人工确认 $WORK/highlight_01.png）"
+  record_pass "高亮截图已保存（全列表统一字号、块内已播/当前/未播三档，人工确认 $WORK/highlight_01.png）"
 }
 
 if [ "${TT_SOURCED:-0}" != "1" ]; then
