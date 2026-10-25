@@ -34,6 +34,7 @@ tt_usage() {
   layout     Aa 排版面板：默认值、调节行距、恢复默认
   offset     偏移控制条：+30 秒、重置为 0
   floating   悬浮窗开关与服务状态
+  search     转录内搜索：命中计数、上下条、无匹配、关闭
 
 单独运行某个场景:
   bash scripts/transcript-tests/scenarios/30_layout_panel.sh [选项]

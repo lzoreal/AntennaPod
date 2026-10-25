@@ -6,6 +6,7 @@ import android.graphics.Typeface;
 import android.text.Layout;
 import android.text.Spannable;
 import android.text.SpannableString;
+import android.text.style.BackgroundColorSpan;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.StyleSpan;
 import android.util.TypedValue;
@@ -41,6 +42,8 @@ import org.jsoup.internal.StringUtil;
 public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder> {
     private static final int PAST_SENTENCE_ALPHA = 0xA6;
     private static final int FUTURE_SENTENCE_ALPHA = 0x8C;
+    private static final int SEARCH_MATCH_COLOR = 0x4DFFEB3B;
+    private static final int CURRENT_SEARCH_MATCH_COLOR = 0xB3FFC107;
     private static final Object SENTENCE_HIGHLIGHT_PAYLOAD = new Object();
     private static final Object SEGMENT_HIGHLIGHT_PAYLOAD = new Object();
     private final SegmentClickListener segmentClickListener;
@@ -64,6 +67,9 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             new LinkedHashMap<>(16, 0.75f, true);
     private final int highlightTextColor;
     private final int normalTextColor;
+    private final List<SearchHit> searchHits = new ArrayList<>();
+    private String searchQuery = "";
+    private int currentSearchHit = -1;
 
     public TranscriptAdapter(Context context, SegmentClickListener segmentClickListener) {
         this.context = context;
@@ -129,6 +135,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         this.languageMode = mode;
         UserPreferences.setTranscriptLanguageMode(mode);
         displayCache.clear();
+        rebuildSearchHits();
         notifyDataSetChanged();
     }
 
@@ -140,6 +147,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         this.sentencePerLine = split;
         UserPreferences.setTranscriptSentencePerLine(split);
         displayCache.clear();
+        rebuildSearchHits();
         notifyDataSetChanged();
     }
 
@@ -197,6 +205,9 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         prevHighlightPosition = -1;
         highlightedSentence = -1;
         displayCache.clear();
+        searchQuery = "";
+        searchHits.clear();
+        currentSearchHit = -1;
         long offset = UserPreferences.getTranscriptTimeOffset(((FeedMedia) media).getId());
         lastHighlightPositionMs = Math.max(0, ((FeedMedia) media).getPosition() - offset);
         notifyDataSetChanged();
@@ -209,6 +220,9 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         highlightedSentence = -1;
         lastHighlightPositionMs = 0;
         displayCache.clear();
+        searchQuery = "";
+        searchHits.clear();
+        currentSearchHit = -1;
         notifyDataSetChanged();
     }
 
@@ -229,11 +243,11 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             if (position > 0 && media.getTranscript()
                     .getSegmentAt(position - 1).getSpeaker().equals(seg.getSpeaker())) {
                 holder.viewTimecode.setVisibility(View.GONE);
-                holder.viewContent.setText(displayText);
+                setContentText(holder, position, displayText);
             } else {
                 holder.viewTimecode.setVisibility(View.VISIBLE);
                 holder.viewTimecode.setText(timecode + " • " + seg.getSpeaker());
-                holder.viewContent.setText(displayText);
+                setContentText(holder, position, displayText);
             }
         } else {
             Set<String> speakers = media.getTranscript().getSpeakers();
@@ -243,7 +257,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             } else {
                 holder.viewTimecode.setVisibility(View.GONE);
             }
-            holder.viewContent.setText(displayText);
+            setContentText(holder, position, displayText);
         }
 
         highlightViewHolder(holder, position == highlightPosition);
@@ -263,7 +277,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         if (payloads.contains(SEGMENT_HIGHLIGHT_PAYLOAD)) {
             highlightViewHolder(holder, position == highlightPosition);
             if (position != highlightPosition) {
-                holder.viewContent.setText(getDisplayInfo(
+                setContentText(holder, position, getDisplayInfo(
                         media.getTranscript().getSegmentAt(position)).text);
             }
         }
@@ -417,7 +431,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
                         info.split + 1, translationLength);
             }
         }
-        holder.viewContent.setText(graded);
+        setContentText(holder, position, graded);
     }
 
     private void colorPairLine(SpannableString graded, int[] starts, int[] ends,
@@ -589,6 +603,127 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         }
     }
 
+    private void setContentText(TranscriptViewholder holder, int position, CharSequence text) {
+        holder.viewContent.setText(applySearchHighlights(position, text));
+    }
+
+    private CharSequence applySearchHighlights(int position, CharSequence text) {
+        if (searchHits.isEmpty()) {
+            return text;
+        }
+        SpannableString spannable = text instanceof SpannableString
+                ? (SpannableString) text : new SpannableString(text);
+        boolean applied = false;
+        for (int i = 0; i < searchHits.size(); i++) {
+            SearchHit hit = searchHits.get(i);
+            if (hit.position != position) {
+                continue;
+            }
+            int start = Math.max(0, hit.start);
+            int end = Math.min(hit.end, spannable.length());
+            if (start >= end) {
+                continue;
+            }
+            int color = i == currentSearchHit
+                    ? CURRENT_SEARCH_MATCH_COLOR : SEARCH_MATCH_COLOR;
+            spannable.setSpan(new BackgroundColorSpan(color), start, end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            applied = true;
+        }
+        return applied ? spannable : text;
+    }
+
+    public int setSearchQuery(String query) {
+        searchQuery = query == null ? "" : query;
+        rebuildSearchHits();
+        notifyDataSetChanged();
+        return searchHits.size();
+    }
+
+    public void clearSearch() {
+        if (searchHits.isEmpty() && searchQuery.isEmpty()) {
+            return;
+        }
+        searchQuery = "";
+        searchHits.clear();
+        currentSearchHit = -1;
+        notifyDataSetChanged();
+    }
+
+    public int getSearchHitCount() {
+        return searchHits.size();
+    }
+
+    public int getCurrentSearchHit() {
+        return currentSearchHit;
+    }
+
+    public int getSearchHitPosition(int index) {
+        if (index < 0 || index >= searchHits.size()) {
+            return -1;
+        }
+        return searchHits.get(index).position;
+    }
+
+    public int stepSearch(boolean forward) {
+        if (searchHits.isEmpty()) {
+            return -1;
+        }
+        int previous = currentSearchHit;
+        if (forward) {
+            currentSearchHit = (currentSearchHit + 1) % searchHits.size();
+        } else {
+            currentSearchHit = (currentSearchHit - 1 + searchHits.size()) % searchHits.size();
+        }
+        if (previous >= 0) {
+            notifyItemChanged(searchHits.get(previous).position);
+        }
+        notifyItemChanged(searchHits.get(currentSearchHit).position);
+        return currentSearchHit;
+    }
+
+    public int[] getSearchHitBounds(TranscriptViewholder holder, int index) {
+        if (index < 0 || index >= searchHits.size()) {
+            return null;
+        }
+        SearchHit hit = searchHits.get(index);
+        if (holder.getAbsoluteAdapterPosition() != hit.position) {
+            return null;
+        }
+        Layout layout = holder.viewContent.getLayout();
+        if (layout == null || layout.getText() == null) {
+            return null;
+        }
+        int length = layout.getText().length();
+        int start = Math.min(hit.start, length - 1);
+        int end = Math.min(Math.max(hit.end - 1, start), length - 1);
+        if (start < 0) {
+            return null;
+        }
+        int firstLine = layout.getLineForOffset(start);
+        int lastLine = layout.getLineForOffset(end);
+        int top = holder.viewContent.getTop() + layout.getLineTop(firstLine);
+        int bottom = holder.viewContent.getTop() + layout.getLineBottom(lastLine);
+        return new int[]{top, bottom};
+    }
+
+    private void rebuildSearchHits() {
+        searchHits.clear();
+        currentSearchHit = -1;
+        if (searchQuery.trim().isEmpty() || media == null || media.getTranscript() == null) {
+            return;
+        }
+        for (int i = 0; i < media.getTranscript().getSegmentCount(); i++) {
+            DisplayInfo info = getDisplayInfo(media.getTranscript().getSegmentAt(i));
+            for (TranscriptSearch.Match match : TranscriptSearch.findAll(info.text, searchQuery)) {
+                searchHits.add(new SearchHit(i, match.start, match.end));
+            }
+        }
+        if (!searchHits.isEmpty()) {
+            currentSearchHit = 0;
+        }
+    }
+
     public int getFontSizeStep() {
         return fontSizeStep;
     }
@@ -701,6 +836,18 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
                                  long sentenceStartTime, long sentenceEndTime);
 
         void onTranscriptWordSelected(int position, TranscriptSegment seg, String selectedText);
+    }
+
+    private static final class SearchHit {
+        private final int position;
+        private final int start;
+        private final int end;
+
+        private SearchHit(int position, int start, int end) {
+            this.position = position;
+            this.start = start;
+            this.end = end;
+        }
     }
 
     private static final class DisplayInfo {
