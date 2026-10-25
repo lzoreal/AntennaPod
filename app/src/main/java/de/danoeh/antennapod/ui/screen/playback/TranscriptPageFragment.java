@@ -166,6 +166,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
         setupOffsetButtons();
         viewBinding.txtOffsetValue.setOnClickListener(v -> resetTimeOffset());
+        viewBinding.btnOffsetReset.setOnClickListener(v -> resetTimeOffset());
         viewBinding.btnOffsetToggle.setOnClickListener(v -> toggleOffsetBar());
         viewBinding.btnOffsetToggle.setContentDescription(
                 getString(R.string.transcript_offset_toggle_description));
@@ -858,6 +859,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 ? 0 : UserPreferences.getTranscriptTimeOffset(currentMedia.getId());
         viewBinding.txtOffsetValue.setText(getString(R.string.transcript_offset_label, formatTimeOffset(offsetMs)));
         viewBinding.txtOffsetValue.setContentDescription(getString(R.string.transcript_offset_reset_description));
+        boolean hasOffset = offsetMs != 0;
+        viewBinding.btnOffsetReset.setEnabled(hasOffset);
+        viewBinding.btnOffsetReset.setAlpha(hasOffset ? 1.0f : 0.5f);
     }
 
     private void setupOffsetButtons() {

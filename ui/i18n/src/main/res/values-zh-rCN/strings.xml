@@ -200,6 +200,7 @@
     <string name="transcript_offset_forward_fine_description">将声音文字延后 %1$s 秒</string>
     <string name="transcript_offset_value_format">%1$s 秒</string>
     <string name="transcript_offset_label">偏移：%1$s</string>
+    <string name="transcript_offset_title">字幕偏移</string>
     <string name="transcript_offset_reset_description">重置声音文字偏移</string>
     <string name="transcript_offset_message">声音文字偏移：%1$s</string>
     <string name="transcript_offset_toggle_description">声音文字偏移控制</string>
@@ -210,6 +211,7 @@
     <string name="transcript_layout_toggle">Aa</string>
     <string name="transcript_layout_toggle_description">声音文字排版</string>
     <string name="transcript_layout_font_size">字号</string>
+    <string name="transcript_layout_title">排版</string>
     <string name="transcript_layout_line_spacing">行距</string>
     <string name="transcript_layout_side_margins">左右边距</string>
     <string name="transcript_layout_vertical_spacing">上下留白</string>
@@ -223,6 +225,8 @@
     <string name="transcript_layout_increase">增大</string>
     <string name="transcript_layout_decrease_symbol">−</string>
     <string name="transcript_layout_increase_symbol">+</string>
+    <string name="transcript_font_size_decrease_symbol">A−</string>
+    <string name="transcript_font_size_increase_symbol">A+</string>
     <string name="transcript_segment_loop_toggle">⟲</string>
     <string name="transcript_segment_loop_description">循环当前片段</string>
     <string name="transcript_segment_loop_message">正在循环当前片段</string>
