@@ -4,10 +4,13 @@
 
 tt_scenario_smoke() {
   local xml="$COMMON_XML"
-  if [ ! -s "$COMMON_PNG" ] || [ ! -s "$xml" ]; then
-    record_fail "冒烟：缺少转录页截图或 UI dump"
+  # uiautomator 在播放/动画中常拿不到 idle；VTT 场景不验证播放，先暂停再取稳定 dump
+  tt_pause_playback
+  if ! dump_ui "$xml"; then
+    record_fail "冒烟：转录页 UI dump 为空（暂停后仍失败）"
     return
   fi
+  capture_screen "$COMMON_PNG" || true
 
   if grep -q "FATAL EXCEPTION" "$WORK/transcript.log" 2>/dev/null; then
     record_fail "转录页出现崩溃，见 $WORK/transcript.log"

@@ -9,6 +9,8 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import de.danoeh.antennapod.model.feed.Transcript;
+import de.danoeh.antennapod.model.feed.TranscriptSegment;
+import de.danoeh.antennapod.model.feed.TranscriptWord;
 
 @RunWith(RobolectricTestRunner.class)
 public class JsonTranscriptParserTest {
@@ -84,6 +86,92 @@ public class JsonTranscriptParserTest {
         assertNotNull(result);
         assertEquals(0L, result.getSegmentAt(0).getStartTime());
         assertEquals(2000L, result.getSegmentAt(0).getEndTime());
+    }
+
+    @Test
+    public void testParseTimedJsonWithWordTimings() {
+        String json = "{\"segments\":["
+                + "{\"start\":880,\"end\":23400,\"speaker\":\"Ira Glass\","
+                + "\"text\":\"From WBEZ Chicago, it's This American Life.\","
+                + "\"words\":[[\"From\",1120,320],[\"WBEZ\",1440,400],"
+                + "[\"Chicago,\",1840,560],[\"it's\",2540,80],[\"This\",2640,100],"
+                + "[\"American\",2740,220],[\"Life.\",2960,400]]},"
+                + "{\"start\":23400,\"end\":null,\"speaker\":\"Ira Glass\","
+                + "\"text\":\"Yes.\",\"words\":[]}]}";
+
+        Transcript result = JsonTranscriptParser.parse(json);
+
+        assertNotNull(result);
+        assertTrue(result.hasWordTimings());
+        assertEquals(2, result.getSegmentCount());
+        TranscriptSegment segment = result.getSegmentAt(0);
+        assertEquals(880L, segment.getStartTime());
+        assertEquals(23400L, segment.getEndTime());
+        assertEquals("Ira Glass", segment.getSpeaker());
+        assertEquals(7, segment.getWordTimings().size());
+        TranscriptWord first = segment.getWordTimings().get(0);
+        assertEquals(0, first.getStartChar());
+        assertEquals(4, first.getEndChar());
+        assertEquals("From", segment.getWords().substring(
+                first.getStartChar(), first.getEndChar()));
+        assertEquals(1120L, first.getStartTime());
+        assertEquals(1440L, first.getEndTime());
+        TranscriptWord last = segment.getWordTimings().get(6);
+        assertEquals("Life.", segment.getWords().substring(
+                last.getStartChar(), last.getEndChar()));
+        assertEquals(2960L, last.getStartTime());
+        assertEquals(3360L, last.getEndTime());
+
+        TranscriptSegment annotation = result.getSegmentAt(1);
+        assertEquals(23400L, annotation.getStartTime());
+        assertEquals(23900L, annotation.getEndTime());
+        assertTrue(!annotation.hasWordTimings());
+    }
+
+    @Test
+    public void testTimedJsonDropsUntrustedDuplicateWords() {
+        String json = "{\"segments\":[{\"start\":0,\"end\":5000,\"speaker\":\"Alice\","
+                + "\"text\":\"partner, you will get more.\","
+                + "\"words\":[[\"partner,\",0,200],[\"partner,\",200,200],"
+                + "[\"you\",400,100],[\"will\",500,100],[\"get\",600,100],"
+                + "[\"more.\",700,400]]}]}";
+
+        Transcript result = JsonTranscriptParser.parse(json);
+
+        assertNotNull(result);
+        TranscriptSegment segment = result.getSegmentAt(0);
+        assertEquals(5, segment.getWordTimings().size());
+        String[] expected = {"partner,", "you", "will", "get", "more."};
+        for (int i = 0; i < expected.length; i++) {
+            TranscriptWord word = segment.getWordTimings().get(i);
+            assertEquals(expected[i], segment.getWords().substring(
+                    word.getStartChar(), word.getEndChar()));
+        }
+        assertEquals(700L, segment.getWordTimings().get(4).getStartTime());
+    }
+
+    @Test
+    public void testTimedJsonRejectsInvalidSegments() {
+        String json = "{\"segments\":["
+                + "{\"start\":-1,\"end\":1000,\"text\":\"Bad start.\",\"words\":[]},"
+                + "{\"start\":1000,\"text\":\"\",\"words\":[]},"
+                + "{\"start\":2000,\"end\":null,\"text\":\"Good.\",\"words\":[]}]}";
+
+        Transcript result = JsonTranscriptParser.parse(json);
+
+        assertNotNull(result);
+        assertEquals(1, result.getSegmentCount());
+        assertEquals("Good.", result.getSegmentAt(0).getWords());
+        assertEquals(2500L, result.getSegmentAt(0).getEndTime());
+    }
+
+    @Test
+    public void testLegacyJsonHasNoWordTimings() {
+        Transcript result = JsonTranscriptParser.parse(jsonStr);
+
+        assertNotNull(result);
+        assertTrue(!result.hasWordTimings());
+        assertTrue(!result.getSegmentAt(0).hasWordTimings());
     }
 
     @Test

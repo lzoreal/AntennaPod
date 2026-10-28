@@ -26,6 +26,8 @@
         <item name="icon_green">#008537</item>
         <item name="icon_purple">#5F1984</item>
         <item name="icon_gray">#25365A</item>
+        <item name="transcript_text_strong">#101418</item>
+        <item name="transcript_text_muted">#5A6675</item>
         <item name="android:splitMotionEvents">false</item>
         <item name="android:fitsSystemWindows">false</item>
         <item name="android:windowContentTransitions">true</item>
@@ -83,6 +85,8 @@
         <item name="icon_green">#008537</item>
         <item name="icon_purple">#AA55D8</item>
         <item name="icon_gray">#CDD9E4</item>
+        <item name="transcript_text_strong">#F2F4F7</item>
+        <item name="transcript_text_muted">#9AA6B8</item>
         <item name="android:splitMotionEvents">false</item>
         <item name="android:fitsSystemWindows">false</item>
         <item name="android:statusBarColor">@android:color/transparent</item>

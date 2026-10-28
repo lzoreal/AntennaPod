@@ -11,6 +11,8 @@
     <attr name="icon_green" format="color" />
     <attr name="icon_purple" format="color" />
     <attr name="icon_gray" format="color" />
+    <attr name="transcript_text_strong" format="color" />
+    <attr name="transcript_text_muted" format="color" />
 
     <declare-styleable name="NestedScrollableHost">
         <attr name="scrollDirection" format="enum">

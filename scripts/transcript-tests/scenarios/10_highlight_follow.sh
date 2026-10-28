@@ -5,8 +5,9 @@
 
 tt_scenario_highlight() {
   local xml="$COMMON_XML"
-  if [ ! -s "$xml" ]; then
-    record_fail "高亮：缺少转录页 UI dump"
+  tt_pause_playback
+  if ! dump_ui "$xml"; then
+    record_fail "高亮：转录页 UI dump 为空（暂停后仍失败）"
     return
   fi
 
