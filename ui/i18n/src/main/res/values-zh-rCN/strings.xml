@@ -205,6 +205,11 @@
     <string name="transcript_offset_message">声音文字偏移：%1$s</string>
     <string name="transcript_offset_sync_current">对齐到本句</string>
     <string name="transcript_offset_sync_current_description">以正在播放的这一句为起点重新对齐文字</string>
+    <string name="transcript_offset_sync_picking">点选句子</string>
+    <string name="transcript_offset_sync_picking_description">点选正在播放的那一句</string>
+    <string name="transcript_offset_sync_pick_hint">点击正在播放的那一句</string>
+    <string name="transcript_offset_sync_already_aligned">这就是当前显示的那句。请向上滑到正在播放的那一句</string>
+    <string name="transcript_offset_sync_first_message">已按第一句对齐整集：%1$s</string>
     <string name="transcript_offset_sync_message">已从本句对齐：%1$s</string>
     <string name="transcript_offset_toggle_description">声音文字偏移控制</string>
     <string name="transcript_line_break_toggle">¶</string>

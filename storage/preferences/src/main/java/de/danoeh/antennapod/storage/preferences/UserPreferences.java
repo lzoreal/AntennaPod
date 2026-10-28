@@ -987,6 +987,13 @@ public abstract class UserPreferences {
         storeTranscriptTimeOffsets(mediaId, offsets);
     }
 
+    /** Re-aligns the whole episode: the transcript's first line starts at the episode start. */
+    public static synchronized void setTranscriptStartOffset(long mediaId, long offsetMs) {
+        TranscriptTimeOffsets offsets = new TranscriptTimeOffsets();
+        offsets.setAnchor(0, offsetMs);
+        storeTranscriptTimeOffsets(mediaId, offsets);
+    }
+
     /** Changes only the segment playing at {@code mediaPositionMs}. */
     public static synchronized void updateTranscriptTimeOffset(
             long mediaId, long mediaPositionMs, long offsetMs) {

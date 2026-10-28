@@ -317,6 +317,11 @@
     <string name="transcript_offset_message">Transcript offset: %1$s</string>
     <string name="transcript_offset_sync_current">Align to this line</string>
     <string name="transcript_offset_sync_current_description">Re-align the transcript from the line that is playing</string>
+    <string name="transcript_offset_sync_picking">Pick line</string>
+    <string name="transcript_offset_sync_picking_description">Pick the line that is playing now</string>
+    <string name="transcript_offset_sync_pick_hint">Tap the line that is playing now</string>
+    <string name="transcript_offset_sync_already_aligned">That is the line already shown. Scroll up to the line you are hearing</string>
+    <string name="transcript_offset_sync_first_message">Aligned from the first line: %1$s</string>
     <string name="transcript_offset_sync_message">Aligned from this line: %1$s</string>
     <string name="transcript_offset_toggle_description">Transcript offset controls</string>
     <string name="transcript_line_break_toggle">¶</string>

@@ -72,7 +72,7 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 |---|---|---|
 | 点击跳转 | 有词时间轴时**点到哪个词就跳到哪个词**（起止取该词）；点在译文、词间或普通转录时回退到**所点句子**的起止区间（非整段），双语时按触摸落在主/译区域分别映射 | [TranscriptAdapter.java:625](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java#L625)、[:652](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java#L652) → `SegmentClickListener.onTranscriptClicked(pos, seg, start, end)` |
 | 选词 | 长按选中文本触发 `onTranscriptWordSelected`（目前仅暂停播放，便于选词） | [TranscriptPageFragment.java:1075](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1075) |
-| 偏移控制条 | 卡片式面板：标题栏「对齐到本句」+ 重置、偏移量胶囊；细调 ±0.5s、粗调 ±5/±10/±30s。**对齐到本句**把当前高亮的句子锚成新起点（`offset = 播放位置 - 该句起点`），只影响这一句之后的段落；若锚在第一句（起点≈0）则覆盖整集开头 | `toggleOffsetBar()`、`setupOffsetButtons()`（[L1230](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1230)）、`syncOffsetToCurrentSentence()`（[L1174](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1174)）、`applyOffsetChange()`（[L1198](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1198)） |
+| 偏移控制条 | 卡片式面板：标题栏「对齐到本句」+ 重置、偏移量胶囊；细调 ±0.5s、粗调 ±5/±10/±30s。**对齐到本句是两步式**：先点按钮进入点选模式（按钮变「点选句子」并弹提示），再点**正在播放的那一句**，即以它为锚（`offset = 播放位置 - 该句起点`，不跳播、不改变播放状态），只影响该句之后的段落；锚在第一句（起点≈0）时覆盖整集开头。点到的句子若正好是当前高亮显示的那句（当前 cue 时间落在该句区间内），不改数据，只提示向上滑到真正在播的那句。**长按按钮 = 把第一句对齐到当前位置并覆盖整集**（清空其他锚点），用于片头整段广告。位置取 MediaController 实时值（暂停后拖动进度条也准）。之所以不直接用“当前高亮句”，是因为片头广告这类大幅错位下高亮句本身就是错的 | `toggleOffsetBar()`、`setupOffsetButtons()`（[L1230](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1230)）、`syncOffsetToCurrentSentence()`（[L1174](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1174)）、`applyOffsetChange()`（[L1198](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1198)） |
 | 偏移持久化 | **按 media id + 媒体位置分段**存 JSON map：`{"<mediaId>": [{"p":起始媒体位置,"o":偏移毫秒}, ...]}`。Δ 时用 `offsetAtMediaTime(pos)`，句/段跳转与单段循环用 `offsetAtCueTime(cueStart)`（锚点换算成 `p-o` 的 cue 时间再比较，因此可以跳过片头广告）；± 微调只改当前所在段（无锚点时在 0 处建一个），重置删除该 media 全部锚点。旧的单数值偏好按“0 处锚点”读入，切集/拖动/回退不再需要重新校准 | [TranscriptTimeOffsets.java](file:///D:/AntennaPod/storage/preferences/src/main/java/de/danoeh/antennapod/storage/preferences/TranscriptTimeOffsets.java)、[UserPreferences.java:966](file:///D:/AntennaPod/storage/preferences/src/main/java/de/danoeh/antennapod/storage/preferences/UserPreferences.java#L966)、[DBWriter.java:216](file:///D:/AntennaPod/storage/database/src/main/java/de/danoeh/antennapod/storage/database/DBWriter.java#L216)、[TranscriptPageFragment.java:1152](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1152) |
 | 单段循环 | 循环当前 `TranscriptSegment` 区间（按该句的 cue 时间取偏移），偏移变化后若区间无效自动停止 | [TranscriptPageFragment.java:1083](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1083) |
 
@@ -228,7 +228,7 @@ bash scripts/transcript-tests/scenarios/30_layout_panel.sh   # 单场景脚本�
 | smoke | `scenarios/00_smoke.sh` | 转录页打开、无崩溃、双语行、本地下载 |
 | highlight | `scenarios/10_highlight_follow.sh` | 一条 cue 一行（可见行数 ≤3）、首行双语、高亮截图 |
 | layout | `scenarios/30_layout_panel.sh` | Aa 面板四行齐全、默认 1×/24dp/标准、调节到 1.15×/32dp、重置、收起一级控制条后二级面板同步隐藏 |
-| offset | `scenarios/40_offset_loop.sh` | 重置为 0、+30 秒、对齐到本句（偏好里写成锚点数组、分段内 +30 只改当前段）、再重置并确认锚点已清空 |
+| offset | `scenarios/40_offset_loop.sh` | 重置为 0、+30 秒、对齐到本句（进入点选模式 → 点选句 → 偏好写成锚点数组 → 分段内 +30 只改当前段）、长按对齐第一句（只保留 0 处锚点）、再重置并确认锚点已清空 |
 | floating | `scenarios/50_floating_window.sh` | 悬浮窗菜单开关、服务状态、截图 |
 | search | `scenarios/60_search.sh` | 打开搜索条、输入 `the` 得到 `1/N`、下一条变 `2/N`、追加 `zzzz` 显示无匹配、关闭后输入框隐藏；截图人工确认黄色命中高亮 |
 | word | `scenarios/70_word_highlight.sh` | 需 `--vtt-file` 为词级 JSON（默认 `D:/TMLT/docs/timings/844.json`，MIME 自动为 `application/json`）：JSON 已解析并显示、可见文本含 844 关键词、日志有下载、无崩溃；用 MediaSession 断言播放位置持续前进；两张间隔截图人工确认当前词加粗、已读/未读词态。推荐用已下载的 844 音频（FeedMedia.id=8878），无本地音频时加 `--local-audio`（静音 MP3 驱动） |
@@ -292,6 +292,8 @@ bash scripts/transcript-tests/scenarios/30_layout_panel.sh   # 单场景脚本�
 2026-10-29 分段偏移 + 「对齐到本句」（代码基线 `4be375c42` + 未提交工作树；脚本同工作树）：单测 `./gradlew --console=plain :storage:preferences:test` **15/15**（新增：锚点从位置起生效、cue 时间查表可跳过片头广告、微调只改当前段、同位置替换保留更早起点、首句锚定覆盖整集开头、编辑夹紧不越过相邻段、重置清空、旧值迁移），`:app:test` 与 `./gradlew :app:assembleDebug` 通过。真机 Redmi 2407FRK8EC（`4LSGLZEYOFCQBIQC`）`bash scripts/transcript-tests/run.sh offset --media-id 1 --position 5000`：**20 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`。断言链：重置 0 → +30 显示 +30 → 「对齐到本句」胶囊 +5 且 `prefTranscriptTimeOffsets` 写成锚点数组 → 段内 +30 变 +35（只改当前段）→ 重置后锚点清空。截图 `offset_07.png` 确认标题栏「对齐到本句」+「重置」与胶囊排版正常。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261029-060434/`。
 本轮首跑失败过一次：测试运行期间编辑了 `run.sh`，bash 按字节偏移续读脚本，重复执行初始化并把 `BACKUP_OK` 重置，导致 teardown 跳过恢复、设备被留脏（媒体 1 的转录 URL 指向 `127.0.0.1:8765`）。已把该 URL 按 10-28 干净备份改回 `https://lzoreal.github.io/TMLT/transcripts/zh/899.vtt`，并核对 `integrity_check=ok`、测试 URL 0 条、偏好与备份逐字节一致；`adb reverse tcp:8765` 为运行前既有，未改动。见 §6 最后一行。
 
+2026-10-29 两步式点选对齐 + 长按整集对齐 + 实时播放位置（代码基线 `1da04a427` + 未提交工作树；脚本同工作树）：单测 `:storage:preferences:test` **16/16**（新增 `testStartOffsetReplacesEveryAnchor`），`./gradlew :app:assembleDebug` 通过。真机 Redmi 2407FRK8EC `run.sh offset --media-id 1 --position 5000`：**21 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`。断言链：重置 → +30 → 进点选模式 → 点“已显示的那句”被拦下（偏移不变、仍在点选模式）→ 段内 +30 只改当前段（+30 → +60）→ 长按按第一句对齐整集（胶囊 +70.1、只剩 0 处锚点）→ 重置清空。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261029-065626/`。此前设备上的 `{p:2959,o:1919},{p:17797,o:6037},{p:114307,o:-23}` 是旧单点版留下的实验锚点，长按一次即可覆盖。
+
 ### 5.3 语料基线（人工比对用）
 
 真实双语语料：`D:\MyTranscript\site\the-rest-is-history\transcripts\zh\`（远端镜像 `https://lzoreal.github.io/TMLT/transcripts/zh/`）。
@@ -310,7 +312,7 @@ bash scripts/transcript-tests/scenarios/30_layout_panel.sh   # 单场景脚本�
 - [ ] 点击句子从该句起点播到该句终点；单段循环可开关
 - [ ] 文内搜索：放大镜打开搜索条，输入主/译文本有命中背景高亮与 `N/M` 计数；上/下一条定位到命中行并暂停跟随；无匹配显示提示；关闭清除高亮
 - [ ] 偏移粗调/细调/重置，切集后再切回仍保留；删除单集后偏移消失
-- [ ] 分段偏移：片头广告后用「对齐到本句」校准，中间广告后再次校准，往回拖动到广告前段落时高亮仍正确；改完只影响当前段，重置一次清空
+- [ ] 分段偏移：片头广告（如 0–100s）在真实内容处**长按**「对齐到本句」，第一句立即对上且不跳播；中间广告后点「对齐到本句」→ 点正在播放的那一句，往回拖动到广告前段落时高亮仍正确；点错（点到已显示的那句）有提示且不改数据；段内 ± 只改当前段，重置一次清空
 - [ ] 手动滚动暂停跟随，且高亮句仍在屏幕内也不自动跳回；“回到当前句”恢复；跟随滚动把当前句（主/译成对）放在视口 45% 阅读线；**首尾暂不保证居中**（MVP，边界只滚到可滚范围）
 - [ ] 收起一级控制条或进入沉浸时，偏移/排版二级面板一并收起
 - [ ] 换句高亮在句边界约 250ms 内切换，无整行淡入淡出；相邻句与换段滚动为 320–520ms 单向三次缓出（距离越远时长越长），远跳/离屏跨段瞬时到位；系统关闭动画时直接跳位
@@ -355,6 +357,7 @@ bash scripts/transcript-tests/scenarios/30_layout_panel.sh   # 单场景脚本�
 - 搜索输入在 200ms 防抖后于主线程扫描全部 segment 的显示文本；超长转录（数千段）未做后台索引，首次搜索可能有短暂卡顿。
 - 搜索状态不持久化：切集、转录重载、页面重建（旋转）后清空。
 - SRT：首行冒号前的文字只有全文件重复出现（或为唯一候选标签）时才当发言人；一次性的散文标签（如 `Note: ...`）会保留在正文里。
+- 「点选对齐」的**成功改偏移**路径没有设备自动断言：`1._Greatness.vtt` 每个 cue 占满整屏，`adb input swipe` 会被列表跟随和文本选区吃掉，滚不到另一句；写锚点与刷新高亮与长按共用 `setTranscriptTimeOffset`/`applyOffsetChange`，由长按断言覆盖，选句本身靠人工验收。
 - 偏移锚点按**媒体位置**保存。同一集重新下载后（DAI 重新拼广告、时长变化）锚点全部失效；目前没有文件指纹校验，需手动“重置”后重新对齐。
 - “对齐到本句”把当前句的起点对齐到按下时的播放位置，误差最多一句；应在句子开始处按，再用 ±0.5s 微调。片头广告段（第一个锚点之前）没有文字，按 0 偏移处理。
 - 悬浮窗/页面在 fragment 停止期间发生外部 seek 时，要等下一个 `PlaybackPositionEvent` 才刷新。

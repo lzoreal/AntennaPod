@@ -112,6 +112,18 @@ public class UserPreferencesTest {
     }
 
     @Test
+    public void testStartOffsetReplacesEveryAnchor() {
+        UserPreferences.setTranscriptTimeOffset(1, 200_000, 90_000);
+        UserPreferences.setTranscriptTimeOffset(1, 1_000_000, 60_000);
+
+        UserPreferences.setTranscriptStartOffset(1, 100_000);
+
+        assertEquals(100_000, UserPreferences.getTranscriptTimeOffset(1, 0));
+        assertEquals(100_000, UserPreferences.getTranscriptTimeOffset(1, 1_500_000));
+        assertEquals(100_000, UserPreferences.getTranscriptTimeOffsetAtCueTime(1, 10_000));
+    }
+
+    @Test
     public void testTranscriptOffsetAnchorIsReplacedAtSamePosition() {
         UserPreferences.setTranscriptTimeOffset(1, 300_000, 80_000);
         UserPreferences.setTranscriptTimeOffset(1, 300_400, 100_000);
