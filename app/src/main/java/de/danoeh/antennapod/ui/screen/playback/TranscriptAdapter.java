@@ -219,8 +219,9 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         searchQuery = "";
         searchHits.clear();
         currentSearchHit = -1;
-        long offset = UserPreferences.getTranscriptTimeOffset(((FeedMedia) media).getId());
-        lastHighlightPositionMs = Math.max(0, ((FeedMedia) media).getPosition() - offset);
+        long position = Math.max(0, ((FeedMedia) media).getPosition());
+        long offset = UserPreferences.getTranscriptTimeOffset(((FeedMedia) media).getId(), position);
+        lastHighlightPositionMs = Math.max(0, position - offset);
         notifyDataSetChanged();
     }
 
@@ -934,7 +935,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         if (positionMs < 0 || media == null || media.getTranscript() == null) {
             return;
         }
-        long position = positionMs - UserPreferences.getTranscriptTimeOffset(media.getId());
+        long position = positionMs - UserPreferences.getTranscriptTimeOffset(media.getId(), positionMs);
         int index = media.getTranscript().findSegmentIndexBefore(position);
         if (index < 0 || index >= media.getTranscript().getSegmentCount()) {
             return;

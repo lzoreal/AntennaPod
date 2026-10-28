@@ -232,6 +232,19 @@
                 android:textStyle="bold" />
 
             <TextView
+                android:id="@+id/btnOffsetSync"
+                android:layout_width="wrap_content"
+                android:layout_height="38dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:minWidth="48dp"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:text="@string/transcript_offset_sync_current"
+                android:textColor="?attr/colorPrimary"
+                android:textSize="13sp" />
+
+            <TextView
                 android:id="@+id/btnOffsetReset"
                 android:layout_width="wrap_content"
                 android:layout_height="38dp"

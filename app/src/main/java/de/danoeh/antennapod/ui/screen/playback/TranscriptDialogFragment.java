@@ -106,7 +106,8 @@ public class TranscriptDialogFragment extends DialogFragment
     public void onTranscriptClicked(int pos, TranscriptSegment segment,
                                     long sentenceStartTime, long sentenceEndTime) {
         long offset = media instanceof FeedMedia
-                ? UserPreferences.getTranscriptTimeOffset(((FeedMedia) media).getId()) : 0;
+                ? UserPreferences.getTranscriptTimeOffsetAtCueTime(
+                        ((FeedMedia) media).getId(), sentenceStartTime) : 0;
         long startTime = sentenceStartTime + offset;
         long endTime = sentenceEndTime + offset;
 
@@ -165,7 +166,8 @@ public class TranscriptDialogFragment extends DialogFragment
             return;
         }
         long offset = media instanceof FeedMedia
-                ? UserPreferences.getTranscriptTimeOffset(((FeedMedia) media).getId()) : 0;
+                ? UserPreferences.getTranscriptTimeOffset(
+                        ((FeedMedia) media).getId(), event.getPosition()) : 0;
         int pos = transcript.findSegmentIndexBefore(event.getPosition() - offset);
         scrollToPosition(pos);
     }
@@ -230,8 +232,10 @@ public class TranscriptDialogFragment extends DialogFragment
         viewBinding.progLoading.setVisibility(View.GONE);
         adapter.setMedia(media);
 
-        long offset = UserPreferences.getTranscriptTimeOffset(((FeedMedia) media).getId());
-        long position = Math.max(0, ((FeedMedia) media).getPosition() - offset);
+        long mediaPosition = Math.max(0, ((FeedMedia) media).getPosition());
+        long offset = UserPreferences.getTranscriptTimeOffset(
+                ((FeedMedia) media).getId(), mediaPosition);
+        long position = Math.max(0, mediaPosition - offset);
         int initialPosition = loadedTranscript.findSegmentIndexBefore(position);
         long initialMediaId = ((FeedMedia) media).getId();
         adapter.setHighlightPosition(initialPosition);

@@ -203,6 +203,9 @@
     <string name="transcript_offset_title">字幕偏移</string>
     <string name="transcript_offset_reset_description">重置声音文字偏移</string>
     <string name="transcript_offset_message">声音文字偏移：%1$s</string>
+    <string name="transcript_offset_sync_current">对齐到本句</string>
+    <string name="transcript_offset_sync_current_description">以正在播放的这一句为起点重新对齐文字</string>
+    <string name="transcript_offset_sync_message">已从本句对齐：%1$s</string>
     <string name="transcript_offset_toggle_description">声音文字偏移控制</string>
     <string name="transcript_line_break_toggle">¶</string>
     <string name="transcript_line_break_description">将句子分行显示</string>

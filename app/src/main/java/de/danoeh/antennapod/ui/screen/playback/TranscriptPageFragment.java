@@ -39,6 +39,7 @@ import de.danoeh.antennapod.event.PlayerStatusEvent;
 import de.danoeh.antennapod.event.playback.PlaybackPositionEvent;
 import de.danoeh.antennapod.model.feed.FeedItem;
 import de.danoeh.antennapod.model.feed.FeedMedia;
+import de.danoeh.antennapod.model.feed.Transcript;
 import de.danoeh.antennapod.model.feed.TranscriptSegment;
 import de.danoeh.antennapod.model.playback.Playable;
 import de.danoeh.antennapod.playback.service.PlaybackController;
@@ -93,6 +94,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         return true;
     };
     private long lastPositionMs = 0;
+    private long lastOffsetLabelMs = Long.MIN_VALUE;
     private boolean controlsBarVisibleBeforeImmersive = false;
     private boolean immersiveMode = false;
     private int immersiveTopInset = 0;
@@ -369,7 +371,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             viewBinding.emptyView.setVisibility(View.GONE);
             viewBinding.recyclerView.setVisibility(View.VISIBLE);
             if (!userScrolling) {
-                long offset = UserPreferences.getTranscriptTimeOffset(currentMedia.getId());
+                long offset = UserPreferences.getTranscriptTimeOffset(
+                        currentMedia.getId(), lastPositionMs);
                 int pos = currentMedia.getTranscript().findSegmentIndexBefore(lastPositionMs - offset);
                 adapter.setHighlightPosition(pos, lastPositionMs - offset);
                 scrollToPosition(pos);
@@ -463,7 +466,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         segmentLooping = false;
         loopSegmentIndex = -1;
         lastPositionMs = Math.max(0, currentMedia.getPosition());
-        long offset = UserPreferences.getTranscriptTimeOffset(currentMedia.getId());
+        long offset = UserPreferences.getTranscriptTimeOffset(currentMedia.getId(), lastPositionMs);
         int initialPosition = currentMedia.getTranscript().findSegmentIndexBefore(lastPositionMs - offset);
         adapter.setHighlightPosition(initialPosition);
         scrollToPosition(initialPosition);
@@ -550,10 +553,12 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
 
         int pos = currentMedia.getTranscript().findSegmentIndexBefore(
-                lastPositionMs - UserPreferences.getTranscriptTimeOffset(currentMedia.getId()));
+                lastPositionMs - UserPreferences.getTranscriptTimeOffset(
+                        currentMedia.getId(), lastPositionMs));
         if (pos < 0) {
             return;
         }
+        refreshOffsetLabelIfVisible();
 
         if (userScrolling) {
             return;
@@ -779,7 +784,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     public void onTranscriptClicked(int position, TranscriptSegment segment,
                                     long sentenceStartTime, long sentenceEndTime) {
         long mediaId = currentMedia == null ? 0 : currentMedia.getId();
-        long offset = UserPreferences.getTranscriptTimeOffset(mediaId);
+        long offset = UserPreferences.getTranscriptTimeOffsetAtCueTime(mediaId, sentenceStartTime);
         long startTime = sentenceStartTime + offset;
         long endTime = sentenceEndTime + offset;
 
@@ -1127,12 +1132,13 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (currentMedia == null || currentMedia.getTranscript() == null) {
             return;
         }
-        long offset = UserPreferences.getTranscriptTimeOffset(currentMedia.getId());
         if (loopSegmentIndex < 0 || loopSegmentIndex >= currentMedia.getTranscript().getSegmentCount()) {
             stopSegmentLoop();
             return;
         }
         TranscriptSegment segment = currentMedia.getTranscript().getSegmentAt(loopSegmentIndex);
+        long offset = UserPreferences.getTranscriptTimeOffsetAtCueTime(
+                currentMedia.getId(), segment.getStartTime());
         long startTime = Math.max(0, segment.getStartTime() + offset);
         long endTime = segment.getEndTime() + offset;
         if (endTime <= startTime) {
@@ -1149,22 +1155,49 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (currentMedia == null) {
             return;
         }
-        applyTimeOffset(UserPreferences.getTranscriptTimeOffset(currentMedia.getId()) + deltaMs);
+        long offsetMs = clampTimeOffset(UserPreferences.getTranscriptTimeOffset(
+                currentMedia.getId(), lastPositionMs) + deltaMs);
+        UserPreferences.updateTranscriptTimeOffset(currentMedia.getId(), lastPositionMs, offsetMs);
+        applyOffsetChange(offsetMs, R.string.transcript_offset_message);
     }
 
     private void resetTimeOffset() {
         if (currentMedia == null) {
             return;
         }
-        applyTimeOffset(0);
+        UserPreferences.removeTranscriptTimeOffset(currentMedia.getId());
+        applyOffsetChange(0, R.string.transcript_offset_message);
     }
 
-    private void applyTimeOffset(long offsetMs) {
+    /**
+     * Anchors the offset at the line that is playing now, so content after an inserted ad is
+     * re-aligned without touching the offsets of earlier segments.
+     */
+    private void syncOffsetToCurrentSentence() {
+        if (currentMedia == null || currentMedia.getTranscript() == null
+                || currentMedia.getTranscript().getSegmentCount() == 0) {
+            return;
+        }
+        Transcript transcript = currentMedia.getTranscript();
+        long offsetMs = UserPreferences.getTranscriptTimeOffset(
+                currentMedia.getId(), lastPositionMs);
+        int index = transcript.findSegmentIndexBefore(lastPositionMs - offsetMs);
+        long newOffsetMs = clampTimeOffset(
+                lastPositionMs - transcript.getSegmentAt(index).getStartTime());
+        UserPreferences.setTranscriptTimeOffset(
+                currentMedia.getId(), lastPositionMs, newOffsetMs);
+        applyOffsetChange(newOffsetMs, R.string.transcript_offset_sync_message);
+    }
+
+    private long clampTimeOffset(long offsetMs) {
         int duration = currentMedia.getDuration();
         if (duration > 0) {
             offsetMs = Math.max(-duration, Math.min(duration, offsetMs));
         }
-        UserPreferences.setTranscriptTimeOffset(currentMedia.getId(), offsetMs);
+        return offsetMs;
+    }
+
+    private void applyOffsetChange(long offsetMs, int messageRes) {
         if (adapter != null && currentMedia.getTranscript() != null
                 && currentMedia.getTranscript().getSegmentCount() > 0) {
             int pos = currentMedia.getTranscript().findSegmentIndexBefore(lastPositionMs - offsetMs);
@@ -1177,8 +1210,20 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         updateOffsetLabel();
         if (getContext() != null) {
             Toast.makeText(getContext(),
-                    getString(R.string.transcript_offset_message, formatTimeOffset(offsetMs)),
+                    getString(messageRes, formatTimeOffset(offsetMs)),
                     Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** The panel shows the offset of the segment playing now, which changes at every anchor. */
+    private void refreshOffsetLabelIfVisible() {
+        if (viewBinding == null || viewBinding.offsetControls.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        long offsetMs = UserPreferences.getTranscriptTimeOffset(
+                currentMedia.getId(), lastPositionMs);
+        if (offsetMs != lastOffsetLabelMs) {
+            updateOffsetLabel();
         }
     }
 
@@ -1187,15 +1232,20 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         long offsetMs = currentMedia == null
-                ? 0 : UserPreferences.getTranscriptTimeOffset(currentMedia.getId());
+                ? 0 : UserPreferences.getTranscriptTimeOffset(currentMedia.getId(), lastPositionMs);
+        lastOffsetLabelMs = offsetMs;
         viewBinding.txtOffsetValue.setText(getString(R.string.transcript_offset_label, formatTimeOffset(offsetMs)));
         viewBinding.txtOffsetValue.setContentDescription(getString(R.string.transcript_offset_reset_description));
-        boolean hasOffset = offsetMs != 0;
+        boolean hasOffset = currentMedia != null
+                && UserPreferences.hasTranscriptTimeOffset(currentMedia.getId());
         viewBinding.btnOffsetReset.setEnabled(hasOffset);
         viewBinding.btnOffsetReset.setAlpha(hasOffset ? 1.0f : 0.5f);
     }
 
     private void setupOffsetButtons() {
+        viewBinding.btnOffsetSync.setContentDescription(
+                getString(R.string.transcript_offset_sync_current_description));
+        viewBinding.btnOffsetSync.setOnClickListener(v -> syncOffsetToCurrentSentence());
         bindFineOffsetButton(viewBinding.btnOffsetBack05, -500);
         bindFineOffsetButton(viewBinding.btnOffsetForward05, 500);
         bindOffsetButton(viewBinding.btnOffsetBack30, -30000);

@@ -965,30 +965,92 @@ public abstract class UserPreferences {
 
     private static long cachedTranscriptOffsetMediaId = Long.MIN_VALUE;
     private static String cachedTranscriptOffsetJson;
-    private static long cachedTranscriptOffsetValue;
+    private static TranscriptTimeOffsets cachedTranscriptOffsets = new TranscriptTimeOffsets();
 
-    public static synchronized long getTranscriptTimeOffset(long mediaId) {
+    public static synchronized long getTranscriptTimeOffset(long mediaId, long mediaPositionMs) {
+        return getStoredTranscriptTimeOffsets(mediaId).offsetAtMediaTime(mediaPositionMs);
+    }
+
+    public static synchronized long getTranscriptTimeOffsetAtCueTime(long mediaId, long cueTimeMs) {
+        return getStoredTranscriptTimeOffsets(mediaId).offsetAtCueTime(cueTimeMs);
+    }
+
+    public static synchronized boolean hasTranscriptTimeOffset(long mediaId) {
+        return !getStoredTranscriptTimeOffsets(mediaId).isEmpty();
+    }
+
+    /** Starts a new offset segment at {@code mediaPositionMs}, e.g. right after an inserted ad. */
+    public static synchronized void setTranscriptTimeOffset(
+            long mediaId, long mediaPositionMs, long offsetMs) {
+        TranscriptTimeOffsets offsets = readTranscriptTimeOffsets(mediaId);
+        offsets.setAnchor(mediaPositionMs, offsetMs);
+        storeTranscriptTimeOffsets(mediaId, offsets);
+    }
+
+    /** Changes only the segment playing at {@code mediaPositionMs}. */
+    public static synchronized void updateTranscriptTimeOffset(
+            long mediaId, long mediaPositionMs, long offsetMs) {
+        TranscriptTimeOffsets offsets = readTranscriptTimeOffsets(mediaId);
+        offsets.setOffsetForSegment(mediaPositionMs, offsetMs);
+        storeTranscriptTimeOffsets(mediaId, offsets);
+    }
+
+    private static TranscriptTimeOffsets getStoredTranscriptTimeOffsets(long mediaId) {
         String json = prefs.getString(PREF_TRANSCRIPT_TIME_OFFSETS, null);
         if (mediaId == cachedTranscriptOffsetMediaId
                 && Objects.equals(json, cachedTranscriptOffsetJson)) {
-            return cachedTranscriptOffsetValue;
+            return cachedTranscriptOffsets;
         }
-        long offset = getTranscriptTimeOffsets().optLong(String.valueOf(mediaId), 0);
+        TranscriptTimeOffsets offsets = readTranscriptTimeOffsets(mediaId);
         cachedTranscriptOffsetMediaId = mediaId;
         cachedTranscriptOffsetJson = prefs.getString(PREF_TRANSCRIPT_TIME_OFFSETS, null);
-        cachedTranscriptOffsetValue = offset;
-        return offset;
+        cachedTranscriptOffsets = offsets;
+        return offsets;
     }
 
-    public static synchronized void setTranscriptTimeOffset(long mediaId, long offsetMs) {
-        JSONObject offsets = getTranscriptTimeOffsets();
+    private static TranscriptTimeOffsets readTranscriptTimeOffsets(long mediaId) {
+        Object stored = getTranscriptTimeOffsets().opt(String.valueOf(mediaId));
+        TranscriptTimeOffsets offsets = new TranscriptTimeOffsets();
+        if (stored instanceof JSONArray) {
+            JSONArray anchors = (JSONArray) stored;
+            for (int i = 0; i < anchors.length(); i++) {
+                JSONObject anchor = anchors.optJSONObject(i);
+                if (anchor != null) {
+                    offsets.setAnchor(anchor.optLong("p", 0), anchor.optLong("o", 0));
+                }
+            }
+        } else if (stored instanceof Number) {
+            // Single offset per episode, written before offset anchors existed.
+            offsets.setAnchor(0, ((Number) stored).longValue());
+        }
+        return offsets;
+    }
+
+    private static void storeTranscriptTimeOffsets(long mediaId, TranscriptTimeOffsets offsets) {
+        if (offsets.isEmpty()) {
+            removeTranscriptTimeOffset(mediaId);
+            return;
+        }
+        JSONArray anchors = new JSONArray();
+        for (TranscriptTimeOffsets.Anchor anchor : offsets.getAnchors()) {
+            JSONObject jsonAnchor = new JSONObject();
+            try {
+                jsonAnchor.put("p", anchor.mediaPositionMs);
+                jsonAnchor.put("o", anchor.offsetMs);
+            } catch (JSONException e) {
+                Log.e(TAG, "Unable to store transcript offset", e);
+                return;
+            }
+            anchors.put(jsonAnchor);
+        }
+        JSONObject all = getTranscriptTimeOffsets();
         try {
-            offsets.put(String.valueOf(mediaId), offsetMs);
+            all.put(String.valueOf(mediaId), anchors);
         } catch (JSONException e) {
             Log.e(TAG, "Unable to store transcript offset", e);
             return;
         }
-        prefs.edit().putString(PREF_TRANSCRIPT_TIME_OFFSETS, offsets.toString()).apply();
+        prefs.edit().putString(PREF_TRANSCRIPT_TIME_OFFSETS, all.toString()).apply();
     }
 
     public static synchronized void removeTranscriptTimeOffset(long mediaId) {

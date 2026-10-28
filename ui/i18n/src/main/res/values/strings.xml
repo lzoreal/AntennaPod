@@ -315,6 +315,9 @@
     <string name="transcript_offset_title">Transcript offset</string>
     <string name="transcript_offset_reset_description">Reset transcript offset</string>
     <string name="transcript_offset_message">Transcript offset: %1$s</string>
+    <string name="transcript_offset_sync_current">Align to this line</string>
+    <string name="transcript_offset_sync_current_description">Re-align the transcript from the line that is playing</string>
+    <string name="transcript_offset_sync_message">Aligned from this line: %1$s</string>
     <string name="transcript_offset_toggle_description">Transcript offset controls</string>
     <string name="transcript_line_break_toggle">¶</string>
     <string name="transcript_line_break_description">Split sentences into separate lines</string>

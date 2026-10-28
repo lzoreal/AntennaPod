@@ -450,7 +450,7 @@ public class TranscriptFloatingWindowService extends Service {
             return;
         }
 
-        long offset = UserPreferences.getTranscriptTimeOffset(currentMediaId);
+        long offset = UserPreferences.getTranscriptTimeOffset(currentMediaId, lastPlaybackPosition);
         long position = lastPlaybackPosition - offset;
         long firstStart = transcript.getSegmentAt(0).getStartTime();
         long lastEnd = transcript.getSegmentAt(transcript.getSegmentCount() - 1).getEndTime();
