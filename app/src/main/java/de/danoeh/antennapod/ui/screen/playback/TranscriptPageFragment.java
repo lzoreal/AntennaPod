@@ -93,11 +93,14 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         return true;
     };
     private long lastPositionMs = 0;
+    private long lastOffsetLabelMs = Long.MIN_VALUE;
+    private boolean syncPickMode = false;
     private boolean controlsBarVisibleBeforeImmersive = false;
     private boolean immersiveMode = false;
     private int immersiveTopInset = 0;
     private static final float FOLLOW_MAX_STEP_DP = 10f;
     private static final long HIGHLIGHT_UPDATE_INTERVAL_MS = 250;
+    private static final long SAME_OFFSET_TOLERANCE_MS = 1000;
     private static final long WORD_HIGHLIGHT_UPDATE_INTERVAL_MS = 100;
     private static final long SEARCH_DEBOUNCE_MS = 200;
     private static final int SEARCH_SCROLL_MAX_ATTEMPTS = 20;
@@ -369,7 +372,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             viewBinding.emptyView.setVisibility(View.GONE);
             viewBinding.recyclerView.setVisibility(View.VISIBLE);
             if (!userScrolling) {
-                long offset = UserPreferences.getTranscriptTimeOffset(currentMedia.getId());
+                long offset = UserPreferences.getTranscriptTimeOffset(
+                        currentMedia.getId(), lastPositionMs);
                 int pos = currentMedia.getTranscript().findSegmentIndexBefore(lastPositionMs - offset);
                 adapter.setHighlightPosition(pos, lastPositionMs - offset);
                 scrollToPosition(pos);
@@ -458,12 +462,13 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         viewBinding.recyclerView.setVisibility(View.VISIBLE);
 
         adapter.setMedia(currentMedia);
+        setSyncPickMode(false);
         userScrolling = false;
         lastScrolledPosition = -1;
         segmentLooping = false;
         loopSegmentIndex = -1;
         lastPositionMs = Math.max(0, currentMedia.getPosition());
-        long offset = UserPreferences.getTranscriptTimeOffset(currentMedia.getId());
+        long offset = UserPreferences.getTranscriptTimeOffset(currentMedia.getId(), lastPositionMs);
         int initialPosition = currentMedia.getTranscript().findSegmentIndexBefore(lastPositionMs - offset);
         adapter.setHighlightPosition(initialPosition);
         scrollToPosition(initialPosition);
@@ -550,10 +555,12 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
 
         int pos = currentMedia.getTranscript().findSegmentIndexBefore(
-                lastPositionMs - UserPreferences.getTranscriptTimeOffset(currentMedia.getId()));
+                lastPositionMs - UserPreferences.getTranscriptTimeOffset(
+                        currentMedia.getId(), lastPositionMs));
         if (pos < 0) {
             return;
         }
+        refreshOffsetLabelIfVisible();
 
         if (userScrolling) {
             return;
@@ -778,8 +785,12 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     @Override
     public void onTranscriptClicked(int position, TranscriptSegment segment,
                                     long sentenceStartTime, long sentenceEndTime) {
+        if (syncPickMode) {
+            syncOffsetToPickedSentence(position, sentenceStartTime, sentenceEndTime);
+            return;
+        }
         long mediaId = currentMedia == null ? 0 : currentMedia.getId();
-        long offset = UserPreferences.getTranscriptTimeOffset(mediaId);
+        long offset = UserPreferences.getTranscriptTimeOffsetAtCueTime(mediaId, sentenceStartTime);
         long startTime = sentenceStartTime + offset;
         long endTime = sentenceEndTime + offset;
 
@@ -1127,12 +1138,13 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (currentMedia == null || currentMedia.getTranscript() == null) {
             return;
         }
-        long offset = UserPreferences.getTranscriptTimeOffset(currentMedia.getId());
         if (loopSegmentIndex < 0 || loopSegmentIndex >= currentMedia.getTranscript().getSegmentCount()) {
             stopSegmentLoop();
             return;
         }
         TranscriptSegment segment = currentMedia.getTranscript().getSegmentAt(loopSegmentIndex);
+        long offset = UserPreferences.getTranscriptTimeOffsetAtCueTime(
+                currentMedia.getId(), segment.getStartTime());
         long startTime = Math.max(0, segment.getStartTime() + offset);
         long endTime = segment.getEndTime() + offset;
         if (endTime <= startTime) {
@@ -1149,22 +1161,110 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (currentMedia == null) {
             return;
         }
-        applyTimeOffset(UserPreferences.getTranscriptTimeOffset(currentMedia.getId()) + deltaMs);
+        long offsetMs = clampTimeOffset(UserPreferences.getTranscriptTimeOffset(
+                currentMedia.getId(), lastPositionMs) + deltaMs);
+        UserPreferences.updateTranscriptTimeOffset(currentMedia.getId(), lastPositionMs, offsetMs);
+        applyOffsetChange(offsetMs, R.string.transcript_offset_message);
     }
 
     private void resetTimeOffset() {
         if (currentMedia == null) {
             return;
         }
-        applyTimeOffset(0);
+        UserPreferences.removeTranscriptTimeOffset(currentMedia.getId());
+        applyOffsetChange(0, R.string.transcript_offset_message);
     }
 
-    private void applyTimeOffset(long offsetMs) {
+    /**
+     * The highlighted line comes from the current offset, so after a large shift (an ad at the
+     * start) it is not the line being heard. The user has to point at that line instead.
+     */
+    private void toggleSyncPickMode() {
+        if (syncPickMode) {
+            setSyncPickMode(false);
+            return;
+        }
+        if (currentMedia == null || currentMedia.getTranscript() == null
+                || currentMedia.getTranscript().getSegmentCount() == 0) {
+            return;
+        }
+        setSyncPickMode(true);
+        if (getContext() != null) {
+            Toast.makeText(getContext(), R.string.transcript_offset_sync_pick_hint,
+                    Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void setSyncPickMode(boolean picking) {
+        syncPickMode = picking;
+        if (viewBinding == null) {
+            return;
+        }
+        viewBinding.btnOffsetSync.setText(picking
+                ? R.string.transcript_offset_sync_picking : R.string.transcript_offset_sync_current);
+        viewBinding.btnOffsetSync.setContentDescription(getString(picking
+                ? R.string.transcript_offset_sync_picking_description
+                : R.string.transcript_offset_sync_current_description));
+    }
+
+    private void syncOffsetToPickedSentence(int tappedIndex, long sentenceStartTime,
+                                            long sentenceEndTime) {
+        long mediaId = currentMedia == null ? 0 : currentMedia.getId();
+        long position = currentPlaybackPosition();
+        long currentOffset = UserPreferences.getTranscriptTimeOffset(mediaId, position);
+        long shownCueTime = position - currentOffset;
+        long offsetMs = clampTimeOffset(position - sentenceStartTime);
+        // Picking the line that is already highlighted cannot fix a large shift: either it is the
+        // sentence shown right now, or it maps to (almost) the offset that is already in use.
+        boolean alreadyShown = tappedIndex
+                == currentMedia.getTranscript().findSegmentIndexBefore(shownCueTime)
+                && sentenceStartTime <= shownCueTime && shownCueTime < sentenceEndTime;
+        if (alreadyShown || Math.abs(offsetMs - currentOffset) < SAME_OFFSET_TOLERANCE_MS) {
+            Toast.makeText(getContext(), R.string.transcript_offset_sync_already_aligned,
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        lastPositionMs = position;
+        setSyncPickMode(false);
+        UserPreferences.setTranscriptTimeOffset(mediaId, position, offsetMs);
+        applyOffsetChange(offsetMs, R.string.transcript_offset_sync_message);
+    }
+
+    /** Long press on the sync button: the first sentence of the transcript starts right now. */
+    private void alignFirstSentenceToNow() {
+        if (currentMedia == null || currentMedia.getTranscript() == null
+                || currentMedia.getTranscript().getSegmentCount() == 0) {
+            return;
+        }
+        long position = currentPlaybackPosition();
+        long offsetMs = clampTimeOffset(
+                position - currentMedia.getTranscript().getSegmentAt(0).getStartTime());
+        lastPositionMs = position;
+        setSyncPickMode(false);
+        UserPreferences.setTranscriptStartOffset(currentMedia.getId(), offsetMs);
+        applyOffsetChange(offsetMs, R.string.transcript_offset_sync_first_message);
+    }
+
+    private long currentPlaybackPosition() {
+        MediaController controller = mediaController;
+        if (controller != null && controller.isConnected()) {
+            long position = controller.getCurrentPosition();
+            if (position >= 0) {
+                return position;
+            }
+        }
+        return lastPositionMs;
+    }
+
+    private long clampTimeOffset(long offsetMs) {
         int duration = currentMedia.getDuration();
         if (duration > 0) {
             offsetMs = Math.max(-duration, Math.min(duration, offsetMs));
         }
-        UserPreferences.setTranscriptTimeOffset(currentMedia.getId(), offsetMs);
+        return offsetMs;
+    }
+
+    private void applyOffsetChange(long offsetMs, int messageRes) {
         if (adapter != null && currentMedia.getTranscript() != null
                 && currentMedia.getTranscript().getSegmentCount() > 0) {
             int pos = currentMedia.getTranscript().findSegmentIndexBefore(lastPositionMs - offsetMs);
@@ -1177,8 +1277,20 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         updateOffsetLabel();
         if (getContext() != null) {
             Toast.makeText(getContext(),
-                    getString(R.string.transcript_offset_message, formatTimeOffset(offsetMs)),
+                    getString(messageRes, formatTimeOffset(offsetMs)),
                     Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** The panel shows the offset of the segment playing now, which changes at every anchor. */
+    private void refreshOffsetLabelIfVisible() {
+        if (viewBinding == null || viewBinding.offsetControls.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        long offsetMs = UserPreferences.getTranscriptTimeOffset(
+                currentMedia.getId(), lastPositionMs);
+        if (offsetMs != lastOffsetLabelMs) {
+            updateOffsetLabel();
         }
     }
 
@@ -1187,15 +1299,24 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         long offsetMs = currentMedia == null
-                ? 0 : UserPreferences.getTranscriptTimeOffset(currentMedia.getId());
+                ? 0 : UserPreferences.getTranscriptTimeOffset(currentMedia.getId(), lastPositionMs);
+        lastOffsetLabelMs = offsetMs;
         viewBinding.txtOffsetValue.setText(getString(R.string.transcript_offset_label, formatTimeOffset(offsetMs)));
         viewBinding.txtOffsetValue.setContentDescription(getString(R.string.transcript_offset_reset_description));
-        boolean hasOffset = offsetMs != 0;
+        boolean hasOffset = currentMedia != null
+                && UserPreferences.hasTranscriptTimeOffset(currentMedia.getId());
         viewBinding.btnOffsetReset.setEnabled(hasOffset);
         viewBinding.btnOffsetReset.setAlpha(hasOffset ? 1.0f : 0.5f);
     }
 
     private void setupOffsetButtons() {
+        viewBinding.btnOffsetSync.setContentDescription(
+                getString(R.string.transcript_offset_sync_current_description));
+        viewBinding.btnOffsetSync.setOnClickListener(v -> toggleSyncPickMode());
+        viewBinding.btnOffsetSync.setOnLongClickListener(v -> {
+            alignFirstSentenceToNow();
+            return true;
+        });
         bindFineOffsetButton(viewBinding.btnOffsetBack05, -500);
         bindFineOffsetButton(viewBinding.btnOffsetForward05, 500);
         bindOffsetButton(viewBinding.btnOffsetBack30, -30000);
@@ -1422,6 +1543,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     }
 
     private void hideControlPanels() {
+        setSyncPickMode(false);
         viewBinding.offsetControls.setVisibility(View.GONE);
         viewBinding.layoutControls.setVisibility(View.GONE);
         updateOffsetToggle();
