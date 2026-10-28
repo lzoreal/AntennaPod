@@ -98,6 +98,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private int immersiveTopInset = 0;
     private static final float FOLLOW_MAX_STEP_DP = 10f;
     private static final long HIGHLIGHT_UPDATE_INTERVAL_MS = 250;
+    private static final long WORD_HIGHLIGHT_UPDATE_INTERVAL_MS = 100;
     private static final long SEARCH_DEBOUNCE_MS = 200;
     private static final int SEARCH_SCROLL_MAX_ATTEMPTS = 20;
     private static final int FONT_SIZE_MIN_STEP = UserPreferences.TRANSCRIPT_FONT_SIZE_MIN_STEP;
@@ -151,9 +152,15 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                     handlePlaybackPosition(position);
                 }
             }
-            highlightHandler.postDelayed(this, HIGHLIGHT_UPDATE_INTERVAL_MS);
+            highlightHandler.postDelayed(this, highlightUpdateInterval());
         }
     };
+
+    private long highlightUpdateInterval() {
+        return currentMedia != null && currentMedia.getTranscript() != null
+                && currentMedia.getTranscript().hasWordTimings()
+                ? WORD_HIGHLIGHT_UPDATE_INTERVAL_MS : HIGHLIGHT_UPDATE_INTERVAL_MS;
+    }
 
     @Nullable
     @Override

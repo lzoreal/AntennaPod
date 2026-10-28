@@ -15,6 +15,7 @@ TT_USAGE_ENTRY="scripts/transcript-tests/run.sh"
 source "$SCRIPT_DIR/lib.sh"
 
 ORDER=(smoke highlight layout offset floating search)
+SCENARIOS=(smoke highlight layout offset floating search word)
 
 declare -A SCENARIO_FILE=(
   [smoke]=00_smoke.sh
@@ -23,6 +24,7 @@ declare -A SCENARIO_FILE=(
   [offset]=40_offset_loop.sh
   [floating]=50_floating_window.sh
   [search]=60_search.sh
+  [word]=70_word_highlight.sh
 )
 declare -A SCENARIO_FN=(
   [smoke]=tt_scenario_smoke
@@ -31,6 +33,7 @@ declare -A SCENARIO_FN=(
   [offset]=tt_scenario_offset
   [floating]=tt_scenario_floating
   [search]=tt_scenario_search
+  [word]=tt_scenario_word_highlight
 )
 declare -A SCENARIO_DESC=(
   [smoke]="转录页打开、无崩溃、双语行、本地下载"
@@ -39,11 +42,12 @@ declare -A SCENARIO_DESC=(
   [offset]="偏移控制条：重置、+30 秒"
   [floating]="悬浮窗开关与服务状态"
   [search]="转录内搜索：命中计数、上下条、无匹配、关闭"
+  [word]="词级高亮：JSON 词时间轴；默认 D:/TMLT 844.json；建议加 --local-audio"
 )
 
 list_scenarios() {
   local s
-  for s in "${ORDER[@]}"; do
+  for s in "${SCENARIOS[@]}"; do
     printf '  %-10s %s\n' "$s" "${SCENARIO_DESC[$s]}"
   done
 }
@@ -62,7 +66,7 @@ while [ $# -gt 0 ]; do
     all)
       SELECTED=("${ORDER[@]}")
       shift;;
-    smoke|highlight|layout|offset|floating|search)
+    smoke|highlight|layout|offset|floating|search|word)
       SELECTED+=("$1")
       shift;;
     *)
@@ -72,6 +76,14 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ "${#SELECTED[@]}" -gt 0 ] || SELECTED=("${ORDER[@]}")
+
+# 词级场景默认使用 TMLT 词时间轴 JSON；显式传 --vtt-dir/--vtt-file 时以用户为准。
+if printf '%s\n' "${SELECTED[@]}" | grep -qx word \
+    && [ "$VTT_DIR" = "D:/MyTranscript/site/the-rest-is-history/transcripts/zh" ] \
+    && [ "$VTT_FILE" = "1._Greatness.vtt" ]; then
+  VTT_DIR="D:/TMLT/docs/timings"
+  VTT_FILE="844.json"
+fi
 
 if [ "$RESTORE_ONLY" = "1" ]; then
   tt_init_env

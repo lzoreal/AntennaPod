@@ -12,6 +12,7 @@ SERIAL=""
 PORT=8765
 VTT_DIR="D:/MyTranscript/site/the-rest-is-history/transcripts/zh"
 VTT_FILE="1._Greatness.vtt"
+TRANSCRIPT_TYPE="text/vtt"
 MEDIA_ID=""
 POSITION=5000
 WORK=""
@@ -19,7 +20,9 @@ SKIP_INSTALL=0
 KEEP=0
 ISOLATE_NETWORK=0
 RESTORE_ONLY=0
+LOCAL_AUDIO=0
 CAPTURE_WAIT=8
+DEVICE_AUDIO_PATH=""
 
 TT_CONSUMED=0
 TT_USAGE_ENTRY="${TT_USAGE_ENTRY:-scripts/transcript-tests/run.sh}"
@@ -35,13 +38,14 @@ tt_usage() {
   offset     偏移控制条：+30 秒、重置为 0
   floating   悬浮窗开关与服务状态
   search     转录内搜索：命中计数、上下条、无匹配、关闭
+  word       词级高亮：JSON 词时间轴；默认 D:/TMLT 844.json（建议 --local-audio）
 
 单独运行某个场景:
   bash scripts/transcript-tests/scenarios/30_layout_panel.sh [选项]
 
 选项:
-  --vtt-dir DIR      本地 VTT 目录
-  --vtt-file NAME    目录内的 VTT 文件名
+  --vtt-dir DIR      本地转录目录
+  --vtt-file NAME    目录内的转录文件名（.json → application/json，.srt → application/srt）
   --media-id N       目标 FeedMedia.id；留空则从偏好/数据库中推断
   --position MS      写入测试库的 FeedMedia.position (默认 5000)
   --port N           本地 HTTP 端口 (默认 8765)
@@ -50,6 +54,7 @@ tt_usage() {
   --work DIR         工作目录；恢复时用于定位备份
   --skip-install     跳过安装，复用设备上已装的包
   --isolate-network  测试期间关闭 Wi-Fi/移动数据，结束后按原值恢复
+  --local-audio      推送静音音频并注入该媒体，保证播放位置真实前进
   --keep             结束后不恢复设备（打印恢复命令）
   --restore-only     只执行恢复（需 --work 指向之前的备份目录）
   --list             列出场景（仅 run.sh）
@@ -79,6 +84,7 @@ tt_parse_flag() {
                  WORK="$2"; TT_CONSUMED=2;;
     --skip-install)    SKIP_INSTALL=1; TT_CONSUMED=1;;
     --isolate-network) ISOLATE_NETWORK=1; TT_CONSUMED=1;;
+    --local-audio)     LOCAL_AUDIO=1; TT_CONSUMED=1;;
     --keep)            KEEP=1; TT_CONSUMED=1;;
     --restore-only)    RESTORE_ONLY=1; TT_CONSUMED=1;;
     -h|--help)   tt_usage; exit 0;;
@@ -95,8 +101,14 @@ tt_init_env() {
     WORK="$HOME/.qoder-cn/tmp/transcript-ondevice/run-$(date +%Y%m%d-%H%M%S)"
   fi
   [ -d "$WORK" ] || mkdir -p "$WORK" || exit 3
+  [ -f "$WORK/audio.path" ] && DEVICE_AUDIO_PATH="$(cat "$WORK/audio.path")"
   ADB=(adb)
   [ -n "$SERIAL" ] && ADB=(adb -s "$SERIAL")
+  case "${VTT_FILE##*.}" in
+    json|JSON) TRANSCRIPT_TYPE="application/json" ;;
+    srt|SRT) TRANSCRIPT_TYPE="application/srt" ;;
+    *) TRANSCRIPT_TYPE="text/vtt" ;;
+  esac
   RESULTS="$WORK/results.txt"
   : > "$RESULTS"
   FAILED=0
@@ -157,11 +169,38 @@ capture_screen() {
 
 ui_nodes() { sed 's/></>\n</g' "$1"; }
 
+tt_pause_playback() {
+  if adb_sh dumpsys media_session 2>/dev/null | tr -d '\r' \
+      | grep -A8 "de.danoeh.antennapod.debug" | grep -q "state=PLAYING"; then
+    adb_sh input keyevent KEYCODE_MEDIA_PAUSE
+    sleep 1
+  fi
+}
+
+tt_resume_playback() {
+  if adb_sh dumpsys media_session 2>/dev/null | tr -d '\r' \
+      | grep -A8 "de.danoeh.antennapod.debug" | grep -qE "state=(PAUSED|BUFFERING)"; then
+    adb_sh input keyevent KEYCODE_MEDIA_PLAY
+    sleep 1
+  fi
+}
+
 dump_ui() {
-  local out="$1"
-  MSYS_NO_PATHCONV=1 "${ADB[@]}" shell uiautomator dump /sdcard/window_dump.xml >/dev/null 2>&1 || true
-  MSYS_NO_PATHCONV=1 "${ADB[@]}" exec-out cat /sdcard/window_dump.xml > "$out" 2>/dev/null || true
-  [ -s "$out" ]
+  local out="$1" attempt=0
+  while [ "$attempt" -lt 3 ]; do
+    # 播放/动画时 uiautomator 可能失败；先删旧文件，避免读到上一轮的 dump
+    MSYS_NO_PATHCONV=1 "${ADB[@]}" shell rm -f /sdcard/window_dump.xml
+    MSYS_NO_PATHCONV=1 "${ADB[@]}" shell uiautomator dump /sdcard/window_dump.xml \
+      >/dev/null 2>&1 || true
+    MSYS_NO_PATHCONV=1 "${ADB[@]}" exec-out cat /sdcard/window_dump.xml \
+      > "$out" 2>/dev/null || true
+    if [ -s "$out" ] && grep -q "<hierarchy" "$out"; then
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+  return 1
 }
 
 find_bounds() {
@@ -264,6 +303,22 @@ restore_device() {
       sh -c "cat > shared_prefs/${PKG}_preferences.xml" < "$WORK/prefs.orig.xml" \
       || record_fail "恢复偏好失败"
     adb_sh run-as "$PKG" rm -f "shared_prefs/${PKG}_preferences.xml.bak"
+    if [ -n "$DEVICE_AUDIO_PATH" ]; then
+      adb_sh rm -f "$DEVICE_AUDIO_PATH"
+      rm -f "$WORK/audio.path" "$WORK/audio.size"
+    fi
+    if [ -f "$WORK/media.file_url" ]; then
+      local base suffix
+      base="$(cat "$WORK/media.file_url")"
+      for suffix in .transcript .transcript.source .transcript.tmp; do
+        if grep -qx "$suffix" "$WORK/local.files" 2>/dev/null; then
+          MSYS_NO_PATHCONV=1 "${ADB[@]}" shell "cat > '$base$suffix'" \
+            < "$WORK/local$suffix.orig" || record_fail "恢复本地转录缓存失败: $suffix"
+        else
+          MSYS_NO_PATHCONV=1 "${ADB[@]}" shell "rm -f '$base$suffix'"
+        fi
+      done
+    fi
     MSYS_NO_PATHCONV=1 "${ADB[@]}" exec-out run-as "$PKG" cat databases/Antennapod.db \
       > "$WORK/Antennapod.restored.db"
     "$PYTHON" - "$WORK/Antennapod.restored.db" <<'PY' || record_fail "恢复后的数据库校验失败"
@@ -308,9 +363,9 @@ preflight() {
     || abort "设备上没有安装 $PKG（release 包不支持 run-as）"
   MSYS_NO_PATHCONV=1 "${ADB[@]}" exec-out run-as "$PKG" ls databases >/dev/null 2>&1 \
     || abort "run-as $PKG 失败：需要 debuggable 构建且设备已授权 USB 调试"
-  [ -f "$VTT_DIR/$VTT_FILE" ] || abort "找不到 VTT 文件: $VTT_DIR/$VTT_FILE"
+  [ -f "$VTT_DIR/$VTT_FILE" ] || abort "找不到转录文件: $VTT_DIR/$VTT_FILE"
   wake_device || abort "设备屏幕不可用，无法进行 UI 验证"
-  record_pass "前置检查: 设备、包、run-as、VTT 文件均就绪"
+  record_pass "前置检查: 设备、包、run-as、转录文件均就绪（$TRANSCRIPT_TYPE）"
 }
 
 snapshot_state() {
@@ -366,9 +421,28 @@ PY
   record_pass "备份完成: $WORK"
 }
 
+prepare_local_audio() {
+  [ "$LOCAL_AUDIO" = "1" ] || return
+  command -v ffmpeg >/dev/null 2>&1 || abort "需要 ffmpeg 生成静音音频"
+  DEVICE_AUDIO_PATH="/storage/emulated/0/Android/data/$PKG/files/transcript-test-audio.mp3"
+  echo "$DEVICE_AUDIO_PATH" > "$WORK/audio.path"
+  ffmpeg -hide_banner -loglevel error -f lavfi -i anullsrc=r=44100:cl=mono -t 180 \
+    -q:a 9 -y "$WORK/silence.mp3" >/dev/null 2>&1 || abort "生成静音音频失败"
+  local size
+  size="$(wc -c < "$WORK/silence.mp3" | tr -d ' ')"
+  echo "$size" > "$WORK/audio.size"
+  adb_sh mkdir -p "/sdcard/Android/data/$PKG/files" >/dev/null 2>&1 || true
+  MSYS_NO_PATHCONV=1 "${ADB[@]}" shell "cat > $DEVICE_AUDIO_PATH" \
+    < "$WORK/silence.mp3" || abort "推送静音音频失败"
+  record_pass "本地静音音频已推送（$size bytes）"
+}
+
 prepare_db() {
   local url="http://127.0.0.1:${PORT}/${VTT_FILE}"
-  "$PYTHON" - "$WORK/Antennapod.db.orig" "$WORK/Antennapod.test.db" "${MEDIA_ID}" "$url" "$POSITION" <<'PY'
+  local audio_size=0
+  [ -f "$WORK/audio.size" ] && audio_size="$(cat "$WORK/audio.size")"
+  "$PYTHON" - "$WORK/Antennapod.db.orig" "$WORK/Antennapod.test.db" "${MEDIA_ID}" "$url" \
+    "$POSITION" "$TRANSCRIPT_TYPE" "${DEVICE_AUDIO_PATH:-}" "$audio_size" <<'PY'
 import shutil, sqlite3, sys
 
 try:
@@ -377,7 +451,7 @@ try:
 except (AttributeError, OSError):
     pass
 
-src, dst, media_id, url, position = sys.argv[1:6]
+src, dst, media_id, url, position, transcript_type, audio_path, audio_size = sys.argv[1:9]
 shutil.copyfile(src, dst)
 conn = sqlite3.connect(dst)
 if media_id:
@@ -398,10 +472,15 @@ before = conn.execute(
     "from FeedMedia fm join FeedItems fi on fm.feeditem = fi.id where fm.id = ?",
     (media_id,)).fetchone()
 conn.execute(
-    "update FeedItems set podcastindex_transcript_url = ?, podcastindex_transcript_type = 'text/vtt' "
-    "where id = (select feeditem from FeedMedia where id = ?)", (url, media_id))
+    "update FeedItems set podcastindex_transcript_url = ?, podcastindex_transcript_type = ? "
+    "where id = (select feeditem from FeedMedia where id = ?)",
+    (url, transcript_type, media_id))
 if position:
     conn.execute("update FeedMedia set position = ? where id = ?", (int(position), media_id))
+if audio_path:
+    conn.execute(
+        "update FeedMedia set file_url = ?, downloaded = 1, filesize = ?, duration = ? "
+        "where id = ?", (audio_path, int(audio_size), 180000, int(media_id)))
 conn.commit()
 after = conn.execute(
     "select fm.id, fi.title, fm.position, fi.podcastindex_transcript_url, "
@@ -421,13 +500,66 @@ PY
   record_pass "测试数据库已准备（URL 指向 127.0.0.1:$PORT）"
 }
 
+prepare_prefs() {
+  "$PYTHON" - "$WORK/prefs.orig.xml" "$WORK/prefs.test.xml" "${MEDIA_ID}" \
+    "$WORK/Antennapod.test.db" <<'PY' || abort "准备播放偏好失败"
+import re, sqlite3, sys
+
+src, dst, media_id, db = sys.argv[1:5]
+text = open(src, encoding="utf-8").read()
+conn = sqlite3.connect(db)
+row = conn.execute(
+    "select fi.feed from FeedItems fi join FeedMedia fm on fm.feeditem = fi.id "
+    "where fm.id = ?", (int(media_id),)).fetchone()
+feed_id = row[0] if row else -1
+
+
+def set_value(name, value, tag):
+    global text
+    pattern = re.compile(r'(<' + tag + r' name="[^"]*\.' + name + r'" value=")[^"]*(")')
+    if pattern.search(text):
+        text = pattern.sub(lambda m: m.group(1) + str(value) + m.group(2), text)
+    else:
+        text = text.replace(
+            "</map>",
+            '    <' + tag + ' name="de.danoeh.antennapod.preferences.'
+            + name + '" value="' + str(value) + '" />\n</map>')
+
+
+set_value("currentlyPlayingMedia", media_id, "long")
+set_value("lastPlayedFeedMediaId", media_id, "long")
+set_value("lastPlayedFeedId", feed_id, "long")
+set_value("currentPlayerStatus", 3, "int")
+
+
+def set_plain_value(name, value, tag):
+    global text
+    pattern = re.compile(r'(<' + tag + r' name="' + name + r'" value=")[^"]*(")')
+    if pattern.search(text):
+        text = pattern.sub(lambda m: m.group(1) + str(value) + m.group(2), text)
+    else:
+        text = text.replace(
+            "</map>",
+            '    <' + tag + ' name="' + name + '" value="' + str(value) + '" />\n</map>')
+
+
+# 固定测试视图：双语 + 逐句成行，避免设备残留偏好让词级/句级分支走错
+set_plain_value("prefTranscriptLanguageMode", 0, "int")
+set_plain_value("prefTranscriptSentencePerLine", "true", "boolean")
+open(dst, "w", encoding="utf-8").write(text)
+print("playback prefs:", media_id, "feed", feed_id, "language=both sentencePerLine=true")
+PY
+  MEDIA_ID="$(cat "$WORK/Antennapod.test.db.media_id")"
+  record_pass "播放/转录偏好已准备（媒体=$MEDIA_ID，双语+逐句成行）"
+}
+
 start_server() {
   "$PYTHON" -m http.server "$PORT" --bind 127.0.0.1 --directory "$VTT_DIR" \
     > "$WORK/http.log" 2>&1 &
   HTTP_PID=$!
   sleep 1
   kill -0 "$HTTP_PID" 2>/dev/null || abort "本地 HTTP 服务启动失败，见 $WORK/http.log"
-  "$PYTHON" - "http://127.0.0.1:${PORT}/${VTT_FILE}" <<'PY' || abort "本地 VTT 无法访问"
+  "$PYTHON" - "http://127.0.0.1:${PORT}/${VTT_FILE}" <<'PY' || abort "本地转录文件无法访问"
 import sys, urllib.request
 print("served:", urllib.request.urlopen(sys.argv[1], timeout=5).read(60))
 PY
@@ -467,6 +599,43 @@ PY
   record_pass "设备数据库已写入并校验"
 }
 
+media_file_url() {
+  "$PYTHON" - "$WORK/Antennapod.test.db" "$MEDIA_ID" <<'PY'
+import sqlite3, sys
+conn = sqlite3.connect(sys.argv[1])
+row = conn.execute("select file_url from FeedMedia where id = ?", (int(sys.argv[2]),)).fetchone()
+print(row[0] if row and row[0] else "")
+PY
+}
+
+backup_transcript_cache() {
+  local base
+  base="$(media_file_url)"
+  [ -n "$base" ] || return
+  echo "$base" > "$WORK/media.file_url"
+  : > "$WORK/local.files"
+  local suffix
+  for suffix in .transcript .transcript.source .transcript.tmp; do
+    if MSYS_NO_PATHCONV=1 "${ADB[@]}" shell "test -f '$base$suffix'" >/dev/null 2>&1; then
+      MSYS_NO_PATHCONV=1 "${ADB[@]}" exec-out cat "$base$suffix" \
+        > "$WORK/local$suffix.orig" || abort "备份本地转录缓存失败: $suffix"
+      printf '%s\n' "$suffix" >> "$WORK/local.files"
+      # 移走旧缓存，保证本次从注入的 URL 重新下载；teardown 再原样写回
+      MSYS_NO_PATHCONV=1 "${ADB[@]}" shell "rm -f '$base$suffix'"
+    fi
+  done
+  record_pass "本地转录缓存已备份（$(grep -c . "$WORK/local.files" || true) 个文件）"
+}
+
+push_prefs() {
+  adb_sh am force-stop "$PKG"
+  MSYS_NO_PATHCONV=1 "${ADB[@]}" exec-in run-as "$PKG" sh -c \
+    "cat > shared_prefs/${PKG}_preferences.xml" < "$WORK/prefs.test.xml" \
+    || abort "写入播放偏好失败"
+  DEVICE_MODIFIED=1
+  record_pass "设备播放偏好已写入（当前媒体=$MEDIA_ID）"
+}
+
 install_app() {
   if [ "$SKIP_INSTALL" = "1" ]; then
     echo "--skip-install：跳过安装"
@@ -494,7 +663,8 @@ launch_page() {
   adb_sh am start "${intent[@]}" > "$WORK/start2.txt" 2>&1 || abort "二次启动 Activity 失败"
   sleep "$CAPTURE_WAIT"
   capture_screen "$COMMON_PNG" || return 1
-  dump_ui "$COMMON_XML" || record_fail "转录页 UI dump 为空"
+  # 播放/动画中首轮 dump 可能失败；各场景会在暂停后重取，不在此记为失败
+  dump_ui "$COMMON_XML" || echo "首轮 UI dump 为空，场景内会暂停重取"
   "${ADB[@]}" logcat -d -v threadtime -b all > "$WORK/transcript.log"
 }
 
@@ -557,9 +727,13 @@ tt_setup() {
   preflight
   snapshot_state
   backup_device
+  prepare_local_audio
   prepare_db
+  prepare_prefs
+  backup_transcript_cache
   start_server
   push_db
+  push_prefs
   install_app
   launch_page || abort "转录页取证中止"
 }

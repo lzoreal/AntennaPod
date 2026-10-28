@@ -8,8 +8,12 @@ public class Transcript {
     private Set<String> speakers = Collections.emptySet();
     private final ArrayList<TranscriptSegment> segments = new ArrayList<>();
     private boolean bilingual = false;
+    private boolean wordLevel = false;
 
     public void addSegment(TranscriptSegment segment) {
+        if (segment.hasWordTimings()) {
+            wordLevel = true;
+        }
         int low = 0;
         int high = segments.size();
         while (low < high) {
@@ -55,6 +59,10 @@ public class Transcript {
 
     public int getSegmentCount() {
         return segments.size();
+    }
+
+    public boolean hasWordTimings() {
+        return wordLevel;
     }
 
     public boolean isBilingual() {
