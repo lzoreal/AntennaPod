@@ -40,23 +40,29 @@ import de.danoeh.antennapod.event.playback.PlaybackPositionEvent;
 import de.danoeh.antennapod.model.feed.FeedItem;
 import de.danoeh.antennapod.model.feed.FeedMedia;
 import de.danoeh.antennapod.model.feed.TranscriptSegment;
+import de.danoeh.antennapod.model.playback.MediaType;
 import de.danoeh.antennapod.model.playback.Playable;
+import de.danoeh.antennapod.parser.media.Mp3DurationScanner;
 import de.danoeh.antennapod.playback.service.PlaybackController;
 import de.danoeh.antennapod.storage.database.DBReader;
 import de.danoeh.antennapod.storage.preferences.PlaybackPreferences;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.ui.screen.playback.audio.AudioPlayerFragment;
-import de.danoeh.antennapod.ui.transcript.TranscriptTextUtils;
 import de.danoeh.antennapod.ui.transcript.TranscriptUtils;
 import de.danoeh.antennapod.ui.transcript.TranscriptViewholder;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.core.Maybe;
 import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
+import java.io.File;
 import java.text.DecimalFormat;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
@@ -93,6 +99,11 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         return true;
     };
     private long lastPositionMs = 0;
+    private volatile double transcriptTimeScale = 1.0;
+    private long timeScaleGeneration = 0;
+    private static final long MIN_DURATION_DIFF_MS = 250;
+    private static final Map<String, Double> TIME_SCALE_CACHE = new ConcurrentHashMap<>();
+    private final ExecutorService durationExecutor = Executors.newSingleThreadExecutor();
     private long lastOffsetLabelMs = Long.MIN_VALUE;
     private boolean syncPickMode = false;
     private boolean controlsBarVisibleBeforeImmersive = false;
@@ -138,15 +149,16 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             MediaController controller = mediaController;
             boolean playing = controller != null && controller.isConnected() && controller.isPlaying();
             if (playing) {
-                long position = controller.getCurrentPosition();
+                long position = toTranscriptTime(controller.getCurrentPosition());
                 setHighlightTickerDriving(true);
                 if (adapter != null) {
                     adapter.updatePlaybackPosition(position);
                 }
                 handlePlaybackPosition(position);
             } else if (highlightTickerDriving) {
-                long position = controller != null && controller.isConnected()
+                long playerPosition = controller != null && controller.isConnected()
                         ? controller.getCurrentPosition() : -1;
+                long position = playerPosition >= 0 ? toTranscriptTime(playerPosition) : -1;
                 setHighlightTickerDriving(false);
                 if (position >= 0) {
                     if (adapter != null) {
@@ -342,6 +354,13 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     }
 
     @Override
+    public void onDestroy() {
+        timeScaleGeneration++;
+        durationExecutor.shutdownNow();
+        super.onDestroy();
+    }
+
+    @Override
     public void onDestroyView() {
         super.onDestroyView();
         stopFollowFrame();
@@ -443,6 +462,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             closeSearch();
         }
         currentMedia = media;
+        loadTranscriptTimeScale(media);
         updateLoadedTranscriptSource(media);
         viewBinding.progLoading.setVisibility(View.GONE);
 
@@ -467,7 +487,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         lastScrolledPosition = -1;
         segmentLooping = false;
         loopSegmentIndex = -1;
-        lastPositionMs = Math.max(0, currentMedia.getPosition());
+        lastPositionMs = Math.max(0, toTranscriptTime(currentMedia.getPosition()));
         long offset = UserPreferences.getTranscriptTimeOffset(currentMedia.getId(), lastPositionMs);
         int initialPosition = currentMedia.getTranscript().findSegmentIndexBefore(lastPositionMs - offset);
         adapter.setHighlightPosition(initialPosition);
@@ -539,7 +559,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (highlightTickerDriving) {
             return;
         }
-        handlePlaybackPosition(event.getPosition());
+        handlePlaybackPosition(toTranscriptTime(event.getPosition()));
     }
 
     private void handlePlaybackPosition(long position) {
@@ -795,7 +815,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         long endTime = sentenceEndTime + offset;
 
         PlaybackController.bindToMedia3Service(getContext(), controller -> {
-            long currentPos = controller.getCurrentPosition();
+            long currentPos = toTranscriptTime(controller.getCurrentPosition());
             if (currentPos >= startTime && currentPos <= endTime) {
                 if (controller.isPlaying()) {
                     controller.pause();
@@ -803,7 +823,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                     controller.play();
                 }
             } else {
-                controller.seekTo(Math.max(0, startTime));
+                controller.seekTo(Math.max(0, toPlayerTime(startTime)));
             }
         });
 
@@ -1153,7 +1173,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         if (position >= endTime) {
             PlaybackController.bindToMedia3Service(getContext(), controller ->
-                    controller.seekTo((int) startTime));
+                    controller.seekTo((int) toPlayerTime(startTime)));
         }
     }
 
@@ -1250,10 +1270,108 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (controller != null && controller.isConnected()) {
             long position = controller.getCurrentPosition();
             if (position >= 0) {
-                return position;
+                return toTranscriptTime(position);
             }
         }
         return lastPositionMs;
+    }
+
+    private void loadTranscriptTimeScale(FeedMedia media) {
+        transcriptTimeScale = 1.0;
+        final long generation = ++timeScaleGeneration;
+        final long reportedDuration = media.getDuration();
+        if (reportedDuration <= 0) {
+            return;
+        }
+        long audioDuration = media.getTranscript() == null
+                ? 0 : media.getTranscript().getAudioDurationMs();
+        if (audioDuration > 0) {
+            String cacheKey = media.getId() + ":json:" + audioDuration + ":" + reportedDuration;
+            Double cached = TIME_SCALE_CACHE.get(cacheKey);
+            transcriptTimeScale = cached != null
+                    ? cached : resolveDurationScale(audioDuration, reportedDuration);
+            TIME_SCALE_CACHE.put(cacheKey, transcriptTimeScale);
+            return;
+        }
+        if (media.getMediaType() != MediaType.AUDIO || !media.localFileAvailable()) {
+            return;
+        }
+        String path = media.getLocalFileUrl();
+        if (path == null) {
+            return;
+        }
+        File file = new File(path);
+        if (!file.isFile()) {
+            return;
+        }
+        String cacheKey = media.getId() + ":mp3:" + file.length() + ":" + reportedDuration;
+        Double cached = TIME_SCALE_CACHE.get(cacheKey);
+        if (cached != null) {
+            transcriptTimeScale = cached;
+            return;
+        }
+        final long mediaId = media.getId();
+        durationExecutor.execute(() -> {
+            double scale = 1.0;
+            try {
+                Mp3DurationScanner.Result result = Mp3DurationScanner.scan(file);
+                if (result != null && !result.hasXingHeader()) {
+                    scale = resolveDurationScale(result.getDurationMs(), reportedDuration);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Could not scan MP3 duration", e);
+            }
+            TIME_SCALE_CACHE.put(cacheKey, scale);
+            final double resolved = scale;
+            highlightHandler.post(() -> {
+                if (generation != timeScaleGeneration || !isAdded()) {
+                    return;
+                }
+                transcriptTimeScale = resolved;
+                if (resolved != 1.0 && currentMedia != null
+                        && currentMedia.getId() == mediaId) {
+                    refreshPositionForTimeScale();
+                }
+            });
+        });
+    }
+
+    private static double resolveDurationScale(long trueDurationMs, long reportedDurationMs) {
+        if (reportedDurationMs <= 0
+                || Math.abs(trueDurationMs - reportedDurationMs) < MIN_DURATION_DIFF_MS) {
+            return 1.0;
+        }
+        double candidate = (double) trueDurationMs / reportedDurationMs;
+        return Math.abs(candidate - 1.0) >= 0.0002 ? candidate : 1.0;
+    }
+
+    private void refreshPositionForTimeScale() {
+        if (currentMedia == null) {
+            return;
+        }
+        MediaController controller = mediaController;
+        long playerPosition = controller != null && controller.isConnected()
+                ? controller.getCurrentPosition() : currentMedia.getPosition();
+        long position = toTranscriptTime(Math.max(0, playerPosition));
+        lastPositionMs = position;
+        if (adapter != null) {
+            adapter.updatePlaybackPosition(position);
+        }
+        handlePlaybackPosition(position);
+    }
+
+    private long toTranscriptTime(long playerPositionMs) {
+        if (playerPositionMs < 0 || transcriptTimeScale == 1.0) {
+            return playerPositionMs;
+        }
+        return Math.round(playerPositionMs * transcriptTimeScale);
+    }
+
+    private long toPlayerTime(long transcriptPositionMs) {
+        if (transcriptPositionMs < 0 || transcriptTimeScale == 1.0) {
+            return transcriptPositionMs;
+        }
+        return Math.round(transcriptPositionMs / transcriptTimeScale);
     }
 
     private long clampTimeOffset(long offsetMs) {

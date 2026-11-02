@@ -513,11 +513,13 @@ public class TranscriptFloatingWindowService extends Service {
             floatingView.post(this::clampPosition);
         }
         if (showPrimary) {
-            String text = primaryText.substring(sentenceStarts[sentenceIndex],
-                    sentenceStarts[sentenceIndex + 1]).trim();
+            int sentenceStart = sentenceStarts[sentenceIndex];
+            int sentenceEnd = sentenceStarts[sentenceIndex + 1];
+            String text = primaryText.substring(sentenceStart, sentenceEnd).trim();
             tvTranscript.setText(text);
             tvTranscript.setVisibility(View.VISIBLE);
-            startAutoScrollIfPlaying(tvTranscript, remainingMs);
+            startPrimaryScroll(segment, position, primaryText, sentenceStart, sentenceEnd,
+                    text, remainingMs);
         } else {
             tvTranscript.stopAutoScroll();
             tvTranscript.setVisibility(View.GONE);
@@ -566,6 +568,27 @@ public class TranscriptFloatingWindowService extends Service {
         } else {
             view.stopAutoScroll();
         }
+    }
+
+    /**
+     * Word-level transcripts scroll along the word timings, so the speed adapts to the word
+     * that is currently being read. Sentence-level transcripts keep the linear estimate.
+     */
+    private void startPrimaryScroll(TranscriptSegment segment, long position, String primaryText,
+                                    int sentenceStart, int sentenceEnd, String text,
+                                    long remainingMs) {
+        if (!playing || remainingMs <= 0 || !segment.hasWordTimings()) {
+            startAutoScrollIfPlaying(tvTranscript, remainingMs);
+            return;
+        }
+        int displayStart = sentenceStart;
+        while (displayStart < sentenceEnd
+                && Character.isWhitespace(primaryText.charAt(displayStart))) {
+            displayStart++;
+        }
+        TranscriptScrollTimeline timeline = TranscriptScrollTimeline.of(segment.getWordTimings(),
+                displayStart, text.length(), position, position + remainingMs);
+        tvTranscript.startTimedScroll(timeline, position, windowWidth);
     }
 
     private void hideTranscript() {

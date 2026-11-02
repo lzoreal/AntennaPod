@@ -33,20 +33,22 @@ public class JsonTranscriptParser {
             String prevSpeaker = "";
             String segmentBody = "";
             JSONArray objSegments;
+            JSONObject obj;
             Set<String> speakers = new HashSet<>();
 
             try {
-                JSONObject obj = new JSONObject(jsonStr);
+                obj = new JSONObject(jsonStr);
                 objSegments = obj.getJSONArray("segments");
             } catch (JSONException e) {
                 e.printStackTrace();
                 return null;
             }
+            long audioDurationMs = parseAudioDurationMs(obj);
 
             if (objSegments.length() > 0) {
                 JSONObject first = objSegments.getJSONObject(0);
                 if (first.has("start") && first.has("text")) {
-                    return parseTimedSegments(objSegments);
+                    return parseTimedSegments(objSegments, audioDurationMs);
                 }
             }
 
@@ -117,6 +119,7 @@ public class JsonTranscriptParser {
 
             if (transcript.getSegmentCount() > 0) {
                 transcript.setSpeakers(speakers);
+                transcript.setAudioDurationMs(audioDurationMs);
                 return transcript;
             } else {
                 return null;
@@ -128,7 +131,8 @@ public class JsonTranscriptParser {
         return null;
     }
 
-    private static Transcript parseTimedSegments(JSONArray objSegments) throws JSONException {
+    private static Transcript parseTimedSegments(JSONArray objSegments, long audioDurationMs)
+            throws JSONException {
         Transcript transcript = new Transcript();
         Set<String> speakers = new HashSet<>();
         String speaker = "";
@@ -161,7 +165,16 @@ public class JsonTranscriptParser {
             return null;
         }
         transcript.setSpeakers(speakers);
+        transcript.setAudioDurationMs(audioDurationMs);
         return transcript;
+    }
+
+    private static long parseAudioDurationMs(JSONObject obj) {
+        double seconds = obj.optDouble("audio_seconds", -1);
+        if (!Double.isFinite(seconds) || seconds <= 0) {
+            return 0L;
+        }
+        return Math.round(seconds * 1000.0);
     }
 
     private static long estimateSpan(String body) {

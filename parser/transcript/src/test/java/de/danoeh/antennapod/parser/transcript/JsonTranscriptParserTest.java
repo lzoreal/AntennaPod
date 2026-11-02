@@ -22,6 +22,25 @@ public class JsonTranscriptParserTest {
             + "{ 'startTime': 3.5, 'endTime': 3.6, 'body': ' person' }]}";
 
     @Test
+    public void testParsesAudioDuration() {
+        String json = "{\"audio_seconds\":12.5,\"segments\":["
+                + "{\"start\":0,\"end\":5000,\"text\":\"Hello\"}]}";
+        Transcript result = JsonTranscriptParser.parse(json);
+
+        assertNotNull(result);
+        assertEquals(12500L, result.getAudioDurationMs());
+    }
+
+    @Test
+    public void testMissingAudioDurationIsZero() {
+        String json = "{\"segments\":[{\"start\":0,\"end\":5000,\"text\":\"Hello\"}]}";
+        Transcript result = JsonTranscriptParser.parse(json);
+
+        assertNotNull(result);
+        assertEquals(0L, result.getAudioDurationMs());
+    }
+
+    @Test
     public void testParseJson() {
         Transcript result = JsonTranscriptParser.parse(jsonStr);
         // TODO: for gaps in the transcript (ads, music) should we return null?

@@ -9,6 +9,7 @@ public class Transcript {
     private final ArrayList<TranscriptSegment> segments = new ArrayList<>();
     private boolean bilingual = false;
     private boolean wordLevel = false;
+    private long audioDurationMs = 0L;
 
     public void addSegment(TranscriptSegment segment) {
         if (segment.hasWordTimings()) {
@@ -71,5 +72,13 @@ public class Transcript {
 
     public void setBilingual(boolean bilingual) {
         this.bilingual = bilingual;
+    }
+
+    public long getAudioDurationMs() {
+        return audioDurationMs;
+    }
+
+    public void setAudioDurationMs(long audioDurationMs) {
+        this.audioDurationMs = Math.max(0L, audioDurationMs);
     }
 }

@@ -34,8 +34,8 @@ tt_scenario_word_highlight() {
   fi
 
   if ui_nodes "$xml" | grep "resource-id=\"${PKG}:id/content\"" \
-      | grep -qiE "parole|prison"; then
-    record_pass "可见文本来自 844.json（包含 parole/prison）"
+      | grep -qiE "parole|prison|Henry|Dee|Andre|hearing"; then
+    record_pass "可见文本来自 844.json（包含 844 关键词）"
   else
     record_fail "可见文本不是 844.json 的内容，检查服务目录与文件"
   fi

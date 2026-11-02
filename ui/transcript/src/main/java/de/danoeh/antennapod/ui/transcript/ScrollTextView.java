@@ -62,6 +62,65 @@ public class ScrollTextView extends TextView {
         scrollAnimator.start();
     }
 
+    /**
+     * Scrolls the text along a word timing table, so the speed follows the words that are
+     * actually being read instead of a constant speed over the whole sentence.
+     */
+    public void startTimedScroll(TranscriptScrollTimeline timeline, long positionMs,
+                                 int availableWidth) {
+        stopAutoScroll();
+        if (timeline == null || availableWidth <= 0) return;
+
+        long duration = timeline.getEndTime() - positionMs;
+        if (duration <= 0) return;
+
+        String text = getText().toString();
+        if (text.isEmpty()) return;
+
+        float textWidth = getPaint().measureText(text);
+        float contentWidth = availableWidth - getPaddingLeft() - getPaddingRight();
+        if (textWidth <= contentWidth) {
+            setScrollX(0);
+            return;
+        }
+        float scrollDistance = textWidth - contentWidth;
+
+        // Width of every prefix of the text, so the animation can move by fractions of a
+        // character instead of snapping from one character boundary to the next.
+        final float[] prefixWidths = new float[text.length() + 1];
+        float accumulated = 0f;
+        for (int i = 0; i < text.length(); i++) {
+            accumulated += getPaint().measureText(text, i, i + 1);
+            prefixWidths[i + 1] = accumulated;
+        }
+        final float totalWidth = prefixWidths[text.length()];
+        if (totalWidth <= 0f) return;
+
+        scrollAnimator = ValueAnimator.ofFloat(0f, 1f);
+        scrollAnimator.setDuration(duration);
+        scrollAnimator.setInterpolator(new LinearInterpolator());
+        final float center = contentWidth / 2f;
+        scrollAnimator.addUpdateListener(animation -> {
+            float progress = (float) animation.getAnimatedValue();
+            float charIndex = timeline.charIndexAt(positionMs + (long) (progress * duration));
+            float position = Math.max(0f, Math.min(charIndex, text.length()));
+            int index = (int) position;
+            float prefixWidth;
+            if (index >= text.length()) {
+                prefixWidth = totalWidth;
+            } else {
+                float fraction = position - index;
+                prefixWidth = prefixWidths[index]
+                        + (prefixWidths[index + 1] - prefixWidths[index]) * fraction;
+            }
+            // Keep the word being read in the middle of the window; the clamps leave the
+            // first and the last words aligned to the edges instead.
+            float target = prefixWidth * textWidth / totalWidth - center;
+            setScrollX(Math.round(Math.max(0f, Math.min(target, scrollDistance))));
+        });
+        scrollAnimator.start();
+    }
+
     public void stopAutoScroll() {
         if (scrollAnimator != null && scrollAnimator.isRunning()) {
             scrollAnimator.cancel();
