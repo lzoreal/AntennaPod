@@ -437,7 +437,7 @@ public class Media3PlaybackService extends MediaLibraryService {
         public void onPlaybackStateChanged(int playbackState) {
             if (playbackState == Player.STATE_BUFFERING) {
                 EventBus.getDefault().post(BufferUpdateEvent.started());
-                PlaybackService.isRunning = player.getPlayWhenReady(); // Immediately show as playing
+                PlaybackServiceInterface.isPlaying = player.getPlayWhenReady(); // Immediately show as playing
                 updatePlaybackPreferences();
             } else {
                 EventBus.getDefault().post(BufferUpdateEvent.ended());
@@ -475,13 +475,13 @@ public class Media3PlaybackService extends MediaLibraryService {
 
         @Override
         public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
-            PlaybackService.isRunning = !Util.shouldShowPlayButton(player);
+            PlaybackServiceInterface.isPlaying = !Util.shouldShowPlayButton(player);
             updatePlaybackPreferences();
         }
 
         @Override
         public void onIsPlayingChanged(boolean isPlaying) {
-            PlaybackService.isRunning = !Util.shouldShowPlayButton(player);
+            PlaybackServiceInterface.isPlaying = !Util.shouldShowPlayButton(player);
             if (isPlaying && adSkipController != null) {
                 adSkipHandler.removeCallbacks(adSkipTick);
                 adSkipHandler.postDelayed(adSkipTick, 250);
@@ -490,7 +490,7 @@ public class Media3PlaybackService extends MediaLibraryService {
                 playedMediaId = player.getCurrentMediaItem().mediaId;
                 saveCurrentPosition();
             }
-            if (PlaybackService.isRunning) {
+            if (PlaybackServiceInterface.isPlaying) {
                 lastPositionSaveTime = System.currentTimeMillis();
                 setupPositionObserver();
                 // Start the floating transcript
@@ -506,7 +506,7 @@ public class Media3PlaybackService extends MediaLibraryService {
                 }
             }
             WidgetUpdater.WidgetState widgetState = new WidgetUpdater.WidgetState(currentPlayable,
-                    PlaybackService.isRunning ? PlayerStatus.PLAYING : PlayerStatus.PAUSED,
+                    PlaybackServiceInterface.isPlaying ? PlayerStatus.PLAYING : PlayerStatus.PAUSED,
                     (int) player.getContentPosition(), (int) player.getDuration(),
                     player.getPlaybackParameters().speed);
             Schedulers.io().scheduleDirect(() ->
@@ -514,7 +514,7 @@ public class Media3PlaybackService extends MediaLibraryService {
             updatePlaybackPreferences();
 
             // Auto-enable sleep timer when playback starts
-            if (PlaybackService.isRunning && sleepTimer == null && SleepTimerPreferences.autoEnable()) {
+            if (PlaybackServiceInterface.isPlaying && sleepTimer == null && SleepTimerPreferences.autoEnable()) {
                 int currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
                 if (SleepTimerPreferences.isInTimeRange(
                         SleepTimerPreferences.autoEnableFrom(),
@@ -549,7 +549,7 @@ public class Media3PlaybackService extends MediaLibraryService {
 
         @Override
         public void onPlayerError(@NonNull PlaybackException error) {
-            PlaybackService.isRunning = false;
+            PlaybackServiceInterface.isPlaying = false;
             EventBus.getDefault().post(new PlayerErrorEvent(
                     ExoPlayerUtils.translateErrorReason(error, Media3PlaybackService.this)));
             EventBus.getDefault().post(new PlayerStatusEvent());
@@ -565,7 +565,7 @@ public class Media3PlaybackService extends MediaLibraryService {
     @UnstableApi
     @Override
     public void onDestroy() {
-        PlaybackService.isRunning = false;
+        PlaybackServiceInterface.isPlaying = false;
         cancelPositionObserver();
         if (sleepTimer != null) {
             sleepTimer.stop();
@@ -741,7 +741,7 @@ public class Media3PlaybackService extends MediaLibraryService {
             startFloatingTranscript(media.getId());
         }
         WidgetUpdater.WidgetState widgetState = new WidgetUpdater.WidgetState(currentPlayable,
-                PlaybackService.isRunning ? PlayerStatus.PLAYING : PlayerStatus.PAUSED,
+                PlaybackServiceInterface.isPlaying ? PlayerStatus.PLAYING : PlayerStatus.PAUSED,
                 currentPlayable.getPosition(), currentPlayable.getDuration(), speed);
         Schedulers.io().scheduleDirect(() -> WidgetUpdater.updateWidget(this, widgetState));
     }
@@ -752,7 +752,7 @@ public class Media3PlaybackService extends MediaLibraryService {
         if (currentPlayable != null) {
             PlaybackPreferences.writeMediaPlaying(currentPlayable);
         }
-        int status = PlaybackService.isRunning ? PlaybackPreferences.PLAYER_STATUS_PLAYING
+        int status = PlaybackServiceInterface.isPlaying ? PlaybackPreferences.PLAYER_STATUS_PLAYING
                 : PlaybackPreferences.PLAYER_STATUS_PAUSED;
         PlaybackPreferences.setCurrentPlayerStatus(status);
         if (status != statusBefore || (currentPlayable != null && currentPlayable.getId() != mediaBefore)) {
@@ -913,7 +913,7 @@ public class Media3PlaybackService extends MediaLibraryService {
         player.setMediaItem(confirmItem);
         player.setPlayWhenReady(false);
         player.prepare();
-        PlaybackService.isRunning = false;
+        PlaybackServiceInterface.isPlaying = false;
         EventBus.getDefault().post(new StreamingConfirmationEvent());
         EventBus.getDefault().post(new PlayerStatusEvent());
     }
