@@ -1,0 +1,138 @@
+package de.danoeh.antennapod.ad;
+
+import android.media.MediaCodec;
+import android.media.MediaExtractor;
+import android.media.MediaFormat;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.ShortBuffer;
+
+/** Decodes any MediaExtractor-supported audio to mono float PCM at its native sample rate. */
+public final class PcmDecoder {
+    public static final class Result {
+        public final float[] pcm;
+        public final int sampleRate;
+
+        Result(float[] pcm, int sampleRate) {
+            this.pcm = pcm;
+            this.sampleRate = sampleRate;
+        }
+    }
+
+    private PcmDecoder() {
+    }
+
+    public static Result decodeToMono(File file) throws IOException {
+        MediaExtractor extractor = new MediaExtractor();
+        MediaCodec codec = null;
+        try {
+            extractor.setDataSource(file.getAbsolutePath());
+            int track = -1;
+            for (int i = 0; i < extractor.getTrackCount(); i++) {
+                MediaFormat format = extractor.getTrackFormat(i);
+                String mime = format.getString(MediaFormat.KEY_MIME);
+                if (mime != null && mime.startsWith("audio/")) {
+                    track = i;
+                    break;
+                }
+            }
+            if (track < 0) {
+                throw new IOException("no audio track");
+            }
+            extractor.selectTrack(track);
+            MediaFormat format = extractor.getTrackFormat(track);
+            int sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+            int channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+            String mime = format.getString(MediaFormat.KEY_MIME);
+
+            codec = MediaCodec.createDecoderByType(mime);
+            codec.configure(format, null, null, 0);
+            codec.start();
+
+            FloatList out = new FloatList(Math.max(16000, sampleRate * 10));
+            MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+            boolean inputDone = false;
+            boolean outputDone = false;
+            while (!outputDone) {
+                if (!inputDone) {
+                    int in = codec.dequeueInputBuffer(10000);
+                    if (in >= 0) {
+                        ByteBuffer buf = codec.getInputBuffer(in);
+                        int size = extractor.readSampleData(buf, 0);
+                        if (size < 0) {
+                            codec.queueInputBuffer(in, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                            inputDone = true;
+                        } else {
+                            codec.queueInputBuffer(in, 0, size, extractor.getSampleTime(), 0);
+                            extractor.advance();
+                        }
+                    }
+                }
+                int index = codec.dequeueOutputBuffer(info, 10000);
+                if (index >= 0) {
+                    if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                        outputDone = true;
+                    }
+                    if (info.size > 0) {
+                        ByteBuffer buf = codec.getOutputBuffer(index);
+                        if (buf != null) {
+                            buf.order(ByteOrder.nativeOrder());
+                            ShortBuffer shorts = buf.asShortBuffer();
+                            int frames = info.size / (2 * channels);
+                            for (int i = 0; i < frames; i++) {
+                                int sum = 0;
+                                for (int c = 0; c < channels; c++) {
+                                    sum += shorts.get(i * channels + c);
+                                }
+                                out.add(sum / (float) (channels * 32768));
+                            }
+                        }
+                    }
+                    codec.releaseOutputBuffer(index, false);
+                } else if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    MediaFormat outFormat = codec.getOutputFormat();
+                    sampleRate = outFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+                    channels = outFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+                }
+            }
+            return new Result(out.toArray(), sampleRate);
+        } finally {
+            if (codec != null) {
+                try {
+                    codec.stop();
+                } catch (IllegalStateException ignored) {
+                    // already stopped
+                }
+                codec.release();
+            }
+            extractor.release();
+        }
+    }
+
+    static final class FloatList {
+        private float[] a;
+        private int n;
+
+        FloatList(int cap) {
+            a = new float[cap];
+        }
+
+        void add(float v) {
+            if (n == a.length) {
+                float[] b = new float[a.length * 2];
+                System.arraycopy(a, 0, b, 0, n);
+                a = b;
+            }
+            a[n++] = v;
+        }
+
+        float[] toArray() {
+            float[] r = new float[n];
+            System.arraycopy(a, 0, r, 0, n);
+            return r;
+        }
+    }
+}

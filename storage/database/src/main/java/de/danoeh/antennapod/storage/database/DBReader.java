@@ -15,6 +15,9 @@ import java.util.List;
 import java.util.Map;
 
 import de.danoeh.antennapod.model.feed.Chapter;
+import de.danoeh.antennapod.model.feed.AdFeedSettings;
+import de.danoeh.antennapod.model.feed.AdFingerprintRow;
+import de.danoeh.antennapod.model.feed.AdSegment;
 import de.danoeh.antennapod.model.feed.Feed;
 import de.danoeh.antennapod.model.feed.FeedCounter;
 import de.danoeh.antennapod.model.feed.FeedItem;
@@ -838,5 +841,103 @@ public final class DBReader {
         } finally {
             adapter.close();
         }
+    }
+
+    public static synchronized List<AdSegment> getAdSegments(long mediaId) {
+        PodDBAdapter adapter = PodDBAdapter.getInstance();
+        adapter.open();
+        List<AdSegment> out = new ArrayList<>();
+        try (Cursor cursor = adapter.getDatabase().query(
+                PodDBAdapter.TABLE_NAME_AD_SEGMENTS, null, "media_id = ?",
+                new String[]{String.valueOf(mediaId)}, null, null, "start_ms ASC")) {
+            while (cursor.moveToNext()) {
+                AdSegment segment = new AdSegment();
+                segment.setId(cursor.getLong(cursor.getColumnIndexOrThrow("id")));
+                segment.setMediaId(mediaId);
+                segment.setStartMs(cursor.getInt(cursor.getColumnIndexOrThrow("start_ms")));
+                segment.setEndMs(cursor.getInt(cursor.getColumnIndexOrThrow("end_ms")));
+                segment.setKind(cursor.getInt(cursor.getColumnIndexOrThrow("kind")));
+                segment.setTier(cursor.getInt(cursor.getColumnIndexOrThrow("tier")));
+                segment.setMatchRatio(cursor.getFloat(cursor.getColumnIndexOrThrow("match_ratio")));
+                segment.setSupport(cursor.getInt(cursor.getColumnIndexOrThrow("support")));
+                segment.setState(cursor.getInt(cursor.getColumnIndexOrThrow("state")));
+                out.add(segment);
+            }
+        } finally {
+            adapter.close();
+        }
+        return out;
+    }
+
+    public static synchronized AdFeedSettings getAdFeedSettings(long feedId) {
+        PodDBAdapter adapter = PodDBAdapter.getInstance();
+        adapter.open();
+        try (Cursor cursor = adapter.getDatabase().query(
+                PodDBAdapter.TABLE_NAME_AD_FEED_SETTINGS, null, "feed_id = ?",
+                new String[]{String.valueOf(feedId)}, null, null, null)) {
+            AdFeedSettings settings = new AdFeedSettings(feedId);
+            if (cursor.moveToFirst()) {
+                settings.setEnabled(cursor.getInt(cursor.getColumnIndexOrThrow("enabled")) != 0);
+                settings.setWindowSize(cursor.getInt(cursor.getColumnIndexOrThrow("window_size")));
+            }
+            return settings;
+        } finally {
+            adapter.close();
+        }
+    }
+
+    public static synchronized List<AdFingerprintRow> getAdFingerprints(long feedId, int limit) {
+        PodDBAdapter adapter = PodDBAdapter.getInstance();
+        adapter.open();
+        List<AdFingerprintRow> out = new ArrayList<>();
+        String sql = "SELECT f.media_id, m." + PodDBAdapter.KEY_DURATION + ", f.algo_version, f.stride, f.frames,"
+                + " f.audio_size, f.audio_modified, f.blob FROM " + PodDBAdapter.TABLE_NAME_AD_FINGERPRINTS + " f"
+                + " JOIN " + PodDBAdapter.TABLE_NAME_FEED_MEDIA + " m ON m." + PodDBAdapter.KEY_ID + " = f.media_id"
+                + " JOIN " + PodDBAdapter.TABLE_NAME_FEED_ITEMS + " i ON m." + PodDBAdapter.KEY_FEEDITEM
+                + " = i." + PodDBAdapter.KEY_ID
+                + " WHERE i." + PodDBAdapter.KEY_FEED + " = ? ORDER BY i." + PodDBAdapter.KEY_PUBDATE
+                + " DESC LIMIT " + Math.max(1, limit);
+        try (Cursor cursor = adapter.getDatabase().rawQuery(sql, new String[]{String.valueOf(feedId)})) {
+            while (cursor.moveToNext()) {
+                AdFingerprintRow row = new AdFingerprintRow();
+                row.setMediaId(cursor.getLong(0));
+                row.setDurationMs(cursor.getLong(1));
+                row.setAlgoVersion(cursor.getInt(2));
+                row.setStride(cursor.getInt(3));
+                row.setFrames(cursor.getInt(4));
+                row.setAudioSize(cursor.getLong(5));
+                row.setAudioModified(cursor.getLong(6));
+                row.setBlob(cursor.getBlob(7));
+                out.add(row);
+            }
+        } finally {
+            adapter.close();
+        }
+        return out;
+    }
+
+    public static synchronized List<FeedMedia> getLatestMediaForAdScan(long feedId, int limit) {
+        PodDBAdapter adapter = PodDBAdapter.getInstance();
+        adapter.open();
+        List<Long> ids = new ArrayList<>();
+        String sql = "SELECT m." + PodDBAdapter.KEY_ID + " FROM " + PodDBAdapter.TABLE_NAME_FEED_MEDIA + " m"
+                + " JOIN " + PodDBAdapter.TABLE_NAME_FEED_ITEMS + " i ON m." + PodDBAdapter.KEY_FEEDITEM
+                + " = i." + PodDBAdapter.KEY_ID + " WHERE i." + PodDBAdapter.KEY_FEED + " = ? ORDER BY i."
+                + PodDBAdapter.KEY_PUBDATE + " DESC LIMIT " + Math.max(1, limit);
+        try (Cursor cursor = adapter.getDatabase().rawQuery(sql, new String[]{String.valueOf(feedId)})) {
+            while (cursor.moveToNext()) {
+                ids.add(cursor.getLong(0));
+            }
+        } finally {
+            adapter.close();
+        }
+        List<FeedMedia> out = new ArrayList<>();
+        for (long id : ids) {
+            FeedMedia media = getFeedMedia(id);
+            if (media != null) {
+                out.add(media);
+            }
+        }
+        return out;
     }
 }

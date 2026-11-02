@@ -31,6 +31,8 @@ import de.danoeh.antennapod.event.MessageEvent;
 import de.danoeh.antennapod.event.settings.SkipIntroEndingChangedEvent;
 import de.danoeh.antennapod.event.settings.SpeedPresetChangedEvent;
 import de.danoeh.antennapod.event.settings.VolumeAdaptionChangedEvent;
+import de.danoeh.antennapod.ad.AdScanScheduler;
+import de.danoeh.antennapod.model.feed.AdFeedSettings;
 import de.danoeh.antennapod.model.feed.Feed;
 import de.danoeh.antennapod.model.feed.FeedFilter;
 import de.danoeh.antennapod.model.feed.FeedPreferences;
@@ -71,6 +73,7 @@ public class FeedSettingsPreferenceFragment extends PreferenceFragmentCompat {
     private static final String PREF_TAGS = "tags";
     private static final String PREF_EDIT_FEED_URL = "editFeedUrl";
     private static final String PREF_RECONNECT_LOCAL_FOLDER = "reconnectLocalFolder";
+    private static final String PREF_AD_DETECTION = "adDetection";
 
     private Feed feed;
     private Disposable disposable;
@@ -305,6 +308,39 @@ public class FeedSettingsPreferenceFragment extends PreferenceFragmentCompat {
             alert.setNegativeButton(android.R.string.cancel, null);
             alert.show();
             return true;
+        });
+        setupAdDetection();
+    }
+
+    private void setupAdDetection() {
+        SwitchPreferenceCompat preference = findPreference(PREF_AD_DETECTION);
+        if (preference == null) {
+            return;
+        }
+        preference.setEnabled(false);
+        long feedId = feed.getId();
+        Schedulers.io().scheduleDirect(() -> {
+            AdFeedSettings settings = DBReader.getAdFeedSettings(feedId);
+            if (getActivity() == null) {
+                return;
+            }
+            getActivity().runOnUiThread(() -> {
+                preference.setEnabled(true);
+                preference.setChecked(settings.isEnabled());
+                preference.setOnPreferenceChangeListener((changed, value) -> {
+                    boolean enabled = Boolean.TRUE.equals(value);
+                    AdFeedSettings updated = new AdFeedSettings(feedId);
+                    updated.setEnabled(enabled);
+                    updated.setWindowSize(settings.getWindowSize());
+                    DBWriter.saveAdFeedSettings(updated);
+                    if (enabled) {
+                        AdScanScheduler.enable(getContext(), feedId);
+                    } else {
+                        AdScanScheduler.disable(getContext(), feedId);
+                    }
+                    return true;
+                });
+            });
         });
     }
 

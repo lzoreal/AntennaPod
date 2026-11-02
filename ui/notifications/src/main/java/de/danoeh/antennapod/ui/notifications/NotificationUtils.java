@@ -1,9 +1,11 @@
 package de.danoeh.antennapod.ui.notifications;
 
+import android.app.Notification;
 import android.content.Context;
 
 import androidx.core.app.NotificationChannelCompat;
 import androidx.core.app.NotificationChannelGroupCompat;
+import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 
 import java.util.Arrays;
@@ -19,6 +21,7 @@ public class NotificationUtils {
     public static final String CHANNEL_ID_DOWNLOAD_ERROR = "error";
     public static final String CHANNEL_ID_SYNC_ERROR = "sync_error";
     public static final String CHANNEL_ID_EPISODE_NOTIFICATIONS = "episode_notifications";
+    public static final String CHANNEL_ID_AD_SCAN = "ad_scan";
 
     public static final String GROUP_ID_ERRORS = "group_errors";
     public static final String GROUP_ID_NEWS = "group_news";
@@ -38,7 +41,8 @@ public class NotificationUtils {
                 createChannelPlaying(context),
                 createChannelError(context),
                 createChannelSyncError(context),
-                createChannelEpisodeNotification(context));
+                createChannelEpisodeNotification(context),
+                createChannelAdScan(context));
         mNotificationManager.createNotificationChannelsCompat(channels);
     }
 
@@ -112,6 +116,23 @@ public class NotificationUtils {
                 .setName(c.getString(R.string.notification_channel_new_episode))
                 .setDescription(c.getString(R.string.notification_channel_new_episode_description))
                 .setGroup(GROUP_ID_NEWS)
+                .build();
+    }
+
+    private static NotificationChannelCompat createChannelAdScan(final Context c) {
+        return new NotificationChannelCompat.Builder(CHANNEL_ID_AD_SCAN, NotificationManagerCompat.IMPORTANCE_LOW)
+                .setName(c.getString(R.string.ad_scan_notification_title))
+                .setShowBadge(false)
+                .build();
+    }
+
+    public static Notification createAdScanNotification(Context context, int episodeIndex) {
+        return new NotificationCompat.Builder(context, CHANNEL_ID_AD_SCAN)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(context.getString(R.string.ad_scan_notification_title))
+                .setContentText(context.getString(R.string.ad_scan_notification_text, episodeIndex))
+                .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build();
     }
 

@@ -355,6 +355,12 @@ class DBUpgrader {
             db.execSQL("DELETE FROM " + PodDBAdapter.TABLE_NAME_FAVORITES + " WHERE " + PodDBAdapter.KEY_FEEDITEM
                     + " NOT IN (SELECT " + PodDBAdapter.KEY_ID + " FROM " + PodDBAdapter.TABLE_NAME_FEED_ITEMS + ")");
         }
+        if (oldVersion < 3120000) {
+            db.execSQL(PodDBAdapter.CREATE_TABLE_AD_FINGERPRINTS);
+            db.execSQL(PodDBAdapter.CREATE_TABLE_AD_SEGMENTS);
+            db.execSQL(PodDBAdapter.CREATE_TABLE_AD_FEED_SETTINGS);
+            db.execSQL(PodDBAdapter.CREATE_INDEX_AD_SEGMENTS_MEDIA);
+        }
     }
 
 }

@@ -1132,4 +1132,11 @@
     <string name="wearos_open_on_phone" tools:ignore="UnusedResources">Open on phone</string>
     <string name="immersive_mode">Immersive mode</string>
     <string name="toggle_translation">Toggle translation</string>
+    <string name="ad_scan_notification_title">Detecting ads</string>
+    <string name="ad_scan_notification_text">Analyzing episode %1$d</string>
+    <string name="ad_skipped_message">Skipped %1$d s of ads</string>
+    <string name="ad_detection_pref">Detect and skip ads</string>
+    <string name="ad_detection_pref_summary">Uses local fingerprinting. Opening this downloads up to 2 episodes for analysis (Wi-Fi only).</string>
+    <string name="ad_skip_disable_episode">Do not skip ads in this episode</string>
+    <string name="ad_skip_disabled_toast">Ad skipping disabled for this episode</string>
 </resources>

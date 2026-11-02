@@ -10,6 +10,7 @@ import android.util.Log;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
+import android.widget.Toast;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
@@ -34,7 +35,9 @@ import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 
 import de.danoeh.antennapod.model.feed.Feed;
+import de.danoeh.antennapod.model.feed.AdSegment;
 import de.danoeh.antennapod.playback.service.PlaybackController;
+import de.danoeh.antennapod.playback.service.internal.AdSkipCommand;
 import de.danoeh.antennapod.playback.service.PlaybackService;
 import de.danoeh.antennapod.playback.service.PlaybackServiceStarter;
 import de.danoeh.antennapod.storage.database.DBReader;
@@ -118,6 +121,8 @@ public class AudioPlayerFragment extends Fragment implements
     private View playerControl;
 
     private FeedMedia currentMedia;
+    private boolean adSegmentsAvailable;
+    private long adSegmentsCheckedMediaId = -1;
     private Disposable disposable;
     private boolean showTimeLeft;
     private boolean seekedToChapterStart = false;
@@ -221,6 +226,32 @@ public class AudioPlayerFragment extends Fragment implements
             floatingItem.setVisible(hasTranscript);
             updateFloatingTranscriptButton();
         }
+
+        refreshAdSegmentsAvailability(currentMedia);
+        MenuItem adItem = toolbar.getMenu().findItem(R.id.ad_skip_disable_episode);
+        if (adItem != null) {
+            adItem.setVisible(adSegmentsAvailable);
+        }
+    }
+
+    private void refreshAdSegmentsAvailability(FeedMedia media) {
+        if (media == null || media.getId() == adSegmentsCheckedMediaId) {
+            return;
+        }
+        adSegmentsCheckedMediaId = media.getId();
+        long mediaId = media.getId();
+        Schedulers.io().scheduleDirect(() -> {
+            boolean has = !DBReader.getAdSegments(mediaId).isEmpty();
+            if (getActivity() != null) {
+                getActivity().runOnUiThread(() -> {
+                    adSegmentsAvailable = has;
+                    MenuItem adItem = toolbar.getMenu().findItem(R.id.ad_skip_disable_episode);
+                    if (adItem != null) {
+                        adItem.setVisible(adSegmentsAvailable);
+                    }
+                });
+            }
+        });
     }
 
     private void updateControlsBarButton() {
@@ -777,6 +808,11 @@ public class AudioPlayerFragment extends Fragment implements
         final int itemId = item.getItemId();
         if (itemId == R.id.disable_sleeptimer_item || itemId == R.id.set_sleeptimer_item) {
             new SleepTimerDialog().show(getChildFragmentManager(), "SleepTimerDialog");
+            return true;
+        } else if (itemId == R.id.ad_skip_disable_episode) {
+            DBWriter.setAllAdSegmentsState(currentMedia.getId(), AdSegment.STATE_DISABLED);
+            AdSkipCommand.disableAll(requireContext());
+            Toast.makeText(requireContext(), R.string.ad_skip_disabled_toast, Toast.LENGTH_SHORT).show();
             return true;
         } else if (itemId == R.id.transcript_item) {
             scrollToPage(POS_TRANSCRIPT, true);

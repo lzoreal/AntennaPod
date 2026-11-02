@@ -1,15 +1,21 @@
 package de.danoeh.antennapod.playback.service;
 
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.media.audiofx.LoudnessEnhancer;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.webkit.URLUtil;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.OptIn;
+import androidx.core.content.ContextCompat;
 import androidx.core.util.Pair;
 import androidx.media3.common.DeviceInfo;
 import androidx.media3.common.ForwardingPlayer;
@@ -28,6 +34,9 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import de.danoeh.antennapod.event.MessageEvent;
+import de.danoeh.antennapod.model.feed.AdSegment;
+import de.danoeh.antennapod.playback.service.internal.AdSkipCommand;
+import de.danoeh.antennapod.playback.service.internal.AdSkipController;
 import de.danoeh.antennapod.event.FeedItemEvent;
 import de.danoeh.antennapod.event.PlayerErrorEvent;
 import de.danoeh.antennapod.event.StreamingConfirmationEvent;
@@ -103,12 +112,59 @@ public class Media3PlaybackService extends MediaLibraryService {
     @Nullable
     private LoudnessEnhancer loudnessEnhancer = null;
     private float volumeAdaptionFactor = 1.0f;
+    private final Handler adSkipHandler = new Handler(Looper.getMainLooper());
+    private AdSkipController adSkipController;
+    private long adSkipMediaId = -1;
+    private final Runnable adSkipTick = new Runnable() {
+        @Override
+        public void run() {
+            if (adSkipController != null && exoPlayer != null && exoPlayer.isPlaying() && !isCasting()) {
+                Long target = adSkipController.skipAt(exoPlayer.getCurrentPosition());
+                if (target != null) {
+                    exoPlayer.seekTo(target);
+                    AdSegment skipped = adSkipController.lastSkipped();
+                    Log.d(TAG, "Skipped ad to " + target);
+                    if (skipped != null) {
+                        int seconds = Math.max(1, (skipped.getEndMs() - skipped.getStartMs()) / 1000);
+                        EventBus.getDefault().post(new MessageEvent(
+                                getString(R.string.ad_skipped_message, seconds),
+                                ctx -> AdSkipCommand.undo(getApplicationContext()),
+                                getString(R.string.undo)));
+                    }
+                }
+                adSkipHandler.postDelayed(this, 250);
+            }
+        }
+    };
+    private final BroadcastReceiver adSkipReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (adSkipController == null) {
+                return;
+            }
+            if (AdSkipCommand.ACTION_UNDO.equals(intent.getAction())) {
+                AdSegment skipped = adSkipController.lastSkipped();
+                if (skipped != null && exoPlayer != null) {
+                    exoPlayer.seekTo(skipped.getStartMs());
+                }
+                adSkipController.undoLast();
+            } else if (AdSkipCommand.ACTION_DISABLE_ALL.equals(intent.getAction())
+                    && currentPlayable != null) {
+                adSkipController.disableAllForMedia(currentPlayable.getId());
+            }
+        }
+    };
 
     @UnstableApi
     @Override
     public void onCreate() {
         super.onCreate();
         EventBus.getDefault().register(this);
+        IntentFilter adSkipFilter = new IntentFilter();
+        adSkipFilter.addAction(AdSkipCommand.ACTION_UNDO);
+        adSkipFilter.addAction(AdSkipCommand.ACTION_DISABLE_ALL);
+        ContextCompat.registerReceiver(this, adSkipReceiver, adSkipFilter,
+                ContextCompat.RECEIVER_NOT_EXPORTED);
         DefaultMediaNotificationProvider notificationProvider = new DefaultMediaNotificationProvider(this,
                 session -> R.id.notification_playing,
                 NotificationUtils.CHANNEL_ID_PLAYING, R.string.notification_channel_playing);
@@ -390,6 +446,11 @@ public class Media3PlaybackService extends MediaLibraryService {
                     || playbackState == Player.STATE_ENDED) {
                 saveCurrentPosition();
             }
+            if (playbackState == Player.STATE_READY && player.getPlayWhenReady()
+                    && adSkipController != null) {
+                adSkipHandler.removeCallbacks(adSkipTick);
+                adSkipHandler.postDelayed(adSkipTick, 250);
+            }
             if (playbackState == Player.STATE_ENDED && currentPlayable != null) {
                 handlePlaybackEnded();
                 stopFloatingTranscript();
@@ -407,6 +468,9 @@ public class Media3PlaybackService extends MediaLibraryService {
             }
             checkpointPlayedDuration((int) oldPosition.positionMs);
             playedDurationCountedUntil = (int) newPosition.positionMs;
+            if (adSkipController != null) {
+                adSkipController.onUserSeek(newPosition.positionMs);
+            }
         }
 
         @Override
@@ -418,6 +482,10 @@ public class Media3PlaybackService extends MediaLibraryService {
         @Override
         public void onIsPlayingChanged(boolean isPlaying) {
             PlaybackService.isRunning = !Util.shouldShowPlayButton(player);
+            if (isPlaying && adSkipController != null) {
+                adSkipHandler.removeCallbacks(adSkipTick);
+                adSkipHandler.postDelayed(adSkipTick, 250);
+            }
             if (isPlaying && player.getCurrentMediaItem() != null) {
                 playedMediaId = player.getCurrentMediaItem().mediaId;
                 saveCurrentPosition();
@@ -525,6 +593,8 @@ public class Media3PlaybackService extends MediaLibraryService {
         if (mediaSession != null) {
             mediaSession.release();
         }
+        adSkipHandler.removeCallbacks(adSkipTick);
+        unregisterReceiver(adSkipReceiver);
         // Stop the floating transcript
         stopFloatingTranscript();
         UserPreferences.unregisterFloatingTranscriptListener(transcriptPrefListener);
@@ -645,6 +715,12 @@ public class Media3PlaybackService extends MediaLibraryService {
     @OptIn(markerClass = UnstableApi.class)
     private void switchToPlayable(FeedMedia media) {
         currentPlayable = media;
+        if (media.getId() != adSkipMediaId) {
+            adSkipMediaId = media.getId();
+            adSkipHandler.removeCallbacks(adSkipTick);
+            adSkipController = new AdSkipController(this, media.getId());
+        }
+        adSkipHandler.postDelayed(adSkipTick, 250);
         playbackStartPosition = Math.max(currentPlayable.getPosition(), 0);
         playedDurationCountedUntil = playbackStartPosition;
 

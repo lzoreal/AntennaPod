@@ -1,8 +1,10 @@
 package de.danoeh.antennapod.storage.database;
 
 import android.app.backup.BackupManager;
+import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
 import android.util.Log;
 
@@ -44,6 +46,9 @@ import de.danoeh.antennapod.storage.preferences.PlaybackPreferences;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.model.download.DownloadResult;
 import de.danoeh.antennapod.model.feed.Feed;
+import de.danoeh.antennapod.model.feed.AdFeedSettings;
+import de.danoeh.antennapod.model.feed.AdFingerprintRow;
+import de.danoeh.antennapod.model.feed.AdSegment;
 import de.danoeh.antennapod.model.feed.FeedItem;
 import de.danoeh.antennapod.model.feed.FeedMedia;
 import de.danoeh.antennapod.model.feed.FeedPreferences;
@@ -181,6 +186,8 @@ public class DBWriter {
             // delete feed
             PodDBAdapter adapter = PodDBAdapter.getInstance();
             adapter.open();
+            adapter.getDatabase().delete(PodDBAdapter.TABLE_NAME_AD_FEED_SETTINGS,
+                    "feed_id = ?", new String[]{String.valueOf(feed.getId())});
             adapter.removeFeed(feed);
             adapter.close();
 
@@ -213,6 +220,7 @@ public class DBWriter {
                 removedFromQueue.add(item);
             }
             if (item.getMedia() != null) {
+                deleteAdDataSync(item.getMedia().getId());
                 UserPreferences.removeTranscriptTimeOffset(item.getMedia().getId());
                 if (item.getMedia().getId() == PlaybackPreferences.getCurrentlyPlayingFeedMediaId()) {
                     // Applies to both downloaded and streamed media
@@ -982,6 +990,116 @@ public class DBWriter {
         } else {
             Log.w(TAG, "removeFeedWithDownloadUrl: Could not find feed with url: " + downloadUrl);
         }
+    }
+
+    public static Future<?> saveAdFingerprint(AdFingerprintRow row) {
+        return runOnDbThread(() -> {
+            PodDBAdapter adapter = PodDBAdapter.getInstance();
+            adapter.open();
+            ContentValues values = new ContentValues();
+            values.put("media_id", row.getMediaId());
+            values.put("algo_version", row.getAlgoVersion());
+            values.put("stride", row.getStride());
+            values.put("frames", row.getFrames());
+            values.put("entry_count", 0);
+            values.put("audio_size", row.getAudioSize());
+            values.put("audio_modified", row.getAudioModified());
+            values.put("blob", row.getBlob());
+            adapter.getDatabase().insertWithOnConflict(
+                    PodDBAdapter.TABLE_NAME_AD_FINGERPRINTS, null, values, SQLiteDatabase.CONFLICT_REPLACE);
+            adapter.close();
+        });
+    }
+
+    public static Future<?> replaceAdSegments(long mediaId, List<AdSegment> segments) {
+        return runOnDbThread(() -> {
+            PodDBAdapter adapter = PodDBAdapter.getInstance();
+            adapter.open();
+            SQLiteDatabase db = adapter.getDatabase();
+            db.beginTransaction();
+            try {
+                db.delete(PodDBAdapter.TABLE_NAME_AD_SEGMENTS,
+                        "media_id = ? AND state = 0", new String[]{String.valueOf(mediaId)});
+                for (AdSegment segment : segments) {
+                    ContentValues values = new ContentValues();
+                    values.put("media_id", mediaId);
+                    values.put("start_ms", segment.getStartMs());
+                    values.put("end_ms", segment.getEndMs());
+                    values.put("kind", segment.getKind());
+                    values.put("tier", segment.getTier());
+                    values.put("match_ratio", segment.getMatchRatio());
+                    values.put("support", segment.getSupport());
+                    values.put("state", AdSegment.STATE_ACTIVE);
+                    values.put("created_at", System.currentTimeMillis());
+                    db.insert(PodDBAdapter.TABLE_NAME_AD_SEGMENTS, null, values);
+                }
+                db.setTransactionSuccessful();
+            } finally {
+                db.endTransaction();
+                adapter.close();
+            }
+        });
+    }
+
+    public static Future<?> setAdSegmentState(long segmentId, int state) {
+        return runOnDbThread(() -> {
+            PodDBAdapter adapter = PodDBAdapter.getInstance();
+            adapter.open();
+            ContentValues values = new ContentValues();
+            values.put("state", state);
+            adapter.getDatabase().update(PodDBAdapter.TABLE_NAME_AD_SEGMENTS, values,
+                    "id = ?", new String[]{String.valueOf(segmentId)});
+            adapter.close();
+        });
+    }
+
+    public static Future<?> setAllAdSegmentsState(long mediaId, int state) {
+        return runOnDbThread(() -> {
+            PodDBAdapter adapter = PodDBAdapter.getInstance();
+            adapter.open();
+            ContentValues values = new ContentValues();
+            values.put("state", state);
+            adapter.getDatabase().update(PodDBAdapter.TABLE_NAME_AD_SEGMENTS, values,
+                    "media_id = ?", new String[]{String.valueOf(mediaId)});
+            adapter.close();
+        });
+    }
+
+    public static Future<?> saveAdFeedSettings(AdFeedSettings settings) {
+        return runOnDbThread(() -> {
+            PodDBAdapter adapter = PodDBAdapter.getInstance();
+            adapter.open();
+            ContentValues values = new ContentValues();
+            values.put("feed_id", settings.getFeedId());
+            values.put("enabled", settings.isEnabled() ? 1 : 0);
+            values.put("window_size", settings.getWindowSize());
+            values.put("last_scan_at", System.currentTimeMillis());
+            adapter.getDatabase().insertWithOnConflict(
+                    PodDBAdapter.TABLE_NAME_AD_FEED_SETTINGS, null, values, SQLiteDatabase.CONFLICT_REPLACE);
+            adapter.close();
+        });
+    }
+
+    public static Future<?> deleteAdDataForMedia(long mediaId) {
+        return runOnDbThread(() -> {
+            PodDBAdapter adapter = PodDBAdapter.getInstance();
+            adapter.open();
+            adapter.getDatabase().delete(PodDBAdapter.TABLE_NAME_AD_SEGMENTS,
+                    "media_id = ?", new String[]{String.valueOf(mediaId)});
+            adapter.getDatabase().delete(PodDBAdapter.TABLE_NAME_AD_FINGERPRINTS,
+                    "media_id = ?", new String[]{String.valueOf(mediaId)});
+            adapter.close();
+        });
+    }
+
+    private static void deleteAdDataSync(long mediaId) {
+        PodDBAdapter adapter = PodDBAdapter.getInstance();
+        adapter.open();
+        adapter.getDatabase().delete(PodDBAdapter.TABLE_NAME_AD_SEGMENTS,
+                "media_id = ?", new String[]{String.valueOf(mediaId)});
+        adapter.getDatabase().delete(PodDBAdapter.TABLE_NAME_AD_FINGERPRINTS,
+                "media_id = ?", new String[]{String.valueOf(mediaId)});
+        adapter.close();
     }
 
     /**
