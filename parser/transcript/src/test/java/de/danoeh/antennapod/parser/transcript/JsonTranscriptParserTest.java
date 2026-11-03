@@ -148,6 +148,71 @@ public class JsonTranscriptParserTest {
     }
 
     @Test
+    public void testOfficialJsonWithWordsExtensionKeepsWordTimings() {
+        String json = "{\"version\":\"1.0.0\",\"audio_seconds\":24.0,\"segments\":["
+                + "{\"speaker\":\"Alice\",\"startTime\":0.88,\"endTime\":23.4,"
+                + "\"body\":\"From WBEZ Chicago.\","
+                + "\"words\":[[\"From\",1120,320],[\"WBEZ\",1440,400],[\"Chicago.\",1840,560]]},"
+                + "{\"speaker\":\"Alice\",\"startTime\":23.4,\"endTime\":23.9,"
+                + "\"body\":\"Yes.\",\"words\":[]}]}";
+
+        Transcript result = JsonTranscriptParser.parse(json);
+
+        assertNotNull(result);
+        assertTrue(result.hasWordTimings());
+        assertEquals(24000L, result.getAudioDurationMs());
+        assertEquals(2, result.getSegmentCount());
+        TranscriptSegment segment = result.getSegmentAt(0);
+        assertEquals(880L, segment.getStartTime());
+        assertEquals(23400L, segment.getEndTime());
+        assertEquals("Alice", segment.getSpeaker());
+        assertEquals(3, segment.getWordTimings().size());
+        TranscriptWord first = segment.getWordTimings().get(0);
+        assertEquals("From", segment.getWords().substring(
+                first.getStartChar(), first.getEndChar()));
+        assertEquals(1120L, first.getStartTime());
+        assertEquals(1440L, first.getEndTime());
+        TranscriptSegment annotation = result.getSegmentAt(1);
+        assertEquals(23400L, annotation.getStartTime());
+        assertEquals(23900L, annotation.getEndTime());
+        assertTrue(!annotation.hasWordTimings());
+    }
+
+    @Test
+    public void testOfficialJsonUsesWordsFromAnySegment() {
+        String json = "{\"version\":\"1.0.0\",\"segments\":["
+                + "{\"startTime\":0.0,\"endTime\":1.0,\"body\":\"Intro.\"},"
+                + "{\"startTime\":1.0,\"endTime\":2.0,\"body\":\"Hello world.\","
+                + "\"words\":[[\"Hello\",1000,300],[\"world.\",1300,700]]}]}";
+
+        Transcript result = JsonTranscriptParser.parse(json);
+
+        assertNotNull(result);
+        assertTrue(result.hasWordTimings());
+        assertEquals(2, result.getSegmentCount());
+        assertEquals(0L, result.getSegmentAt(0).getStartTime());
+        assertEquals(1000L, result.getSegmentAt(1).getStartTime());
+        assertEquals(2, result.getSegmentAt(1).getWordTimings().size());
+    }
+
+    @Test
+    public void testOfficialFieldsTakePrecedenceInHybridJson() {
+        String json = "{\"segments\":[{"
+                + "\"startTime\":1.5,\"endTime\":3.0,\"body\":\"Official body.\","
+                + "\"start\":9999,\"end\":19999,\"text\":\"Fork body.\","
+                + "\"words\":[[\"Official\",1500,500],[\"body.\",2000,1000]]}]}";
+
+        Transcript result = JsonTranscriptParser.parse(json);
+
+        assertNotNull(result);
+        TranscriptSegment segment = result.getSegmentAt(0);
+        assertEquals(1500L, segment.getStartTime());
+        assertEquals(3000L, segment.getEndTime());
+        assertEquals("Official body.", segment.getWords());
+        assertEquals(2, segment.getWordTimings().size());
+    }
+
+    @Test
     public void testTimedJsonDropsUntrustedDuplicateWords() {
         String json = "{\"segments\":[{\"start\":0,\"end\":5000,\"speaker\":\"Alice\","
                 + "\"text\":\"partner, you will get more.\","

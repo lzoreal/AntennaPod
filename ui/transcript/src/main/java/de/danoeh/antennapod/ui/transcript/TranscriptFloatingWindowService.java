@@ -10,6 +10,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -47,6 +48,9 @@ public class TranscriptFloatingWindowService extends Service {
     private static final String ACTION_SHOW = "de.danoeh.antennapod.action.SHOW_FLOATING_TRANSCRIPT";
     private static final String EXTRA_MEDIA_ID = "extra_media_id";
     private static final long CONTROLS_HIDE_DELAY_MS = 4000;
+    /** The playback service only posts a position event once per second; poll in between so the
+     *  floating window keeps up with the transcript page, which refreshes every 100-250 ms. */
+    private static final long POSITION_TICK_INTERVAL_MS = 100;
 
     private WindowManager windowManager;
     private View floatingView;
@@ -70,12 +74,31 @@ public class TranscriptFloatingWindowService extends Service {
     private int[] sentenceCacheStarts;
     private int[] translationCacheStarts;
     private volatile long lastPlaybackPosition = -1;
+    private long positionBase = -1;
+    private long positionBaseRealtime = -1;
+    private float playbackSpeed = 1f;
     private boolean playing;
     private boolean positionLocked;
     private boolean windowHidden = true;
     private boolean controlsWereVisible;
+    private boolean positionTickRunning;
     private final Handler controlsHandler = new Handler(Looper.getMainLooper());
+    private final Handler positionTickHandler = new Handler(Looper.getMainLooper());
     private final Runnable hideControlsRunnable = () -> setControlsVisible(false);
+    private final Runnable positionTick = new Runnable() {
+        @Override
+        public void run() {
+            positionTickRunning = false;
+            if (!playing || windowHidden || transcript == null) {
+                return;
+            }
+            lastPlaybackPosition = estimatedPosition();
+            updateTranscript(false);
+            if (playing && !windowHidden) {
+                startPositionTick();
+            }
+        }
+    };
     private final SharedPreferences.OnSharedPreferenceChangeListener languageModeListener =
             (sharedPreferences, key) -> {
                 if (UserPreferences.PREF_TRANSCRIPT_LANGUAGE_MODE.equals(key)
@@ -366,6 +389,8 @@ public class TranscriptFloatingWindowService extends Service {
         if (!keepPosition) {
             transcript = null;
             lastPlaybackPosition = -1;
+            positionBase = -1;
+            positionBaseRealtime = -1;
             currentFeedId = -1;
             hideTranscript();
         }
@@ -397,6 +422,8 @@ public class TranscriptFloatingWindowService extends Service {
                     currentFeedId = media.getItem().getFeedId();
                     if (lastPlaybackPosition < 0) {
                         lastPlaybackPosition = Math.max(0, media.getPosition());
+                        positionBase = lastPlaybackPosition;
+                        positionBaseRealtime = SystemClock.elapsedRealtime();
                     }
                     Transcript loaded = media.getTranscript();
                     if (loaded == null || loaded.getSegmentCount() == 0) {
@@ -422,8 +449,42 @@ public class TranscriptFloatingWindowService extends Service {
         if (event.getPosition() < 0) {
             return;
         }
-        lastPlaybackPosition = event.getPosition();
+        long now = SystemClock.elapsedRealtime();
+        if (positionBaseRealtime > 0) {
+            long elapsed = now - positionBaseRealtime;
+            long advanced = event.getPosition() - positionBase;
+            if (elapsed >= 200 && elapsed <= 3000 && advanced > 0) {
+                // Calibrate from the events themselves, so variable playback speed and
+                // skip-silence do not make the extrapolation drift.
+                playbackSpeed = Math.max(0.5f, Math.min(advanced / (float) elapsed, 4f));
+            }
+        }
+        positionBase = event.getPosition();
+        positionBaseRealtime = now;
+        lastPlaybackPosition = positionBase;
         updateTranscript(false);
+    }
+
+    /** Position between two position events, extrapolated from the calibrated speed. */
+    private long estimatedPosition() {
+        if (positionBaseRealtime < 0 || !playing) {
+            return lastPlaybackPosition;
+        }
+        long elapsed = SystemClock.elapsedRealtime() - positionBaseRealtime;
+        return positionBase + (long) (elapsed * playbackSpeed);
+    }
+
+    private void startPositionTick() {
+        if (positionTickRunning) {
+            return;
+        }
+        positionTickRunning = true;
+        positionTickHandler.postDelayed(positionTick, POSITION_TICK_INTERVAL_MS);
+    }
+
+    private void stopPositionTick() {
+        positionTickRunning = false;
+        positionTickHandler.removeCallbacks(positionTick);
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
@@ -440,6 +501,9 @@ public class TranscriptFloatingWindowService extends Service {
                 == PlaybackPreferences.PLAYER_STATUS_PLAYING;
         if (playingNow != playing) {
             playing = playingNow;
+            if (!playingNow) {
+                stopPositionTick();
+            }
             updateTranscript(true);
         }
     }
@@ -511,6 +575,9 @@ public class TranscriptFloatingWindowService extends Service {
             floatingView.setVisibility(View.VISIBLE);
             setControlsVisible(false);
             floatingView.post(this::clampPosition);
+        }
+        if (playing) {
+            startPositionTick();
         }
         if (showPrimary) {
             int sentenceStart = sentenceStarts[sentenceIndex];
@@ -606,6 +673,7 @@ public class TranscriptFloatingWindowService extends Service {
             floatingView.setVisibility(View.GONE);
         }
         windowHidden = true;
+        stopPositionTick();
         setControlsVisible(false);
         setTouchable(false);
     }
@@ -635,6 +703,7 @@ public class TranscriptFloatingWindowService extends Service {
     public void onDestroy() {
         super.onDestroy();
         controlsHandler.removeCallbacks(hideControlsRunnable);
+        stopPositionTick();
         EventBus.getDefault().unregister(this);
         UserPreferences.unregisterFloatingTranscriptListener(languageModeListener);
         if (loadDisposable != null && !loadDisposable.isDisposed()) {

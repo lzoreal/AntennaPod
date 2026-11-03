@@ -3,6 +3,7 @@ package de.danoeh.antennapod.model.feed;
 public class AdFeedSettings {
     private final long feedId;
     private boolean enabled;
+    private boolean aggressive;
     private int windowSize = 8;
 
     public AdFeedSettings(long feedId) {
@@ -19,6 +20,14 @@ public class AdFeedSettings {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public boolean isAggressive() {
+        return aggressive;
+    }
+
+    public void setAggressive(boolean aggressive) {
+        this.aggressive = aggressive;
     }
 
     public int getWindowSize() {

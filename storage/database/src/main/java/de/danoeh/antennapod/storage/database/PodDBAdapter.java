@@ -55,7 +55,7 @@ public class PodDBAdapter {
 
     private static final String TAG = "PodDBAdapter";
     public static final String DATABASE_NAME = "Antennapod.db";
-    public static final int VERSION = 3120000;
+    public static final int VERSION = 3130100;
 
     /**
      * Maximum number of arguments for IN-operator.
@@ -139,6 +139,7 @@ public class PodDBAdapter {
     public static final String TABLE_NAME_SIMPLECHAPTERS = "SimpleChapters";
     public static final String TABLE_NAME_FAVORITES = "Favorites";
     public static final String TABLE_NAME_AD_FINGERPRINTS = "ad_fingerprints";
+    public static final String TABLE_NAME_AD_CHUNK_FINGERPRINTS = "ad_chunk_fingerprints";
     public static final String TABLE_NAME_AD_SEGMENTS = "ad_segments";
     public static final String TABLE_NAME_AD_FEED_SETTINGS = "ad_feed_settings";
 
@@ -259,6 +260,11 @@ public class PodDBAdapter {
             + " frames INTEGER NOT NULL, entry_count INTEGER NOT NULL, audio_size INTEGER NOT NULL,"
             + " audio_modified INTEGER NOT NULL, blob BLOB NOT NULL)";
 
+    static final String CREATE_TABLE_AD_CHUNK_FINGERPRINTS = "CREATE TABLE " + TABLE_NAME_AD_CHUNK_FINGERPRINTS
+            + " (media_id INTEGER NOT NULL, start_frame INTEGER NOT NULL, frames INTEGER NOT NULL,"
+            + " stride INTEGER NOT NULL, blob BLOB NOT NULL, created_at INTEGER NOT NULL,"
+            + " PRIMARY KEY (media_id, start_frame))";
+
     static final String CREATE_TABLE_AD_SEGMENTS = "CREATE TABLE " + TABLE_NAME_AD_SEGMENTS
             + " (id INTEGER PRIMARY KEY AUTOINCREMENT, media_id INTEGER NOT NULL, start_ms INTEGER NOT NULL,"
             + " end_ms INTEGER NOT NULL, kind INTEGER NOT NULL, tier INTEGER NOT NULL, match_ratio REAL NOT NULL,"
@@ -266,6 +272,7 @@ public class PodDBAdapter {
 
     static final String CREATE_TABLE_AD_FEED_SETTINGS = "CREATE TABLE " + TABLE_NAME_AD_FEED_SETTINGS
             + " (feed_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0,"
+            + " aggressive INTEGER NOT NULL DEFAULT 0,"
             + " window_size INTEGER NOT NULL DEFAULT 8, last_scan_at INTEGER)";
 
     static final String CREATE_INDEX_AD_SEGMENTS_MEDIA = "CREATE INDEX ad_segments_media ON "
@@ -283,6 +290,7 @@ public class PodDBAdapter {
             TABLE_NAME_SIMPLECHAPTERS,
             TABLE_NAME_FAVORITES,
             TABLE_NAME_AD_FINGERPRINTS,
+            TABLE_NAME_AD_CHUNK_FINGERPRINTS,
             TABLE_NAME_AD_SEGMENTS,
             TABLE_NAME_AD_FEED_SETTINGS
     };
@@ -1627,6 +1635,7 @@ public class PodDBAdapter {
             db.execSQL(CREATE_TABLE_SIMPLECHAPTERS);
             db.execSQL(CREATE_TABLE_FAVORITES);
             db.execSQL(CREATE_TABLE_AD_FINGERPRINTS);
+            db.execSQL(CREATE_TABLE_AD_CHUNK_FINGERPRINTS);
             db.execSQL(CREATE_TABLE_AD_SEGMENTS);
             db.execSQL(CREATE_TABLE_AD_FEED_SETTINGS);
 

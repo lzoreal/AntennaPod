@@ -27,11 +27,13 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import de.danoeh.antennapod.R;
 import de.danoeh.antennapod.databinding.PlaybackSpeedFeedSettingDialogBinding;
+import de.danoeh.antennapod.event.AdScanEvent;
 import de.danoeh.antennapod.event.MessageEvent;
 import de.danoeh.antennapod.event.settings.SkipIntroEndingChangedEvent;
 import de.danoeh.antennapod.event.settings.SpeedPresetChangedEvent;
 import de.danoeh.antennapod.event.settings.VolumeAdaptionChangedEvent;
 import de.danoeh.antennapod.ad.AdScanScheduler;
+import de.danoeh.antennapod.ad.AdScanStatus;
 import de.danoeh.antennapod.model.feed.AdFeedSettings;
 import de.danoeh.antennapod.model.feed.Feed;
 import de.danoeh.antennapod.model.feed.FeedFilter;
@@ -74,6 +76,8 @@ public class FeedSettingsPreferenceFragment extends PreferenceFragmentCompat {
     private static final String PREF_EDIT_FEED_URL = "editFeedUrl";
     private static final String PREF_RECONNECT_LOCAL_FOLDER = "reconnectLocalFolder";
     private static final String PREF_AD_DETECTION = "adDetection";
+    private static final String PREF_AD_AGGRESSIVE = "adAggressive";
+    private AdScanStatus adScanStatus = new AdScanStatus(AdScanStatus.State.IDLE, 0, 0, 0, 0);
 
     private Feed feed;
     private Disposable disposable;
@@ -108,6 +112,12 @@ public class FeedSettingsPreferenceFragment extends PreferenceFragmentCompat {
                 }
                 Toast.makeText(getContext(), R.string.notification_permission_denied, Toast.LENGTH_LONG).show();
                 notificationPermissionDenied = true;
+            });
+    private final ActivityResultLauncher<String> adDetectionRequestPermissionLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
+                if (!isGranted) {
+                    Toast.makeText(getContext(), R.string.notification_permission_denied, Toast.LENGTH_LONG).show();
+                }
             });
 
     @Override
@@ -314,11 +324,17 @@ public class FeedSettingsPreferenceFragment extends PreferenceFragmentCompat {
 
     private void setupAdDetection() {
         SwitchPreferenceCompat preference = findPreference(PREF_AD_DETECTION);
-        if (preference == null) {
+        SwitchPreferenceCompat aggressive = findPreference(PREF_AD_AGGRESSIVE);
+        if (preference == null || aggressive == null) {
             return;
         }
         preference.setEnabled(false);
+        aggressive.setEnabled(false);
         long feedId = feed.getId();
+        AdScanScheduler.status(requireContext().getApplicationContext(), feedId).observe(this, status -> {
+            adScanStatus = status;
+            updateAdStatusSummary(preference, preference.isChecked());
+        });
         Schedulers.io().scheduleDirect(() -> {
             AdFeedSettings settings = DBReader.getAdFeedSettings(feedId);
             if (getActivity() == null) {
@@ -327,12 +343,18 @@ public class FeedSettingsPreferenceFragment extends PreferenceFragmentCompat {
             getActivity().runOnUiThread(() -> {
                 preference.setEnabled(true);
                 preference.setChecked(settings.isEnabled());
+                updateAdStatusSummary(preference, settings.isEnabled());
+                aggressive.setChecked(settings.isAggressive());
+                aggressive.setEnabled(settings.isEnabled());
                 preference.setOnPreferenceChangeListener((changed, value) -> {
                     boolean enabled = Boolean.TRUE.equals(value);
-                    AdFeedSettings updated = new AdFeedSettings(feedId);
-                    updated.setEnabled(enabled);
-                    updated.setWindowSize(settings.getWindowSize());
-                    DBWriter.saveAdFeedSettings(updated);
+                    if (enabled && Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(getContext(),
+                            Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                        adDetectionRequestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+                    }
+                    saveAdSettings(feedId, enabled, aggressive.isChecked(), settings.getWindowSize());
+                    aggressive.setEnabled(enabled);
+                    updateAdStatusSummary(preference, enabled);
                     if (enabled) {
                         AdScanScheduler.enable(getContext(), feedId);
                     } else {
@@ -340,8 +362,60 @@ public class FeedSettingsPreferenceFragment extends PreferenceFragmentCompat {
                     }
                     return true;
                 });
+                aggressive.setOnPreferenceChangeListener((changed, value) -> {
+                    saveAdSettings(feedId, preference.isChecked(),
+                            Boolean.TRUE.equals(value), settings.getWindowSize());
+                    return true;
+                });
             });
         });
+    }
+
+    private void saveAdSettings(long feedId, boolean enabled, boolean aggressive, int windowSize) {
+        AdFeedSettings updated = new AdFeedSettings(feedId);
+        updated.setEnabled(enabled);
+        updated.setAggressive(aggressive);
+        updated.setWindowSize(windowSize);
+        DBWriter.saveAdFeedSettings(updated);
+        EventBus.getDefault().post(new AdScanEvent(feedId, 0));
+    }
+
+    private void updateAdStatusSummary(SwitchPreferenceCompat preference, boolean enabled) {
+        if (!enabled) {
+            preference.setSummary(R.string.ad_detection_pref_summary);
+            return;
+        }
+        switch (adScanStatus.state) {
+            case RUNNING:
+                if (adScanStatus.total == 0) {
+                    preference.setSummary(R.string.ad_scan_status_starting);
+                } else if (adScanStatus.episode == 0) {
+                    preference.setSummary(getString(R.string.ad_scan_status_preparing, adScanStatus.total));
+                } else {
+                    preference.setSummary(getString(R.string.ad_scan_status_running,
+                            adScanStatus.episode, adScanStatus.total));
+                }
+                break;
+            case QUEUED:
+                preference.setSummary(R.string.ad_scan_status_waiting);
+                break;
+            case RETRYING:
+                preference.setSummary(R.string.ad_scan_status_retrying);
+                break;
+            case DONE:
+                if (adScanStatus.episodes > 0) {
+                    preference.setSummary(getString(R.string.ad_scan_status_done,
+                            adScanStatus.episodes, adScanStatus.segments));
+                } else {
+                    preference.setSummary(R.string.ad_scan_status_done_short);
+                }
+                break;
+            case FAILED:
+                preference.setSummary(R.string.ad_scan_status_failed);
+                break;
+            default:
+                preference.setSummary(R.string.ad_scan_status_idle);
+        }
     }
 
     private void updateAutoDeleteSummary() {

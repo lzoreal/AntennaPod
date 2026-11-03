@@ -1133,10 +1133,26 @@
     <string name="immersive_mode">Immersive mode</string>
     <string name="toggle_translation">Toggle translation</string>
     <string name="ad_scan_notification_title">Detecting ads</string>
-    <string name="ad_scan_notification_text">Analyzing episode %1$d</string>
+    <string name="ad_scan_notification_text">Analyzing episode %1$d of %2$d</string>
+    <string name="ad_scan_done_title">Ad detection ready</string>
+    <string name="ad_scan_done_text">%1$d episodes analyzed, %2$d ad segments found</string>
+    <string name="ad_scan_failed_title">Ad analysis incomplete</string>
+    <string name="ad_scan_failed_text">Will retry in the background. Needs Wi-Fi and at least 2 episodes with audio.</string>
+    <string name="ad_scan_status_running">Analyzing episode %1$d of %2$d…</string>
+    <string name="ad_scan_status_preparing">Preparing audio… (%1$d episodes)</string>
+    <string name="ad_scan_status_starting">Starting analysis…</string>
+    <string name="ad_scan_status_waiting">Waiting for Wi-Fi to start analysis…</string>
+    <string name="ad_scan_status_retrying">Last attempt incomplete; waiting to retry…</string>
+    <string name="ad_scan_status_done">Analysis done: %1$d episodes, %2$d ad segments</string>
+    <string name="ad_scan_status_done_short">Analysis done</string>
+    <string name="ad_scan_status_failed">Analysis failed; will retry automatically</string>
+    <string name="ad_scan_status_idle">Not analyzed yet</string>
     <string name="ad_skipped_message">Skipped %1$d s of ads</string>
+    <string name="ad_skipped_notification_title">Ad skipped</string>
     <string name="ad_detection_pref">Detect and skip ads</string>
     <string name="ad_detection_pref_summary">Uses local fingerprinting. Opening this downloads up to 2 episodes for analysis (Wi-Fi only).</string>
+    <string name="ad_aggressive_pref">Aggressive ad skipping</string>
+    <string name="ad_aggressive_pref_summary">Also skips uncertain or long ad segments, except outros. May cut into content.</string>
     <string name="ad_skip_disable_episode">Do not skip ads in this episode</string>
     <string name="ad_skip_disabled_toast">Ad skipping disabled for this episode</string>
 </resources>

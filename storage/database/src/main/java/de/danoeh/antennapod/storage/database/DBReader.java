@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 import de.danoeh.antennapod.model.feed.Chapter;
+import de.danoeh.antennapod.model.feed.AdChunkFingerprintRow;
 import de.danoeh.antennapod.model.feed.AdFeedSettings;
 import de.danoeh.antennapod.model.feed.AdFingerprintRow;
 import de.danoeh.antennapod.model.feed.AdSegment;
@@ -878,6 +879,7 @@ public final class DBReader {
             AdFeedSettings settings = new AdFeedSettings(feedId);
             if (cursor.moveToFirst()) {
                 settings.setEnabled(cursor.getInt(cursor.getColumnIndexOrThrow("enabled")) != 0);
+                settings.setAggressive(cursor.getInt(cursor.getColumnIndexOrThrow("aggressive")) != 0);
                 settings.setWindowSize(cursor.getInt(cursor.getColumnIndexOrThrow("window_size")));
             }
             return settings;
@@ -912,6 +914,72 @@ public final class DBReader {
             }
         } finally {
             adapter.close();
+        }
+        return out;
+    }
+
+    public static synchronized List<Long> getEnabledAdFeeds() {
+        PodDBAdapter adapter = PodDBAdapter.getInstance();
+        adapter.open();
+        List<Long> out = new ArrayList<>();
+        try (Cursor cursor = adapter.getDatabase().query(
+                PodDBAdapter.TABLE_NAME_AD_FEED_SETTINGS, new String[]{"feed_id"}, "enabled != 0",
+                null, null, null, "feed_id ASC")) {
+            while (cursor.moveToNext()) {
+                out.add(cursor.getLong(0));
+            }
+        } finally {
+            adapter.close();
+        }
+        return out;
+    }
+
+    public static synchronized List<AdChunkFingerprintRow> getAdChunkFingerprints(long mediaId) {
+        PodDBAdapter adapter = PodDBAdapter.getInstance();
+        adapter.open();
+        List<AdChunkFingerprintRow> out = new ArrayList<>();
+        try (Cursor cursor = adapter.getDatabase().query(
+                PodDBAdapter.TABLE_NAME_AD_CHUNK_FINGERPRINTS, null, "media_id = ?",
+                new String[]{String.valueOf(mediaId)}, null, null, "start_frame ASC")) {
+            while (cursor.moveToNext()) {
+                AdChunkFingerprintRow row = new AdChunkFingerprintRow();
+                row.setMediaId(mediaId);
+                row.setStartFrame(cursor.getInt(cursor.getColumnIndexOrThrow("start_frame")));
+                row.setFrames(cursor.getInt(cursor.getColumnIndexOrThrow("frames")));
+                row.setStride(cursor.getInt(cursor.getColumnIndexOrThrow("stride")));
+                row.setBlob(cursor.getBlob(cursor.getColumnIndexOrThrow("blob")));
+                out.add(row);
+            }
+        } finally {
+            adapter.close();
+        }
+        return out;
+    }
+
+    /** Newest streamed episodes that have neither local audio nor stored ad segments. */
+    public static synchronized List<FeedMedia> getLatestUnscannedMediaForAdScan(long feedId, int limit) {
+        PodDBAdapter adapter = PodDBAdapter.getInstance();
+        adapter.open();
+        List<Long> ids = new ArrayList<>();
+        String sql = "SELECT m." + PodDBAdapter.KEY_ID + " FROM " + PodDBAdapter.TABLE_NAME_FEED_MEDIA + " m"
+                + " JOIN " + PodDBAdapter.TABLE_NAME_FEED_ITEMS + " i ON m." + PodDBAdapter.KEY_FEEDITEM
+                + " = i." + PodDBAdapter.KEY_ID + " WHERE i." + PodDBAdapter.KEY_FEED + " = ? AND m."
+                + PodDBAdapter.KEY_FILE_URL + " IS NULL AND NOT EXISTS (SELECT 1 FROM "
+                + PodDBAdapter.TABLE_NAME_AD_SEGMENTS + " s WHERE s.media_id = m." + PodDBAdapter.KEY_ID + ")"
+                + " ORDER BY i." + PodDBAdapter.KEY_PUBDATE + " DESC LIMIT " + Math.max(1, limit);
+        try (Cursor cursor = adapter.getDatabase().rawQuery(sql, new String[]{String.valueOf(feedId)})) {
+            while (cursor.moveToNext()) {
+                ids.add(cursor.getLong(0));
+            }
+        } finally {
+            adapter.close();
+        }
+        List<FeedMedia> out = new ArrayList<>();
+        for (long id : ids) {
+            FeedMedia media = getFeedMedia(id);
+            if (media != null) {
+                out.add(media);
+            }
         }
         return out;
     }

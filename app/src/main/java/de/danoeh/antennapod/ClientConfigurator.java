@@ -16,6 +16,7 @@ import de.danoeh.antennapod.storage.preferences.SleepTimerPreferences;
 import de.danoeh.antennapod.storage.preferences.UsageStatistics;
 import de.danoeh.antennapod.net.common.UserAgentInterceptor;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
+import de.danoeh.antennapod.ad.AdScanScheduler;
 import de.danoeh.antennapod.net.common.AntennapodHttpClient;
 import de.danoeh.antennapod.net.download.serviceinterface.DownloadServiceInterface;
 import de.danoeh.antennapod.net.download.service.feed.DownloadServiceInterfaceImpl;
@@ -55,6 +56,7 @@ public class ClientConfigurator {
         AntennapodHttpClient.setProxyConfig(UserPreferences.getProxyConfig());
         SleepTimerPreferences.init(context);
         NotificationUtils.createChannels(context);
+        AdScanScheduler.prefetchEnabledFeeds(context);
         initialized = true;
     }
 }

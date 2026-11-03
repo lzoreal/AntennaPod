@@ -31,6 +31,7 @@ import androidx.media3.extractor.mp3.Mp3Extractor;
 import de.danoeh.antennapod.net.common.NetworkUtils;
 import de.danoeh.antennapod.net.common.UserAgentInterceptor;
 import de.danoeh.antennapod.playback.base.MediaItemAdapter;
+import de.danoeh.antennapod.ad.StreamingAdScanner;
 import de.danoeh.antennapod.playback.service.R;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
 
@@ -44,13 +45,14 @@ public class ExoPlayerUtils {
     private static volatile SimpleCache simpleCache;
 
     @OptIn(markerClass = UnstableApi.class)
-    public static ExoPlayer buildPlayer(Context context) {
+    public static ExoPlayer buildPlayer(Context context, StreamingAdScanner scanner,
+                                        PcmTapProcessor.PositionSource position) {
         if (simpleCache == null) {
             simpleCache = new SimpleCache(new File(context.getCacheDir(), "streaming"),
                     new LeastRecentlyUsedCacheEvictor(100 * 1024 * 1024),
                     new StandaloneDatabaseProvider(context));
         }
-        return new ExoPlayer.Builder(context)
+        return new ExoPlayer.Builder(context, new PcmTapRenderersFactory(context, scanner, position))
                 .setLoadControl(new DefaultLoadControl.Builder()
                         .setBufferDurationsMs(
                                 (int) TimeUnit.HOURS.toMillis(1),

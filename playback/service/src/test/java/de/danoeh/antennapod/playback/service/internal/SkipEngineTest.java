@@ -35,4 +35,28 @@ public class SkipEngineTest {
         assertNull(engine.onPosition(9_900));
         assertNull(engine.onPosition(10_100));
     }
+
+    @Test
+    public void playbackStartingInsideSegmentSkipsImmediately() {
+        SkipEngine engine = new SkipEngine();
+        engine.setSegments(List.of(new long[]{1, 64, 100_384}));
+        assertEquals(Long.valueOf(100_634), engine.onPosition(250));
+    }
+
+    @Test
+    public void playbackStartingOutsideSegmentWaitsForEntry() {
+        SkipEngine engine = new SkipEngine();
+        engine.setSegments(List.of(new long[]{7, 10_000, 40_000}));
+        assertNull(engine.onPosition(250));
+        assertNull(engine.onPosition(9_900));
+        assertEquals(Long.valueOf(40_250), engine.onPosition(10_100));
+    }
+
+    @Test
+    public void disabledSegmentAtPlaybackStartIsIgnored() {
+        SkipEngine engine = new SkipEngine();
+        engine.setSegments(List.of(new long[]{7, 10_000, 40_000}));
+        engine.disable(7);
+        assertNull(engine.onPosition(10_500));
+    }
 }

@@ -45,8 +45,8 @@
 | 语言切换边界 | 按文字体系（Latin / CJK+假名+韩文 / 其他）判定主/译边界，纯符号行忽略 | [TranscriptSentenceUtils.java:22](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/TranscriptSentenceUtils.java#L22) |
 | 句子切分 | `。！？…` 直接断句；`.` 需后随空白/引号，且**两侧都是数字时不断**（避免把 `2024.` 当小数）；收尾标点并入前句 | [TranscriptSentenceUtils.java:106](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/TranscriptSentenceUtils.java#L106) |
 | SRT | 仅看首行做发言人识别；候选名需在文件内重复出现（或为唯一候选标签），否则整行保留为正文；支持纯发言人行、保留额外冒号后文本 | [SrtTranscriptParser.java](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/SrtTranscriptParser.java) |
-| JSON（旧） | `startTime/endTime`（秒→毫秒）+`body`，短段按 5s 合并；null/空 speaker 沿用上一位发言人（首段为空），`end <= start` 丢弃 | [JsonTranscriptParser.java:53](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/JsonTranscriptParser.java#L53) |
-| JSON（TMLT 词级） | 首段含 `start`+`text` 时按 1:1 建段：`start/end` 毫秒、`speaker`、`text`、`words=[[词,起点ms,时长ms]]`；词按文本顺序对齐（大小写不敏感，容错重复词，仅丢该词区间）；无 `end` 的注释段按 15 字/秒估算 0.5–10s | [JsonTranscriptParser.java:131](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/JsonTranscriptParser.java#L131)、[:172](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/JsonTranscriptParser.java#L172) |
+| JSON（官方段落级） | `version/segments` + `startTime/endTime`（秒→毫秒）+`body`；无 `words` 时短段按 5s 合并；null/空 speaker 沿用上一位发言人（首段为空），`end <= start` 丢弃 | [JsonTranscriptParser.java:52](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/JsonTranscriptParser.java#L52) |
+| JSON（词级：fork / 官方混合） | 任一段含非空 `words`，或首段为 `start`+`text` 且无 `startTime` 时，按 1:1 建段、不再 5s 合并。段字段支持 fork `start/end`（毫秒）+`text`，也支持官方 `startTime/endTime`（秒）+`body`；同时存在时官方字段优先，`body` 为空时回退 `text`。`words=[[词,起点ms,时长ms]]` 按文本顺序对齐（大小写不敏感，容错重复词，仅丢该词区间）；无 `end/endTime` 的注释段按 15 字/秒估算 0.5–10s | [JsonTranscriptParser.java:131](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/JsonTranscriptParser.java#L131)、[:147](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/JsonTranscriptParser.java#L147)、[:185](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/JsonTranscriptParser.java#L185) |
 | 乱序容错 | `Transcript.addSegment` 稳定二分插入，不再因乱序抛异常 | [Transcript.java:13](file:///D:/AntennaPod/model/src/main/java/de/danoeh/antennapod/model/feed/Transcript.java#L13) |
 | 重叠 cue | `TranscriptSegment.append` 取最大 endTime | [TranscriptSegment.java:26](file:///D:/AntennaPod/model/src/main/java/de/danoeh/antennapod/model/feed/TranscriptSegment.java#L26) |
 
@@ -74,7 +74,9 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 | 点击跳转 | 有词时间轴时**点到哪个词就跳到哪个词**（起止取该词）；点在译文、词间或普通转录时回退到**所点句子**的起止区间（非整段），双语时按触摸落在主/译区域分别映射 | [TranscriptAdapter.java:625](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java#L625)、[:652](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptAdapter.java#L652) → `SegmentClickListener.onTranscriptClicked(pos, seg, start, end)` |
 | 选词 | 长按选中文本触发 `onTranscriptWordSelected`（目前仅暂停播放，便于选词） | [TranscriptPageFragment.java:1075](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1075) |
 | 偏移控制条 | 卡片式面板：标题栏「对齐到本句」+ 重置、偏移量胶囊；细调 ±0.5s、粗调 ±5/±10/±30s。**对齐到本句是两步式**：先点按钮进入点选模式（按钮变「点选句子」并弹提示），再点**正在播放的那一句**，即以它为锚（`offset = 播放位置 - 该句起点`，不跳播、不改变播放状态），只影响该句之后的段落；锚在第一句（起点≈0）时覆盖整集开头。点到的句子若正好是当前高亮显示的那句（当前 cue 时间落在该句区间内），不改数据，只提示向上滑到真正在播的那句。**长按按钮 = 把第一句对齐到当前位置并覆盖整集**（清空其他锚点），用于片头整段广告。位置取 MediaController 实时值（暂停后拖动进度条也准）。之所以不直接用“当前高亮句”，是因为片头广告这类大幅错位下高亮句本身就是错的 | `toggleOffsetBar()`、`setupOffsetButtons()`（[L1230](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1230)）、`syncOffsetToCurrentSentence()`（[L1174](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1174)）、`applyOffsetChange()`（[L1198](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1198)） |
-| 偏移持久化 | **按 media id + 媒体位置分段**存 JSON map：`{"<mediaId>": [{"p":起始媒体位置,"o":偏移毫秒}, ...]}`。Δ 时用 `offsetAtMediaTime(pos)`，句/段跳转与单段循环用 `offsetAtCueTime(cueStart)`（锚点换算成 `p-o` 的 cue 时间再比较，因此可以跳过片头广告）；± 微调只改当前所在段（无锚点时在 0 处建一个），重置删除该 media 全部锚点。旧的单数值偏好按“0 处锚点”读入，切集/拖动/回退不再需要重新校准 | [TranscriptTimeOffsets.java](file:///D:/AntennaPod/storage/preferences/src/main/java/de/danoeh/antennapod/storage/preferences/TranscriptTimeOffsets.java)、[UserPreferences.java:966](file:///D:/AntennaPod/storage/preferences/src/main/java/de/danoeh/antennapod/storage/preferences/UserPreferences.java#L966)、[DBWriter.java:216](file:///D:/AntennaPod/storage/database/src/main/java/de/danoeh/antennapod/storage/database/DBWriter.java#L216)、[TranscriptPageFragment.java:1152](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1152) |
+| 偏移持久化 | **按 media id + 媒体位置分段**存 JSON map：`{"<mediaId>": [{"p":起始媒体位置,"o":偏移毫秒}, ...]}`。Δ 时用 `offsetAtMediaTime(pos)`，句/段跳转与单段循环用 `offsetAtCueTime(cueStart)`（锚点换算成 `p-o` 的 cue 时间再比较，因此可以跳过片头广告）；± 微调只改当前所在段（无锚点时在 0 处建一个），重置删除该 media 全部锚点。旧的单数值偏好按“0 处锚点”读入，切集/拖动/回退不再需要重新校准。**广告切掉后字幕时间连续**：允许两个锚点落在同一 cue 时间（按媒体位置靠后的那个在该 cue 起生效），否则重对齐锚点会被丢掉 | [TranscriptTimeOffsets.java](file:///D:/AntennaPod/storage/preferences/src/main/java/de/danoeh/antennapod/storage/preferences/TranscriptTimeOffsets.java)、[UserPreferences.java:966](file:///D:/AntennaPod/storage/preferences/src/main/java/de/danoeh/antennapod/storage/preferences/UserPreferences.java#L966)、[DBWriter.java:216](file:///D:/AntennaPod/storage/database/src/main/java/de/danoeh/antennapod/storage/database/DBWriter.java#L216)、[TranscriptPageFragment.java:1152](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1152) |
+| 跳过广告后自动重对齐 | 自动跳过一个**非激进**（`TIER_AUTO`）广告段后，按**实际跳过时的播放位置** `P` 与广告终点 `E` 计算：当前字幕时间 `t = P - offset(P)`，在 `E` 处写入新锚点 `offset = E - t`，跳过前后字幕停在同一句。片段与已有锚点重叠、或两个广告段首尾相接（分块扫描）时同样成立。片头广告已被现有偏移覆盖（`t < 0`）时不再加，避免把同一段广告算两遍；用户已在广告后手动对齐（`offset(E)` 与 `offset(P)` 不同）时不覆盖。激进模式才跳的标记段不调整。对应的 [Media3PlaybackService.java:630](file:///D:/AntennaPod/playback/service/src/main/java/de/danoeh/antennapod/playback/service/Media3PlaybackService.java#L630) 在跳过时调用，撤销时回退该锚点 | [TranscriptSync.java:36](file:///D:/AntennaPod/playback/service/src/main/java/de/danoeh/antennapod/playback/service/internal/TranscriptSync.java#L36)、[Media3PlaybackService.java:645](file:///D:/AntennaPod/playback/service/src/main/java/de/danoeh/antennapod/playback/service/Media3PlaybackService.java#L645) |
+| 跳过广告的撤销 | 前台：Snackbar“已跳过 X 秒广告 / 撤销”；后台/锁屏：每次跳过在通知栏发一条低优先级“已跳过广告”通知（`ad_skip` 通道，10 秒后自动消失），动作按钮“撤销”经 `PendingIntent.getService` 直达播放服务（`onStartCommand` 处理 `ACTION_UNDO`，不依赖动态注册的广播接收器）。撤销 = 回到广告起点 + 本集该段标记为不再跳过 + 回退上一条字幕偏移。未授予 `POST_NOTIFICATIONS` 时不发通知（只保留 Snackbar），开启“检测并跳过广告”时会请求该权限 | [NotificationUtils.java:141](file:///D:/AntennaPod/ui/notifications/src/main/java/de/danoeh/antennapod/ui/notifications/NotificationUtils.java#L141)、[Media3PlaybackService.java:574](file:///D:/AntennaPod/playback/service/src/main/java/de/danoeh/antennapod/playback/service/Media3PlaybackService.java#L574)、[FeedSettingsPreferenceFragment.java:352](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/feed/preferences/FeedSettingsPreferenceFragment.java#L352) |
 | 单段循环 | 循环当前 `TranscriptSegment` 区间（按该句的 cue 时间取偏移），偏移变化后若区间无效自动停止 | [TranscriptPageFragment.java:1083](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/playback/TranscriptPageFragment.java#L1083) |
 
 ### 1.5 悬浮窗细节
@@ -87,7 +89,8 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 - 锁定/关闭按钮约 4s 无操作自动隐藏；隐藏时第一次点击只唤出控件，控件可见时点击打开转录页。
 - 可拖动并水平吸附到最近左右边缘（纵向只做边界 clamp）；位置以 dp 存偏好（`prefFloatingTranscriptXDp/YDp/Locked`）。
 - **不再显示发言人**（按需求移除，`TranscriptSegment` 仍保留 speaker 供转录页使用）。
-- 竞态修复：后台 `Callable` 只返回 `FeedMedia`，`currentFeedId`/`lastPlaybackPosition`/`transcript` 一律在主线程回调里赋值，因此 `dispose()` 能真正阻止过期请求污染新剧集状态（[TranscriptFloatingWindowService.java:361](file:///D:/AntennaPod/ui/transcript/src/main/java/de/danoeh/antennapod/ui/transcript/TranscriptFloatingWindowService.java#L361)）。
+- 竞态修复：后台 `Callable` 只返回 `FeedMedia`，`currentFeedId`/`lastPlaybackPosition`/`transcript` 一律在主线程回调里赋值，因此 `dispose()` 能真正阻止过期请求污染新剧集状态（[TranscriptFloatingWindowService.java:385](file:///D:/AntennaPod/ui/transcript/src/main/java/de/danoeh/antennapod/ui/transcript/TranscriptFloatingWindowService.java#L385)）。
+- 位置刷新不依赖播放服务的 1 秒事件：播放中每 100ms 用 `positionBase + elapsed × speed` 外推（速度由相邻事件自校准，夹在 0.5–4），暂停/隐藏/销毁停表。
 
 ### 1.6 本地缓存与来源元数据
 
@@ -104,7 +107,7 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 
 | 事件 | 触发方 | 谁响应 | 结果 |
 |---|---|---|---|
-| `PlaybackPositionEvent` | 播放服务（1 秒） | 弹窗/悬浮窗；整屏页仅在轮询未驱动（暂停/停止）时使用 | 高亮、滚动、句子时间；整屏页播放中由轮询独占，避免旧位置回退；词级转录 100ms、普通转录 250ms |
+| `PlaybackPositionEvent` | 播放服务（1 秒） | 弹窗/悬浮窗；整屏页仅在轮询未驱动（暂停/停止）时使用 | 高亮、滚动、句子时间；整屏页播放中由轮询独占，避免旧位置回退（词级 100ms、普通 250ms）；悬浮窗只用它校准播放速度，显示由自身 100ms 外推驱动 |
 | `FeedItemEvent` | 条目更新 | 转录页 | 仅当转录来源 URL/类型变化或尚无数据时强制重载 |
 | `FeedListUpdateEvent` | feed 更新（`contains(long)` 判定） | 转录页、弹窗、`AudioPlayerFragment`、悬浮窗 | 重新加载媒体信息/转录（悬浮窗重载失败时保留旧内容），菜单可见性刷新 |
 | `PlayerStatusEvent` | 播放状态 | 转录页、弹窗、悬浮窗 | 跟随/滚动/暂停语义 |
@@ -121,6 +124,7 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 | 2026-10-22 ~ 10-23 | `a77c90ce7`/`8d8f5616f`/`9df9271a4`/`2ff80e94d`/`fa8e29b85` | 共享分句工具、偏移、分级高亮、图标、正确性修复与单测起步 |
 | 2026-10-24 | `3128fe4a9` ~ `7e2b4e5b9` | 当前句悬浮窗、双语配对、细粒度偏移、解析/缓存/刷新加固 |
 | 2026-10-24 | `35cf3c35e` | 交接文档与真机脚本 |
+| 2026-11-04 | `d39bf0f69` + 本次提交 | 广告检测：分块指纹落库、两段式片头扫描与预热、激进跳过、扫描状态 UI；自动跳过后的字幕重对齐与通知栏撤销 |
 
 ## 3. 代码地图
 
@@ -140,13 +144,13 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 | [TranscriptSentenceUtils.java](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/TranscriptSentenceUtils.java) | **分句/文字体系/句子时间的唯一实现**：`languageSplitIndex`(L22)、`scriptOf`(L64)、`chunkStarts`(L106)、`sentenceIndexAt`(L137)、`sentenceEndTime`(L148/152)、`sentenceStartTime`、`splitIntoSentences` |
 | [VttTranscriptParser.java](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/VttTranscriptParser.java) | VTT 结构(L33)、双语判定(L83-L94)、`addAlternatingSegments`(L199)、一条 cue 一个 segment(L100)、`detectAlternatingPrimaryScript`(L160) |
 | [SrtTranscriptParser.java](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/SrtTranscriptParser.java) | SRT + 发言人识别 |
-| [JsonTranscriptParser.java](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/JsonTranscriptParser.java) | 旧格式 `startTime/endTime/body` 合并；TMLT `start/end/text/words` 1:1 建段与词对齐（L131/L172），词定位 `locateToken`(L204)，无 `end` 估算(L167) |
+| [JsonTranscriptParser.java](file:///D:/AntennaPod/parser/transcript/src/main/java/de/danoeh/antennapod/parser/transcript/JsonTranscriptParser.java) | 官方 `startTime/endTime/body` 合并(L52)；词级判定 `usesTimedSegments`(L131)；fork/官方混合 1:1 建段(L147)、字段优先级 `segmentStartTime`/`segmentEndTime`/`segmentText`(L185/L192/L201)、`audio_seconds`(L206)、无 `end` 估算(L214)、词对齐 `parseWordTimings`(L219)/`locateToken`(L251) |
 
 ### `:ui:transcript` — 加载与悬浮窗
 | 文件 | 职责 |
 |---|---|
 | [TranscriptUtils.java](file:///D:/AntennaPod/ui/transcript/src/main/java/de/danoeh/antennapod/ui/transcript/TranscriptUtils.java) | `loadTranscriptFromUrl`(L32)、`loadTranscript`(L84)、`loadLocalTranscript`(L136)、`cacheKey`(L229)、`parseTranscript`(L257)、`storeTranscript`(L274)、`.source` 读写与收编 |
-| [TranscriptFloatingWindowService.java](file:///D:/AntennaPod/ui/transcript/src/main/java/de/danoeh/antennapod/ui/transcript/TranscriptFloatingWindowService.java) | `start`(L86)/`stop`(L103)、窗口与拖拽、`loadTranscript`(L357/361)、`onFeedListUpdateEvent`(L416)、`updateTranscript`(L433) + 句子缓存、`hideTranscript`(L555) |
+| [TranscriptFloatingWindowService.java](file:///D:/AntennaPod/ui/transcript/src/main/java/de/danoeh/antennapod/ui/transcript/TranscriptFloatingWindowService.java) | `start`(L110)/`stop`(L127)、窗口与拖拽、`loadTranscript`(L381/385)、`onFeedListUpdateEvent`(L491)、`updateTranscript`(L511) + 句子缓存、`hideTranscript`(L661)；100ms 位置外推（`positionTick`/`estimatedPosition`） |
 | [TranscriptTextUtils.java](file:///D:/AntennaPod/ui/transcript/src/main/java/de/danoeh/antennapod/ui/transcript/TranscriptTextUtils.java) | 兼容层，分句/语言边界/句子时间转发 `TranscriptSentenceUtils`；`progressAt` 为本地实现 |
 | [ScrollTextView.java](file:///D:/AntennaPod/ui/transcript/src/main/java/de/danoeh/antennapod/ui/transcript/ScrollTextView.java) | 悬浮窗用自动横向滚动 TextView（`ValueAnimator`，句级 `startAutoScroll` 最高 300px/s；词级 `startTimedScroll` 按时间轴逐词推进，不设速度上限） |
 | [TranscriptScrollTimeline.java](file:///D:/AntennaPod/ui/transcript/src/main/java/de/danoeh/antennapod/ui/transcript/TranscriptScrollTimeline.java) | 纯逻辑：词时间轴 → 句内字符位置（`of`/`charIndexAt`/`getEndTime`），悬浮窗词级滚动速度由它决定；单测 [TranscriptScrollTimelineTest.java](file:///D:/AntennaPod/ui/transcript/src/test/java/de/danoeh/antennapod/ui/transcript/TranscriptScrollTimelineTest.java) |
@@ -172,7 +176,11 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 | 文件 | 职责 |
 |---|---|
 | [UserPreferences.java](file:///D:/AntennaPod/storage/preferences/src/main/java/de/danoeh/antennapod/storage/preferences/UserPreferences.java) | 所有转录偏好（L129-L154 keys，L947-L1108 getters/setters）；偏移按锚点数组读写（L966-L1085） |
-| [TranscriptTimeOffsets.java](file:///D:/AntennaPod/storage/preferences/src/main/java/de/danoeh/antennapod/storage/preferences/TranscriptTimeOffsets.java) | 纯逻辑：偏移锚点表，`offsetAtMediaTime`/`offsetAtCueTime`、`setAnchor`（同位置 1s 内替换且保留更早起点）、`setOffsetForSegment`、按双时间轴 `normalize` |
+| [TranscriptTimeOffsets.java](file:///D:/AntennaPod/storage/preferences/src/main/java/de/danoeh/antennapod/storage/preferences/TranscriptTimeOffsets.java) | 纯逻辑：偏移锚点表，`offsetAtMediaTime`/`offsetAtCueTime`、`setAnchor`（同位置 1s 内替换且保留更早起点）、`setOffsetForSegment`、按双时间轴 `normalize`（L126：丢弃 cue 时间倒退的锚点，**保留同一 cue 时间**的锚点，靠后媒体位置者在边界起生效） |
+| [TranscriptSync.java](file:///D:/AntennaPod/playback/service/src/main/java/de/danoeh/antennapod/playback/service/internal/TranscriptSync.java#L12) | 自动跳过广告后的字幕重对齐：`alignAfterSkip`(L36) 按跳过位置写锚点并返回 `Shift`，`undo`(L55) 回退；只处理 `TIER_AUTO`，片头偏移已覆盖或用户已对齐时不改；单测 [TranscriptSyncTest.java](file:///D:/AntennaPod/playback/service/src/test/java/de/danoeh/antennapod/playback/service/internal/TranscriptSyncTest.java) |
+| [Media3PlaybackService.java](file:///D:/AntennaPod/playback/service/src/main/java/de/danoeh/antennapod/playback/service/Media3PlaybackService.java#L630) | `adSkipTick`(每 250ms) 跳过并调用 `showSkipUndo`(L630)；`undoAdSkip`(L645) 回退并取消通知；`onStartCommand`(L574) 处理通知栏撤销动作；`AdSkipController` 决定哪些段可跳 |
+| [NotificationUtils.java](file:///D:/AntennaPod/ui/notifications/src/main/java/de/danoeh/antennapod/ui/notifications/NotificationUtils.java#L141) | `ad_skip` 通道（L26/L134）与跳过通知：`showAdSkipUndo`(L141) / `cancelAdSkipUndo`(L156)，10 秒超时、撤销动作由调用方传入 `PendingIntent` |
+| [FeedSettingsPreferenceFragment.java](file:///D:/AntennaPod/app/src/main/java/de/danoeh/antennapod/ui/screen/feed/preferences/FeedSettingsPreferenceFragment.java#L343) | 每 feed 的检测/激进开关与扫描状态摘要；开启检测且无通知权限时请求 `POST_NOTIFICATIONS`(L352) |
 | [DBWriter.java](file:///D:/AntennaPod/storage/database/src/main/java/de/danoeh/antennapod/storage/database/DBWriter.java) | 删除媒体/条目时清理转录文件与偏移(L121/L133/L217) |
 | [FeedListUpdateEvent.java](file:///D:/AntennaPod/event/src/main/java/de/danoeh/antennapod/event/FeedListUpdateEvent.java) | `contains(Feed)` / `contains(long)` |
 | [strings.xml](file:///D:/AntennaPod/ui/i18n/src/main/res/values/strings.xml)、[strings.xml (zh-rCN)](file:///D:/AntennaPod/ui/i18n/src/main/res/values-zh-rCN/strings.xml) | `transcript_*`（含 `transcript_search_*`）、`pref_floating_transcript_*`、`show_transcript`、`no_transcript_label`；英文与简体中文同步维护 |
@@ -203,10 +211,11 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 | 模块 | 测试文件 | 覆盖点 |
 |---|---|---|
 | `:model` | [TranscriptTest](file:///D:/AntennaPod/model/src/test/java/de/danoeh/antennapod/model/feed/TranscriptTest.java)、[TranscriptSegmentTest](file:///D:/AntennaPod/model/src/test/java/de/danoeh/antennapod/model/feed/TranscriptSegmentTest.java)、[FeedItemTest](file:///D:/AntennaPod/model/src/test/java/de/danoeh/antennapod/model/feed/FeedItemTest.java)、[FeedMediaTest](file:///D:/AntennaPod/model/src/test/java/de/danoeh/antennapod/model/feed/FeedMediaTest.java) | 乱序插入、append 单调且清空词时间轴、词级 `getWordIndexAt`、来源变更失效、序列化忽略 transcript、三文件清理 |
-| `:parser:transcript` | [VttTranscriptParserTest](file:///D:/AntennaPod/parser/transcript/src/test/java/de/danoeh/antennapod/parser/transcript/VttTranscriptParserTest.java)、[SrtTranscriptParserTest](file:///D:/AntennaPod/parser/transcript/src/test/java/de/danoeh/antennapod/parser/transcript/SrtTranscriptParserTest.java)、[JsonTranscriptParserTest](file:///D:/AntennaPod/parser/transcript/src/test/java/de/danoeh/antennapod/parser/transcript/JsonTranscriptParserTest.java) | 双语保留译文、非双语不误判、长 cue 不拆句（含数字句末）、null speaker、非法时间、乱序；TMLT 1:1 建段与词字符区间、重复词只丢该词、空 `end` 估算、旧格式无词时间轴；`audio_seconds` 解析 / 缺失为 0 |
+| `:parser:transcript` | [VttTranscriptParserTest](file:///D:/AntennaPod/parser/transcript/src/test/java/de/danoeh/antennapod/parser/transcript/VttTranscriptParserTest.java)、[SrtTranscriptParserTest](file:///D:/AntennaPod/parser/transcript/src/test/java/de/danoeh/antennapod/parser/transcript/SrtTranscriptParserTest.java)、[JsonTranscriptParserTest](file:///D:/AntennaPod/parser/transcript/src/test/java/de/danoeh/antennapod/parser/transcript/JsonTranscriptParserTest.java) | 双语保留译文、非双语不误判、长 cue 不拆句（含数字句末）、null speaker、非法时间、乱序；TMLT 1:1 建段与词字符区间、重复词只丢该词、空 `end` 估算、旧格式无词时间轴；官方 `startTime/endTime/body` + `words` 混合格式保留词时间轴、任意段带 `words` 时都不合并；`audio_seconds` 解析 / 缺失为 0 |
 | `:parser:media` | [Mp3DurationScannerTest](file:///D:/AntennaPod/parser/media/src/test/java/de/danoeh/antennapod/parser/media/Mp3DurationScannerTest.java) | 无 Xing 时按帧数算时长、识别 Xing、跳过 ID3v2/ID3v1、非 MP3 返回 null |
 | `:ui:transcript` | [TranscriptUtilsTest](file:///D:/AntennaPod/ui/transcript/src/test/java/de/danoeh/antennapod/ui/transcript/TranscriptUtilsTest.java)、[TranscriptFloatingWindowServiceTest](file:///D:/AntennaPod/ui/transcript/src/test/java/de/danoeh/antennapod/ui/transcript/TranscriptFloatingWindowServiceTest.java)、[TranscriptScrollTimelineTest](file:///D:/AntennaPod/ui/transcript/src/test/java/de/danoeh/antennapod/ui/transcript/TranscriptScrollTimelineTest.java) | sidecar 写入/收编/过期、5MB、损坏回退 URL、强刷回退、原子写、悬浮窗过期请求竞态（可控调度队列 + `RxJavaPlugins.reset()`）；词时间轴按词推进字符位置、句内中途起播从当前词开始、相对显示句偏移、越界 clamp、无词时退化为匀速 |
-| `:storage:preferences` | [UserPreferencesTest](file:///D:/AntennaPod/storage/preferences/src/test/java/de/danoeh/antennapod/storage/preferences/UserPreferencesTest.java) | 按媒体偏移、删除、旧值迁移；分段锚点从锚点位置起生效、取最近锚点、按 cue 时间查询可跳过片头广告、微调只改当前段、同位置替换保留更早起点、重置清空全部锚点 |
+| `:storage:preferences` | [UserPreferencesTest](file:///D:/AntennaPod/storage/preferences/src/test/java/de/danoeh/antennapod/storage/preferences/UserPreferencesTest.java) | 按媒体偏移、删除、旧值迁移；分段锚点从锚点位置起生效、取最近锚点、按 cue 时间查询可跳过片头广告、微调只改当前段、同位置替换保留更早起点、重置清空全部锚点；同一 cue 时间的锚点保留（`testAnchorsSharingACueTimeAreKept`，L136） |
+| `:playback:service` | [TranscriptSyncTest](file:///D:/AntennaPod/playback/service/src/test/java/de/danoeh/antennapod/playback/service/internal/TranscriptSyncTest.java) | 自动段跳过把偏移加长一个广告时长；标记段/片头已被偏移覆盖/用户已对齐时不改；重叠段按实际跳过位置续接当前 cue；撤销恢复原偏移、无原偏移时清空 |
 | `:app` | [TranscriptTextUtilsTest](file:///D:/AntennaPod/app/src/test/java/de/danoeh/antennapod/ui/screen/playback/TranscriptTextUtilsTest.java)、[TranscriptWordMapperTest](file:///D:/AntennaPod/app/src/test/java/de/danoeh/antennapod/ui/screen/playback/TranscriptWordMapperTest.java) | 数字句末 chunkStarts、sentenceEndTime；词区间在逐句换行/交错双语中的映射、词内子串不误匹配 |
 
 注意：`TranscriptFloatingWindowServiceTest` 里 Mockito 静态 mock 只对创建它的线程可见，跨 IO 线程的竞态必须用同一可控调度器（`Schedulers.from(executor)` + `trampoline`）复现，否则测试会假通过。
@@ -301,6 +310,8 @@ bash scripts/transcript-tests/scenarios/30_layout_panel.sh   # 单场景脚本�
 
 2026-10-29 两步式点选对齐 + 长按整集对齐 + 实时播放位置（代码基线 `1da04a427` + 未提交工作树；脚本同工作树）：单测 `:storage:preferences:test` **16/16**（新增 `testStartOffsetReplacesEveryAnchor`），`./gradlew :app:assembleDebug` 通过。真机 Redmi 2407FRK8EC `run.sh offset --media-id 1 --position 5000`：**21 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`。断言链：重置 → +30 → 进点选模式 → 点“已显示的那句”被拦下（偏移不变、仍在点选模式）→ 段内 +30 只改当前段（+30 → +60）→ 长按按第一句对齐整集（胶囊 +70.1、只剩 0 处锚点）→ 重置清空。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261029-065626/`。此前设备上的 `{p:2959,o:1919},{p:17797,o:6037},{p:114307,o:-23}` 是旧单点版留下的实验锚点，长按一次即可覆盖。
 
+2026-11-04 广告跳过与字幕联动（父基线 `a62649fd6` + 本次工作树；脚本未改）在 Redmi 2407FRK8EC（`4LSGLZEYOFCQBIQC`）上验证：单测 `:storage:preferences:testDebugUnitTest` **17/17**、`:playback:service:testFreeDebugUnitTest` **8/8**，`:app:assembleDebug` 通过。真机日志（`M3PlaybackService`）确认自动段跳过（`Skipped ad to 99914/111050`）与前台 Snackbar；通知最初不出现，`dumpsys package` 显示 `POST_NOTIFICATIONS: granted=false`、`dumpsys notification` 里应用 `importance=NONE`，授予后恢复 `DEFAULT`（代码已加权限判断，并在开启检测时请求）。首版重对齐在片头已有手动锚点时会把同一段广告算两遍（11128 的 `p=0,o=99600`），已改为按实际跳过位置计算并允许同 cue 时间的锚点；单测覆盖重叠段与首尾相接。**撤销通知与中段广告偏移的最终真机复测在提交后进行**。
+
 2026-11-02 悬浮窗词级滚动（工作树，父基线 `4be375c42` + 未提交工作树；脚本未改）：新增 `TranscriptScrollTimeline`，词级转录（JSON 带 `words`）时悬浮窗主行按当前词的时间/字符位置推进，替代「整句剩余时长匀速」；句级转录与译文行不变。真机反馈“不够平滑、要居中”后同轮修正：①字符位置改单调三次 Hermite（词边界速度连续）②位移按逐字前缀宽度做亚字符插值（不再整字跳）③`scrollX = clamp(当前字前缀宽 - contentWidth/2, 0, textWidth-contentWidth)`，当前词居中、首尾夹边。`./gradlew --console=plain :ui:transcript:testPlayDebugUnitTest` 全绿（`TranscriptScrollTimelineTest` 6 例，含“单调且无速度突变”），`:app:installPlayDebug` 通过。真机（2407FRK8EC，844 词级 JSON）：句首靠左、句中两端同时被裁切、切句回句首，未见崩溃；逐帧平滑度未做录屏量化。
 
 ### 5.3 语料基线（人工比对用）
@@ -360,6 +371,7 @@ bash scripts/transcript-tests/scenarios/30_layout_panel.sh   # 单场景脚本�
 | VTT 场景初始页显示上一集旧转录 | 测试前未清掉上一轮写入的本地 `.transcript`，sidecar 有时被判为当前来源 | `backup_transcript_cache` 现在备份后会把三件套移走，强制从注入 URL 下载，teardown 原样写回 |
 | 点一次播放反而停住 | 应用已经在播放，`butPlay` 实际是“暂停” | 先读 MediaSession 位置，>5000ms 视为播放中，不要再点 |
 | 运行中出现莫名报错（如 `run.sh: line N: TT_SOURCED: command not found`）、跑了两次初始化、设备被留脏 | 运行期间编辑了 `run.sh`/`lib.sh`/场景脚本：bash 按字节偏移续读脚本，读到错位行（`tt_init_env` 会重置 `BACKUP_OK`，teardown 因而跳过恢复） | 测试期间不要改脚本；若已发生，按 `run-*/Antennapod.db.orig` 与 `prefs.orig.xml` 手工回滚并核对 `test urls left: 0` |
+| 跳过了广告但通知栏没有“撤销”，检测进度也没有通知 | Android 13+ 未授予 `POST_NOTIFICATIONS`，通知被静默丢弃；`dumpsys notification` 里应用 `AppSettings importance=NONE` | 打开播客设置里的“检测并跳过广告”会请求权限（`FeedSettingsPreferenceFragment`）；被拒后到系统设置开启。前台 Snackbar 撤销不受影响 |
 
 ## 7. 已知限制 / 未完成
 
@@ -370,10 +382,13 @@ bash scripts/transcript-tests/scenarios/30_layout_panel.sh   # 单场景脚本�
 - SRT：首行冒号前的文字只有全文件重复出现（或为唯一候选标签）时才当发言人；一次性的散文标签（如 `Note: ...`）会保留在正文里。
 - 「点选对齐」的**成功改偏移**路径没有设备自动断言：`1._Greatness.vtt` 每个 cue 占满整屏，`adb input swipe` 会被列表跟随和文本选区吃掉，滚不到另一句；写锚点与刷新高亮与长按共用 `setTranscriptTimeOffset`/`applyOffsetChange`，由长按断言覆盖，选句本身靠人工验收。
 - 偏移锚点按**媒体位置**保存。同一集重新下载后（DAI 重新拼广告、时长变化）锚点全部失效；目前没有文件指纹校验，需手动“重置”后重新对齐。
+- 自动重对齐只处理 `TIER_AUTO`（非激进）段；激进模式才跳的标记段、以及片头广告已被现有偏移覆盖（`播放位置 - 偏移 < 0`）的段不改；用户已在广告后手动对齐时也不覆盖。
+- 撤销广告跳过沿用旧逻辑：播放回到广告起点，并把该段在本集标记为“不再跳过”，所以撤销后同一广告不会再次自动跳过。通知栏撤销 10 秒后消失；连续跳过会覆盖上一条，只能撤销最近一次。未获通知权限时后台没有撤销入口，只剩前台 Snackbar。
 - “对齐到本句”把当前句的起点对齐到按下时的播放位置，误差最多一句；应在句子开始处按，再用 ±0.5s 微调。片头广告段（第一个锚点之前）没有文字，按 0 偏移处理。
 - 悬浮窗/页面在 fragment 停止期间发生外部 seek 时，要等下一个 `PlaybackPositionEvent` 才刷新。
 - 换句高亮的 250ms 刷新只接在整屏转录页；弹窗与悬浮窗仍按 1 秒 `PlaybackPositionEvent` 更新（弹窗视为废弃，仅视频播放器入口保留）。
-- 词级高亮只接在整屏转录页；悬浮窗/视频弹窗仍是句级（悬浮窗只用词时间轴驱动横向滚动速度，不做逐词着色，刷新仍按 1 秒 `PlaybackPositionEvent`）。词时间轴只覆盖主语言（朗读语言），译文行没有逐词时间，不参与逐词状态，也不参与词级滚动。
+- 词级高亮只接在整屏转录页；悬浮窗/视频弹窗仍是句级（悬浮窗只用词时间轴驱动横向滚动速度，不做逐词着色）。词时间轴只覆盖主语言（朗读语言），译文行没有逐词时间，不参与逐词状态，也不参与词级滚动。
+- 悬浮窗的刷新不依赖播放服务的 1 秒 `PlaybackPositionEvent`：窗口可见且播放中时自己起 100ms 定时器，用 `positionBase + elapsed × speed` 外推位置（speed 由相邻两次事件的位置差/时间差自校准，夹在 0.5–4），所以换句/滚动不会比整屏转录页（100ms/250ms 轮询）晚一秒。暂停、隐藏、`onDestroy` 都会停表。
 - 词级只来自 JSON（TMLT sidecar）；VTT/SRT 没有词时间轴，行为与以前一致。
 - TMLT 无 `end` 的注释段用 15 字/秒估算 0.5–10s，是估算值；当前 39 集语料中 5 个重复词（0.001%）被丢弃，不影响其余词对齐。
 - 词级轮询 100ms，仍可能跳过极短词（语料中位词长 220ms、p10 100ms）；没有做词内进度/逐帧插值。当前词用假粗体突出文本、没有背景块；已读/未读词态覆盖全文，当前词所属句子只用于跟随定位，不再参与视觉着色。

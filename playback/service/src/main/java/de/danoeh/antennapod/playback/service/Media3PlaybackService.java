@@ -1,7 +1,10 @@
 package de.danoeh.antennapod.playback.service;
 
+import android.Manifest;
+import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
@@ -35,6 +38,15 @@ import com.google.common.util.concurrent.ListenableFuture;
 
 import de.danoeh.antennapod.event.MessageEvent;
 import de.danoeh.antennapod.model.feed.AdSegment;
+import de.danoeh.antennapod.ad.AdScanScheduler;
+import de.danoeh.antennapod.ad.FingerprintCodec;
+import de.danoeh.antennapod.ad.Fingerprinter;
+import de.danoeh.antennapod.ad.StreamingAdMatcher;
+import de.danoeh.antennapod.ad.StreamingAdScanner;
+import de.danoeh.antennapod.event.AdScanEvent;
+import de.danoeh.antennapod.model.feed.AdChunkFingerprintRow;
+import de.danoeh.antennapod.model.feed.AdFeedSettings;
+import de.danoeh.antennapod.model.feed.AdFingerprintRow;
 import de.danoeh.antennapod.playback.service.internal.AdSkipCommand;
 import de.danoeh.antennapod.playback.service.internal.AdSkipController;
 import de.danoeh.antennapod.event.FeedItemEvent;
@@ -65,6 +77,7 @@ import de.danoeh.antennapod.playback.service.internal.SkipUtils;
 import de.danoeh.antennapod.playback.service.internal.SleepTimer;
 import de.danoeh.antennapod.playback.service.internal.ClockSleepTimer;
 import de.danoeh.antennapod.playback.service.internal.EpisodeSleepTimer;
+import de.danoeh.antennapod.playback.service.internal.TranscriptSync;
 import de.danoeh.antennapod.storage.database.DBReader;
 import de.danoeh.antennapod.storage.database.DBWriter;
 import de.danoeh.antennapod.storage.preferences.PlaybackPreferences;
@@ -115,21 +128,24 @@ public class Media3PlaybackService extends MediaLibraryService {
     private final Handler adSkipHandler = new Handler(Looper.getMainLooper());
     private AdSkipController adSkipController;
     private long adSkipMediaId = -1;
+    private TranscriptSync.Shift lastTranscriptShift;
+    private static final int AD_FINGERPRINT_STRIDE = 4;
+    private volatile long adStreamMediaId = -1;
+    private StreamingAdScanner adStreamScanner;
+    private volatile long lastPlayerPositionMs;
     private final Runnable adSkipTick = new Runnable() {
         @Override
         public void run() {
             if (adSkipController != null && exoPlayer != null && exoPlayer.isPlaying() && !isCasting()) {
-                Long target = adSkipController.skipAt(exoPlayer.getCurrentPosition());
+                long position = exoPlayer.getCurrentPosition();
+                lastPlayerPositionMs = position;
+                Long target = adSkipController.skipAt(position);
                 if (target != null) {
                     exoPlayer.seekTo(target);
                     AdSegment skipped = adSkipController.lastSkipped();
                     Log.d(TAG, "Skipped ad to " + target);
                     if (skipped != null) {
-                        int seconds = Math.max(1, (skipped.getEndMs() - skipped.getStartMs()) / 1000);
-                        EventBus.getDefault().post(new MessageEvent(
-                                getString(R.string.ad_skipped_message, seconds),
-                                ctx -> AdSkipCommand.undo(getApplicationContext()),
-                                getString(R.string.undo)));
+                        showSkipUndo(skipped, position);
                     }
                 }
                 adSkipHandler.postDelayed(this, 250);
@@ -143,11 +159,7 @@ public class Media3PlaybackService extends MediaLibraryService {
                 return;
             }
             if (AdSkipCommand.ACTION_UNDO.equals(intent.getAction())) {
-                AdSegment skipped = adSkipController.lastSkipped();
-                if (skipped != null && exoPlayer != null) {
-                    exoPlayer.seekTo(skipped.getStartMs());
-                }
-                adSkipController.undoLast();
+                undoAdSkip();
             } else if (AdSkipCommand.ACTION_DISABLE_ALL.equals(intent.getAction())
                     && currentPlayable != null) {
                 adSkipController.disableAllForMedia(currentPlayable.getId());
@@ -171,7 +183,8 @@ public class Media3PlaybackService extends MediaLibraryService {
         notificationProvider.setSmallIcon(R.drawable.ic_notification);
         setMediaNotificationProvider(notificationProvider);
 
-        exoPlayer = ExoPlayerUtils.buildPlayer(this);
+        adStreamScanner = new StreamingAdScanner(this::onStreamingChunk);
+        exoPlayer = ExoPlayerUtils.buildPlayer(this, adStreamScanner, () -> lastPlayerPositionMs);
         exoPlayer.addListener(new Player.Listener() {
             @Override
             public void onAudioSessionIdChanged(int audioSessionId) {
@@ -471,6 +484,9 @@ public class Media3PlaybackService extends MediaLibraryService {
             if (adSkipController != null) {
                 adSkipController.onUserSeek(newPosition.positionMs);
             }
+            if (adStreamScanner != null) {
+                adStreamScanner.jumpTo(newPosition.positionMs);
+            }
         }
 
         @Override
@@ -556,6 +572,15 @@ public class Media3PlaybackService extends MediaLibraryService {
         }
     };
 
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && AdSkipCommand.ACTION_UNDO.equals(intent.getAction())) {
+            undoAdSkip();
+            return START_NOT_STICKY;
+        }
+        return super.onStartCommand(intent, flags, startId);
+    }
+
     @Nullable
     @Override
     public MediaLibrarySession onGetSession(@NonNull MediaSession.ControllerInfo controllerInfo) {
@@ -595,10 +620,52 @@ public class Media3PlaybackService extends MediaLibraryService {
         }
         adSkipHandler.removeCallbacks(adSkipTick);
         unregisterReceiver(adSkipReceiver);
+        if (adStreamScanner != null) {
+            adStreamScanner.shutdown();
+        }
         // Stop the floating transcript
         stopFloatingTranscript();
         UserPreferences.unregisterFloatingTranscriptListener(transcriptPrefListener);
         super.onDestroy();
+    }
+
+    private void showSkipUndo(AdSegment skipped, long positionMs) {
+        lastTranscriptShift = TranscriptSync.alignAfterSkip(adSkipMediaId, skipped, positionMs);
+        Log.d(TAG, "Transcript shift after ad: " + (lastTranscriptShift != null));
+        int seconds = Math.max(1, (skipped.getEndMs() - skipped.getStartMs()) / 1000);
+        String message = getString(R.string.ad_skipped_message, seconds);
+        EventBus.getDefault().post(new MessageEvent(message,
+                ctx -> AdSkipCommand.undo(getApplicationContext()),
+                getString(R.string.undo)));
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            // Without the permission the notification is dropped silently; the Snackbar above is
+            // the only undo affordance then.
+            return;
+        }
+        Intent undo = new Intent(this, Media3PlaybackService.class).setAction(AdSkipCommand.ACTION_UNDO);
+        PendingIntent undoIntent = PendingIntent.getService(this, 1, undo,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        NotificationUtils.showAdSkipUndo(this, message,
+                new MainActivityStarter(this).getPendingIntent(), undoIntent);
+    }
+
+    private void undoAdSkip() {
+        if (adSkipController == null) {
+            return;
+        }
+        AdSegment skipped = adSkipController.lastSkipped();
+        if (skipped == null) {
+            return;
+        }
+        Log.d(TAG, "Undid ad skip to " + skipped.getStartMs());
+        if (exoPlayer != null) {
+            exoPlayer.seekTo(skipped.getStartMs());
+        }
+        adSkipController.undoLast();
+        TranscriptSync.undo(lastTranscriptShift);
+        lastTranscriptShift = null;
+        NotificationUtils.cancelAdSkipUndo(this);
     }
 
     private void setupPositionObserver() {
@@ -715,10 +782,15 @@ public class Media3PlaybackService extends MediaLibraryService {
     @OptIn(markerClass = UnstableApi.class)
     private void switchToPlayable(FeedMedia media) {
         currentPlayable = media;
+        adStreamMediaId = media.getId();
+        lastPlayerPositionMs = Math.max(media.getPosition(), 0);
         if (media.getId() != adSkipMediaId) {
             adSkipMediaId = media.getId();
             adSkipHandler.removeCallbacks(adSkipTick);
-            adSkipController = new AdSkipController(this, media.getId());
+            adSkipController = new AdSkipController(media.getId());
+            if (media.getLocalFileUrl() == null && media.getDownloadUrl() != null) {
+                AdScanScheduler.scanMediaNow(getApplicationContext(), media.getId());
+            }
         }
         adSkipHandler.postDelayed(adSkipTick, 250);
         playbackStartPosition = Math.max(currentPlayable.getPosition(), 0);
@@ -1057,6 +1129,61 @@ public class Media3PlaybackService extends MediaLibraryService {
         if (sleepTimer != null && sleepTimer.isActive()) {
             long currentLeft = sleepTimer.getTimeLeft().getDisplayValue();
             sleepTimer.updateRemainingTime(currentLeft + additionalTime);
+        }
+    }
+
+    private void onStreamingChunk(StreamingAdScanner.Chunk chunk) {
+        long mediaId = adStreamMediaId;
+        if (mediaId < 0) {
+            return;
+        }
+        FeedMedia media = DBReader.getFeedMedia(mediaId);
+        if (media == null || media.getItem() == null || media.getItem().getFeed() == null) {
+            return;
+        }
+        long feedId = media.getItem().getFeed().getId();
+        AdFeedSettings settings = DBReader.getAdFeedSettings(feedId);
+        if (!settings.isEnabled()) {
+            return;
+        }
+        saveStreamedFingerprint(mediaId, chunk);
+        List<AdFingerprintRow> references = DBReader.getAdFingerprints(feedId, settings.getWindowSize());
+        if (references.isEmpty()) {
+            return;
+        }
+        double durationSec = Math.max(media.getDuration() / 1000.0,
+                (chunk.segmentStartMs + chunk.frames * 1000.0 / 62.5) / 1000.0);
+        List<AdSegment> found = StreamingAdMatcher.match(mediaId, chunk, durationSec, references);
+        if (found.isEmpty()) {
+            return;
+        }
+        try {
+            DBWriter.addAdSegments(mediaId, found).get();
+        } catch (Exception e) {
+            Log.w(TAG, "Storing streamed ad segments failed", e);
+            return;
+        }
+        Log.d(TAG, "stream chunk " + chunk.segmentStartMs + "ms: " + found.size() + " segment(s)");
+        EventBus.getDefault().post(new AdScanEvent(feedId, found.size()));
+    }
+
+    private static void saveStreamedFingerprint(long mediaId, StreamingAdScanner.Chunk chunk) {
+        AdChunkFingerprintRow row = new AdChunkFingerprintRow();
+        row.setMediaId(mediaId);
+        row.setStartFrame(chunk.mediaFrame());
+        row.setFrames(chunk.frames);
+        row.setStride(AD_FINGERPRINT_STRIDE);
+        row.setBlob(FingerprintCodec.encode(chunk.hashes, AD_FINGERPRINT_STRIDE, Fingerprinter.SAMPLE_RATE));
+        DBWriter.saveAdChunkFingerprint(row);
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    @SuppressWarnings("unused")
+    public void adScanFinished(AdScanEvent event) {
+        if (adSkipController != null && currentPlayable != null && currentPlayable.getItem() != null
+                && currentPlayable.getItem().getFeed() != null
+                && currentPlayable.getItem().getFeed().getId() == event.feedId) {
+            adSkipController.reload();
         }
     }
 

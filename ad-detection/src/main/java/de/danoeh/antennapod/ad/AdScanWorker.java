@@ -68,8 +68,15 @@ public class AdScanWorker extends Worker {
         }
 
         List<FeedMedia> media = DBReader.getLatestMediaForAdScan(feedId, settings.getWindowSize());
+        publishProgress(0, media.size());
+        try {
+            setForegroundAsync(preparingInfo(media.size())).get();
+        } catch (Exception e) {
+            Log.w(TAG, "Preparing foreground notification failed", e);
+        }
         seedMissingAudio(media);
         if (countWithAudio(media) < 2) {
+            NotificationUtils.showAdScanFailed(getApplicationContext());
             return Result.retry();
         }
 
@@ -83,7 +90,8 @@ public class AdScanWorker extends Worker {
         for (int i = 0; i < media.size(); i++) {
             FeedMedia m = media.get(i);
             try {
-                setForegroundAsync(foregroundInfo(i + 1)).get();
+                publishProgress(i + 1, media.size());
+                setForegroundAsync(foregroundInfo(i + 1, media.size())).get();
                 File audio = resolveAudio(m);
                 if (audio == null) {
                     continue;
@@ -100,9 +108,20 @@ public class AdScanWorker extends Worker {
                     data.add(new AdScanEngine.EpisodeData(m.getId(), m.getDuration() / 1000.0, decoded.hashes));
                     continue;
                 }
-                PcmDecoder.Result decoded = PcmDecoder.decodeToMono(audio);
-                float[] pcm = Resampler.to8k(decoded.pcm, decoded.sampleRate);
-                Fingerprinter.Hashes hashes = Fingerprinter.fingerprint(pcm);
+                ChunkedFingerprinter fingerprinter = new ChunkedFingerprinter();
+                Resampler.Stream[] stream = new Resampler.Stream[1];
+                PcmDecoder.decodeStreaming(audio, (mono, samples, rate) -> {
+                    if (stream[0] == null) {
+                        stream[0] = new Resampler.Stream(rate);
+                    }
+                    float[] pcm8k = stream[0].process(mono, 0, samples);
+                    fingerprinter.add(pcm8k, 0, pcm8k.length);
+                });
+                if (stream[0] != null) {
+                    float[] tail = stream[0].finish();
+                    fingerprinter.add(tail, 0, tail.length);
+                }
+                Fingerprinter.Hashes hashes = fingerprinter.finish();
                 byte[] blob = FingerprintCodec.encode(hashes, STRIDE, Fingerprinter.SAMPLE_RATE);
                 AdFingerprintRow row = new AdFingerprintRow();
                 row.setMediaId(m.getId());
@@ -125,6 +144,7 @@ public class AdScanWorker extends Worker {
             file.delete();
         }
         if (data.size() < 2) {
+            NotificationUtils.showAdScanFailed(getApplicationContext());
             return Result.retry();
         }
 
@@ -152,11 +172,31 @@ public class AdScanWorker extends Worker {
         }
         Log.d(TAG, "scan feed " + feedId + ": " + segmentCount + " segments");
         EventBus.getDefault().post(new AdScanEvent(feedId, segmentCount));
-        return Result.success();
+        NotificationUtils.showAdScanFinished(getApplicationContext(), data.size(), segmentCount);
+        return Result.success(new Data.Builder()
+                .putInt(AdScanScheduler.KEY_RESULT_EPISODES, data.size())
+                .putInt(AdScanScheduler.KEY_RESULT_SEGMENTS, segmentCount)
+                .build());
     }
 
-    private ForegroundInfo foregroundInfo(int episodeIndex) {
-        Notification notification = NotificationUtils.createAdScanNotification(getApplicationContext(), episodeIndex);
+    private void publishProgress(int episode, int total) {
+        setProgressAsync(new Data.Builder()
+                .putInt(AdScanScheduler.KEY_PROGRESS_EPISODE, episode)
+                .putInt(AdScanScheduler.KEY_PROGRESS_TOTAL, total)
+                .build());
+    }
+
+    private ForegroundInfo preparingInfo(int total) {
+        return foregroundInfo(NotificationUtils.createAdScanPreparingNotification(
+                getApplicationContext(), total));
+    }
+
+    private ForegroundInfo foregroundInfo(int episodeIndex, int total) {
+        return foregroundInfo(NotificationUtils.createAdScanNotification(
+                getApplicationContext(), episodeIndex, total));
+    }
+
+    private static ForegroundInfo foregroundInfo(Notification notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             return new ForegroundInfo(NOTIFICATION_ID, notification,
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
@@ -178,7 +218,7 @@ public class AdScanWorker extends Worker {
                 continue;
             }
             try {
-                File file = SeedDownloader.download(m.getDownloadUrl(), dir, fileName(m));
+                File file = SeedDownloader.download(m.getDownloadUrl(), dir, fileName(m.getId(), m.getDownloadUrl()));
                 m.setLocalFileUrl(file.getAbsolutePath());
                 Log.d(TAG, "Seeded media " + m.getId());
             } catch (IOException e) {
@@ -197,8 +237,7 @@ public class AdScanWorker extends Worker {
         return count;
     }
 
-    private static String fileName(FeedMedia media) {
-        String url = media.getDownloadUrl();
+    static String fileName(long mediaId, String url) {
         int slash = url.lastIndexOf('/');
         String name = slash >= 0 ? url.substring(slash + 1) : url;
         int query = name.indexOf('?');
@@ -206,9 +245,9 @@ public class AdScanWorker extends Worker {
             name = name.substring(0, query);
         }
         if (name.isEmpty() || !name.contains(".")) {
-            name = media.getId() + ".mp3";
+            name = "audio.mp3";
         }
-        return name;
+        return mediaId + "-" + name;
     }
 
     private static File resolveAudio(FeedMedia media) {

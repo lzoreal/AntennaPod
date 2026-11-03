@@ -361,6 +361,13 @@ class DBUpgrader {
             db.execSQL(PodDBAdapter.CREATE_TABLE_AD_FEED_SETTINGS);
             db.execSQL(PodDBAdapter.CREATE_INDEX_AD_SEGMENTS_MEDIA);
         }
+        if (oldVersion < 3130000) {
+            db.execSQL(PodDBAdapter.CREATE_TABLE_AD_CHUNK_FINGERPRINTS);
+        }
+        if (oldVersion < 3130100) {
+            db.execSQL("ALTER TABLE " + PodDBAdapter.TABLE_NAME_AD_FEED_SETTINGS
+                    + " ADD COLUMN aggressive INTEGER NOT NULL DEFAULT 0");
+        }
     }
 
 }

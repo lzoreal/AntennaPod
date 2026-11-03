@@ -45,11 +45,8 @@ public class JsonTranscriptParser {
             }
             long audioDurationMs = parseAudioDurationMs(obj);
 
-            if (objSegments.length() > 0) {
-                JSONObject first = objSegments.getJSONObject(0);
-                if (first.has("start") && first.has("text")) {
-                    return parseTimedSegments(objSegments, audioDurationMs);
-                }
+            if (usesTimedSegments(objSegments)) {
+                return parseTimedSegments(objSegments, audioDurationMs);
             }
 
             for (int i = 0; i < objSegments.length(); i++) {
@@ -131,6 +128,22 @@ public class JsonTranscriptParser {
         return null;
     }
 
+    private static boolean usesTimedSegments(JSONArray objSegments) {
+        for (int i = 0; i < objSegments.length(); i++) {
+            JSONObject segment = objSegments.optJSONObject(i);
+            if (segment == null) {
+                continue;
+            }
+            JSONArray words = segment.optJSONArray("words");
+            if (words != null && words.length() > 0) {
+                return true;
+            }
+        }
+        JSONObject first = objSegments.optJSONObject(0);
+        return first != null && first.has("start") && first.has("text")
+                && !first.has("startTime");
+    }
+
     private static Transcript parseTimedSegments(JSONArray objSegments, long audioDurationMs)
             throws JSONException {
         Transcript transcript = new Transcript();
@@ -139,9 +152,9 @@ public class JsonTranscriptParser {
         String prevSpeaker = "";
         for (int i = 0; i < objSegments.length(); i++) {
             JSONObject jsonObject = objSegments.getJSONObject(i);
-            long startTime = Math.round(jsonObject.optDouble("start", -1));
-            long endTime = Math.round(jsonObject.optDouble("end", -1));
-            String body = jsonObject.optString("text");
+            long startTime = segmentStartTime(jsonObject);
+            long endTime = segmentEndTime(jsonObject);
+            String body = segmentText(jsonObject);
             if (startTime < 0 || StringUtils.isBlank(body)) {
                 continue;
             }
@@ -167,6 +180,27 @@ public class JsonTranscriptParser {
         transcript.setSpeakers(speakers);
         transcript.setAudioDurationMs(audioDurationMs);
         return transcript;
+    }
+
+    private static long segmentStartTime(JSONObject jsonObject) {
+        if (jsonObject.has("startTime")) {
+            return Math.round(jsonObject.optDouble("startTime", -1) * 1000L);
+        }
+        return Math.round(jsonObject.optDouble("start", -1));
+    }
+
+    private static long segmentEndTime(JSONObject jsonObject) {
+        boolean official = jsonObject.has("startTime");
+        double secondsOrMillis = jsonObject.optDouble(official ? "endTime" : "end", -1);
+        if (!Double.isFinite(secondsOrMillis) || secondsOrMillis < 0) {
+            return -1;
+        }
+        return official ? Math.round(secondsOrMillis * 1000L) : Math.round(secondsOrMillis);
+    }
+
+    private static String segmentText(JSONObject jsonObject) {
+        String body = jsonObject.optString("body", "");
+        return StringUtils.isBlank(body) ? jsonObject.optString("text", "") : body;
     }
 
     private static long parseAudioDurationMs(JSONObject obj) {

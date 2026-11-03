@@ -22,10 +22,25 @@ public final class PcmDecoder {
         }
     }
 
+    /** Receives mono PCM blocks in decode order. */
+    public interface Sink {
+        void onSamples(float[] mono, int count, int sampleRate);
+    }
+
     private PcmDecoder() {
     }
 
     public static Result decodeToMono(File file) throws IOException {
+        final FloatList out = new FloatList(16000);
+        int sampleRate = decodeStreaming(file, (mono, count, rate) -> {
+            for (int i = 0; i < count; i++) {
+                out.add(mono[i]);
+            }
+        });
+        return new Result(out.toArray(), sampleRate);
+    }
+
+    public static int decodeStreaming(File file, Sink sink) throws IOException {
         MediaExtractor extractor = new MediaExtractor();
         MediaCodec codec = null;
         try {
@@ -52,7 +67,6 @@ public final class PcmDecoder {
             codec.configure(format, null, null, 0);
             codec.start();
 
-            FloatList out = new FloatList(Math.max(16000, sampleRate * 10));
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             boolean inputDone = false;
             boolean outputDone = false;
@@ -82,13 +96,15 @@ public final class PcmDecoder {
                             buf.order(ByteOrder.nativeOrder());
                             ShortBuffer shorts = buf.asShortBuffer();
                             int frames = info.size / (2 * channels);
+                            float[] mono = new float[frames];
                             for (int i = 0; i < frames; i++) {
                                 int sum = 0;
                                 for (int c = 0; c < channels; c++) {
                                     sum += shorts.get(i * channels + c);
                                 }
-                                out.add(sum / (float) (channels * 32768));
+                                mono[i] = sum / (float) (channels * 32768);
                             }
+                            sink.onSamples(mono, frames, sampleRate);
                         }
                     }
                     codec.releaseOutputBuffer(index, false);
@@ -98,7 +114,7 @@ public final class PcmDecoder {
                     channels = outFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
                 }
             }
-            return new Result(out.toArray(), sampleRate);
+            return sampleRate;
         } finally {
             if (codec != null) {
                 try {

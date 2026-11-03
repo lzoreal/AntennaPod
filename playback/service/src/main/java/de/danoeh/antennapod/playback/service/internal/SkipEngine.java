@@ -21,14 +21,18 @@ public final class SkipEngine {
     public Long onPosition(long positionMs) {
         long previous = lastPosition;
         lastPosition = positionMs;
-        if (previous < 0 || positionMs < previous) {
+        if (positionMs < previous) {
             return null;
         }
+        boolean starting = previous < 0;
         for (long[] s : segments) {
             if (bypass.contains(s[0])) {
                 continue;
             }
-            if (previous < s[1] && positionMs >= s[1] && positionMs < s[2]) {
+            boolean entered = starting
+                    ? positionMs >= s[1] && positionMs < s[2]
+                    : previous < s[1] && positionMs >= s[1] && positionMs < s[2];
+            if (entered) {
                 return s[2] + TAIL_MS;
             }
         }

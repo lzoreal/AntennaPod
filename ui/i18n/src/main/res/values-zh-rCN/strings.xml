@@ -1016,10 +1016,26 @@
     <string name="wearos_phone_not_supported" tools:ignore="UnusedResources">手机不兼容。请确保您在手机上运行的是来自 Google Play 的 AntennaPod 最新版本。</string>
     <string name="bottom_navigation_deprecation_warning">我们在将来更新中不得不删除侧边栏导航。 AntennaPod 由一小群志愿者开发，多年维护两种样式使我们不堪重负。\n\n如果您完全依赖侧栏导航，请在应用商店中禁用 AntennaPod 更新。</string>
     <string name="ad_scan_notification_title">正在检测广告</string>
-    <string name="ad_scan_notification_text">正在分析第 %1$d 集</string>
+    <string name="ad_scan_notification_text">正在分析第 %1$d/%2$d 集</string>
+    <string name="ad_scan_done_title">广告检测已就绪</string>
+    <string name="ad_scan_done_text">已分析 %1$d 集，找到 %2$d 个广告段</string>
+    <string name="ad_scan_failed_title">广告分析未完成</string>
+    <string name="ad_scan_failed_text">将在后台重试；需要 Wi-Fi 和至少 2 集可播放音频。</string>
+    <string name="ad_scan_status_running">正在分析第 %1$d/%2$d 集…</string>
+    <string name="ad_scan_status_preparing">正在准备音频…（共 %1$d 集）</string>
+    <string name="ad_scan_status_starting">正在开始分析…</string>
+    <string name="ad_scan_status_waiting">等待 Wi-Fi 后开始分析…</string>
+    <string name="ad_scan_status_retrying">上次分析未完成，等待重试…</string>
+    <string name="ad_scan_status_done">分析完成：%1$d 集，%2$d 个广告段</string>
+    <string name="ad_scan_status_done_short">分析完成</string>
+    <string name="ad_scan_status_failed">分析失败，将自动重试</string>
+    <string name="ad_scan_status_idle">尚未开始分析</string>
     <string name="ad_skipped_message">已跳过 %1$d 秒广告</string>
+    <string name="ad_skipped_notification_title">已跳过广告</string>
     <string name="ad_detection_pref">检测并跳过广告</string>
     <string name="ad_detection_pref_summary">使用本地指纹识别。开启后会为分析下载最多 2 集（仅 Wi-Fi）。</string>
+    <string name="ad_aggressive_pref">激进跳过广告</string>
+    <string name="ad_aggressive_pref_summary">同时跳过不确定或较长的广告段（片尾除外），可能误跳正文。</string>
     <string name="ad_skip_disable_episode">本集不跳过广告</string>
     <string name="ad_skip_disabled_toast">已为本集关闭广告跳过</string>
 </resources>

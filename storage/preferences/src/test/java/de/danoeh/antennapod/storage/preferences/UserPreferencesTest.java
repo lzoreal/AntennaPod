@@ -133,6 +133,17 @@ public class UserPreferencesTest {
     }
 
     @Test
+    public void testAnchorsSharingACueTimeAreKept() {
+        // An ad cut keeps the transcript time continuous: the audio after the cut maps to the
+        // same cue as the audio before it, but needs its own, larger offset.
+        UserPreferences.setTranscriptTimeOffset(1, 600_000, 90_000);
+        UserPreferences.setTranscriptTimeOffset(1, 660_000, 150_000);
+
+        assertEquals(90_000, UserPreferences.getTranscriptTimeOffset(1, 600_000));
+        assertEquals(150_000, UserPreferences.getTranscriptTimeOffset(1, 660_000));
+    }
+
+    @Test
     public void testTranscriptOffsetResetClearsEveryAnchor() {
         UserPreferences.setTranscriptTimeOffset(1, 200_000, 90_000);
         UserPreferences.setTranscriptTimeOffset(1, 1_000_000, 60_000);

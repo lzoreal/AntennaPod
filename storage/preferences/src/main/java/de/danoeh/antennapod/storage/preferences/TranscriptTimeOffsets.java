@@ -118,15 +118,17 @@ public final class TranscriptTimeOffsets {
     }
 
     /**
-     * Keeps anchors ordered on both timelines. An anchor whose cue time is not after the previous
-     * one can never govern a cue, so it is dropped; runs are idempotent.
+     * Keeps anchors ordered on both timelines. An anchor whose cue time is before the previous
+     * one can never govern a cue, so it is dropped; runs are idempotent. Anchors sharing a cue
+     * time are kept because cutting an ad keeps the transcript time continuous: the later anchor
+     * governs the cue from its media position onwards.
      */
     private void normalize() {
         anchors.sort(Comparator.comparingLong(anchor -> anchor.mediaPositionMs));
         long previousCueTime = Long.MIN_VALUE;
         for (Iterator<Anchor> iterator = anchors.iterator(); iterator.hasNext();) {
             Anchor anchor = iterator.next();
-            if (anchor.cueTimeMs() <= previousCueTime) {
+            if (anchor.cueTimeMs() < previousCueTime) {
                 iterator.remove();
             } else {
                 previousCueTime = anchor.cueTimeMs();

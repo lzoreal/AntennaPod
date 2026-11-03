@@ -46,6 +46,7 @@ import de.danoeh.antennapod.storage.preferences.PlaybackPreferences;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.model.download.DownloadResult;
 import de.danoeh.antennapod.model.feed.Feed;
+import de.danoeh.antennapod.model.feed.AdChunkFingerprintRow;
 import de.danoeh.antennapod.model.feed.AdFeedSettings;
 import de.danoeh.antennapod.model.feed.AdFingerprintRow;
 import de.danoeh.antennapod.model.feed.AdSegment;
@@ -1011,6 +1012,36 @@ public class DBWriter {
         });
     }
 
+    /** Stores one chunk; older chunks overlapping the same audio are dropped so coverage stays disjoint. */
+    public static Future<?> saveAdChunkFingerprint(AdChunkFingerprintRow row) {
+        return runOnDbThread(() -> {
+            PodDBAdapter adapter = PodDBAdapter.getInstance();
+            adapter.open();
+            SQLiteDatabase db = adapter.getDatabase();
+            db.beginTransaction();
+            try {
+                long endFrame = (long) row.getStartFrame() + row.getFrames();
+                // Numeric literals: bound string args would compare as text and never match the sum.
+                db.delete(PodDBAdapter.TABLE_NAME_AD_CHUNK_FINGERPRINTS,
+                        "media_id = " + row.getMediaId() + " AND start_frame < " + endFrame
+                                + " AND start_frame + frames > " + row.getStartFrame(), null);
+                ContentValues values = new ContentValues();
+                values.put("media_id", row.getMediaId());
+                values.put("start_frame", row.getStartFrame());
+                values.put("frames", row.getFrames());
+                values.put("stride", row.getStride());
+                values.put("blob", row.getBlob());
+                values.put("created_at", System.currentTimeMillis());
+                db.insertWithOnConflict(PodDBAdapter.TABLE_NAME_AD_CHUNK_FINGERPRINTS, null, values,
+                        SQLiteDatabase.CONFLICT_REPLACE);
+                db.setTransactionSuccessful();
+            } finally {
+                db.endTransaction();
+                adapter.close();
+            }
+        });
+    }
+
     public static Future<?> replaceAdSegments(long mediaId, List<AdSegment> segments) {
         return runOnDbThread(() -> {
             PodDBAdapter adapter = PodDBAdapter.getInstance();
@@ -1039,6 +1070,94 @@ public class DBWriter {
                 adapter.close();
             }
         });
+    }
+
+    /** Merges segments found during playback without dropping earlier ones. */
+    public static Future<?> addAdSegments(long mediaId, List<AdSegment> segments) {
+        return runOnDbThread(() -> {
+            PodDBAdapter adapter = PodDBAdapter.getInstance();
+            adapter.open();
+            SQLiteDatabase db = adapter.getDatabase();
+            db.beginTransaction();
+            try {
+                List<AdSegment> existing = queryActiveAdSegments(db, mediaId);
+                for (AdSegment segment : segments) {
+                    AdSegment match = findAdSegmentOverlap(existing, segment);
+                    if (match == null) {
+                        insertAdSegment(db, mediaId, segment);
+                    } else if (segment.getMatchRatio() > match.getMatchRatio()
+                            || segment.getEndMs() > match.getEndMs()) {
+                        match.setStartMs(Math.min(match.getStartMs(), segment.getStartMs()));
+                        match.setEndMs(Math.max(match.getEndMs(), segment.getEndMs()));
+                        match.setMatchRatio(Math.max(match.getMatchRatio(), segment.getMatchRatio()));
+                        match.setSupport(Math.max(match.getSupport(), segment.getSupport()));
+                        ContentValues values = new ContentValues();
+                        values.put("start_ms", match.getStartMs());
+                        values.put("end_ms", match.getEndMs());
+                        values.put("match_ratio", match.getMatchRatio());
+                        values.put("support", match.getSupport());
+                        db.update(PodDBAdapter.TABLE_NAME_AD_SEGMENTS, values,
+                                "id = ?", new String[]{String.valueOf(match.getId())});
+                    }
+                }
+                db.setTransactionSuccessful();
+            } finally {
+                db.endTransaction();
+                adapter.close();
+            }
+        });
+    }
+
+    private static void insertAdSegment(SQLiteDatabase db, long mediaId, AdSegment segment) {
+        ContentValues values = new ContentValues();
+        values.put("media_id", mediaId);
+        values.put("start_ms", segment.getStartMs());
+        values.put("end_ms", segment.getEndMs());
+        values.put("kind", segment.getKind());
+        values.put("tier", segment.getTier());
+        values.put("match_ratio", segment.getMatchRatio());
+        values.put("support", segment.getSupport());
+        values.put("state", AdSegment.STATE_ACTIVE);
+        values.put("created_at", System.currentTimeMillis());
+        db.insert(PodDBAdapter.TABLE_NAME_AD_SEGMENTS, null, values);
+    }
+
+    private static List<AdSegment> queryActiveAdSegments(SQLiteDatabase db, long mediaId) {
+        List<AdSegment> out = new ArrayList<>();
+        try (Cursor cursor = db.query(PodDBAdapter.TABLE_NAME_AD_SEGMENTS, null,
+                "media_id = ? AND state = 0", new String[]{String.valueOf(mediaId)},
+                null, null, "start_ms ASC")) {
+            while (cursor.moveToNext()) {
+                AdSegment segment = new AdSegment();
+                segment.setId(cursor.getLong(cursor.getColumnIndexOrThrow("id")));
+                segment.setMediaId(mediaId);
+                segment.setStartMs(cursor.getInt(cursor.getColumnIndexOrThrow("start_ms")));
+                segment.setEndMs(cursor.getInt(cursor.getColumnIndexOrThrow("end_ms")));
+                segment.setKind(cursor.getInt(cursor.getColumnIndexOrThrow("kind")));
+                segment.setTier(cursor.getInt(cursor.getColumnIndexOrThrow("tier")));
+                segment.setMatchRatio(cursor.getFloat(cursor.getColumnIndexOrThrow("match_ratio")));
+                segment.setSupport(cursor.getInt(cursor.getColumnIndexOrThrow("support")));
+                segment.setState(cursor.getInt(cursor.getColumnIndexOrThrow("state")));
+                out.add(segment);
+            }
+        }
+        return out;
+    }
+
+    private static AdSegment findAdSegmentOverlap(List<AdSegment> existing, AdSegment candidate) {
+        for (AdSegment segment : existing) {
+            long intersection = Math.min(segment.getEndMs(), candidate.getEndMs())
+                    - Math.max(segment.getStartMs(), candidate.getStartMs());
+            if (intersection <= 0) {
+                continue;
+            }
+            long shortest = Math.min(segment.getEndMs() - segment.getStartMs(),
+                    candidate.getEndMs() - candidate.getStartMs());
+            if (intersection * 2 > shortest) {
+                return segment;
+            }
+        }
+        return null;
     }
 
     public static Future<?> setAdSegmentState(long segmentId, int state) {
@@ -1072,6 +1191,7 @@ public class DBWriter {
             ContentValues values = new ContentValues();
             values.put("feed_id", settings.getFeedId());
             values.put("enabled", settings.isEnabled() ? 1 : 0);
+            values.put("aggressive", settings.isAggressive() ? 1 : 0);
             values.put("window_size", settings.getWindowSize());
             values.put("last_scan_at", System.currentTimeMillis());
             adapter.getDatabase().insertWithOnConflict(
@@ -1088,6 +1208,8 @@ public class DBWriter {
                     "media_id = ?", new String[]{String.valueOf(mediaId)});
             adapter.getDatabase().delete(PodDBAdapter.TABLE_NAME_AD_FINGERPRINTS,
                     "media_id = ?", new String[]{String.valueOf(mediaId)});
+            adapter.getDatabase().delete(PodDBAdapter.TABLE_NAME_AD_CHUNK_FINGERPRINTS,
+                    "media_id = ?", new String[]{String.valueOf(mediaId)});
             adapter.close();
         });
     }
@@ -1098,6 +1220,8 @@ public class DBWriter {
         adapter.getDatabase().delete(PodDBAdapter.TABLE_NAME_AD_SEGMENTS,
                 "media_id = ?", new String[]{String.valueOf(mediaId)});
         adapter.getDatabase().delete(PodDBAdapter.TABLE_NAME_AD_FINGERPRINTS,
+                "media_id = ?", new String[]{String.valueOf(mediaId)});
+        adapter.getDatabase().delete(PodDBAdapter.TABLE_NAME_AD_CHUNK_FINGERPRINTS,
                 "media_id = ?", new String[]{String.valueOf(mediaId)});
         adapter.close();
     }

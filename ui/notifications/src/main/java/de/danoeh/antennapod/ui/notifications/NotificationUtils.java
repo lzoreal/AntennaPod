@@ -1,6 +1,7 @@
 package de.danoeh.antennapod.ui.notifications;
 
 import android.app.Notification;
+import android.app.PendingIntent;
 import android.content.Context;
 
 import androidx.core.app.NotificationChannelCompat;
@@ -22,6 +23,9 @@ public class NotificationUtils {
     public static final String CHANNEL_ID_SYNC_ERROR = "sync_error";
     public static final String CHANNEL_ID_EPISODE_NOTIFICATIONS = "episode_notifications";
     public static final String CHANNEL_ID_AD_SCAN = "ad_scan";
+    public static final String CHANNEL_ID_AD_SKIP = "ad_skip";
+    private static final int NOTIFICATION_ID_AD_SCAN_RESULT = 0xAD01;
+    private static final int NOTIFICATION_ID_AD_SKIP = 0xAD02;
 
     public static final String GROUP_ID_ERRORS = "group_errors";
     public static final String GROUP_ID_NEWS = "group_news";
@@ -42,7 +46,8 @@ public class NotificationUtils {
                 createChannelError(context),
                 createChannelSyncError(context),
                 createChannelEpisodeNotification(context),
-                createChannelAdScan(context));
+                createChannelAdScan(context),
+                createChannelAdSkip(context));
         mNotificationManager.createNotificationChannelsCompat(channels);
     }
 
@@ -126,14 +131,72 @@ public class NotificationUtils {
                 .build();
     }
 
-    public static Notification createAdScanNotification(Context context, int episodeIndex) {
+    private static NotificationChannelCompat createChannelAdSkip(final Context c) {
+        return new NotificationChannelCompat.Builder(CHANNEL_ID_AD_SKIP, NotificationManagerCompat.IMPORTANCE_LOW)
+                .setName(c.getString(R.string.ad_skipped_notification_title))
+                .setShowBadge(false)
+                .build();
+    }
+
+    public static void showAdSkipUndo(Context context, String text, PendingIntent contentIntent,
+                                      PendingIntent undoIntent) {
+        Notification notification = new NotificationCompat.Builder(context, CHANNEL_ID_AD_SKIP)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(context.getString(R.string.ad_skipped_notification_title))
+                .setContentText(text)
+                .setContentIntent(contentIntent)
+                .addAction(R.drawable.ic_notification, context.getString(R.string.undo), undoIntent)
+                .setAutoCancel(true)
+                .setTimeoutAfter(10_000)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build();
+        NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_AD_SKIP, notification);
+    }
+
+    public static void cancelAdSkipUndo(Context context) {
+        NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID_AD_SKIP);
+    }
+
+    public static Notification createAdScanNotification(Context context, int episodeIndex, int total) {
+        return createAdScanNotification(context,
+                context.getString(R.string.ad_scan_notification_text, episodeIndex, total));
+    }
+
+    public static Notification createAdScanPreparingNotification(Context context, int total) {
+        return createAdScanNotification(context,
+                context.getString(R.string.ad_scan_status_preparing, total));
+    }
+
+    private static Notification createAdScanNotification(Context context, String text) {
         return new NotificationCompat.Builder(context, CHANNEL_ID_AD_SCAN)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(context.getString(R.string.ad_scan_notification_title))
-                .setContentText(context.getString(R.string.ad_scan_notification_text, episodeIndex))
+                .setContentText(text)
                 .setOngoing(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build();
+    }
+
+    public static void showAdScanFinished(Context context, int episodes, int segments) {
+        showAdScanResult(context, R.string.ad_scan_done_title,
+                context.getString(R.string.ad_scan_done_text, episodes, segments));
+    }
+
+    public static void showAdScanFailed(Context context) {
+        showAdScanResult(context, R.string.ad_scan_failed_title,
+                context.getString(R.string.ad_scan_failed_text));
+    }
+
+    private static void showAdScanResult(Context context, int title, String text) {
+        Notification notification = new NotificationCompat.Builder(context, CHANNEL_ID_AD_SCAN)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(context.getString(title))
+                .setContentText(text)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(text))
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build();
+        NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_AD_SCAN_RESULT, notification);
     }
 
     private static NotificationChannelGroupCompat createGroupErrors(final Context c) {

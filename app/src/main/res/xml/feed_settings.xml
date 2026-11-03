@@ -40,6 +40,12 @@
             android:summary="@string/ad_detection_pref_summary"
             android:title="@string/ad_detection_pref" />
 
+        <SwitchPreferenceCompat
+            android:icon="@drawable/ic_skip_24dp"
+            android:key="adAggressive"
+            android:summary="@string/ad_aggressive_pref_summary"
+            android:title="@string/ad_aggressive_pref" />
+
         <de.danoeh.antennapod.ui.screen.feed.preferences.VolumeAdaptationPreference
             android:defaultValue="off"
             android:entries="@array/spnVolumeAdaptationItems"
