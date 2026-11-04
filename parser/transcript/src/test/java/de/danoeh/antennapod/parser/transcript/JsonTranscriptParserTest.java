@@ -108,6 +108,20 @@ public class JsonTranscriptParserTest {
     }
 
     @Test
+    public void testParseCjkWordsSeparatedByUnlistedPunctuation() {
+        String json = "{\"segments\":[{\"start\":0,\"end\":6000,"
+                + "\"text\":\"也会想说，哎呀，你好。\","
+                + "\"words\":[[\"也\",0,100],[\"会\",100,100],[\"想\",200,100],"
+                + "[\"说\",300,100],[\"哎\",500,100],[\"呀\",600,100],"
+                + "[\"你\",800,100],[\"好\",900,100]]}]}";
+
+        Transcript result = JsonTranscriptParser.parse(json);
+
+        assertNotNull(result);
+        assertEquals(8, result.getSegmentAt(0).getWordTimings().size());
+    }
+
+    @Test
     public void testParseTimedJsonWithWordTimings() {
         String json = "{\"segments\":["
                 + "{\"start\":880,\"end\":23400,\"speaker\":\"Ira Glass\","

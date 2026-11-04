@@ -205,6 +205,7 @@
     <string name="transcript_model_download_message">将在本机生成声音文字，需先下载语音模型（%1$s）。现在下载？</string>
     <string name="transcript_model_download_mobile_message">当前为移动网络，是否继续下载语音模型（%1$s）？</string>
     <string name="transcript_model_downloading_format">正在下载模型… %1$d%%</string>
+    <string name="transcript_model_installing">正在解压并校验模型…</string>
     <string name="transcript_model_size_mb">%1$d MB</string>
     <string name="transcript_finalize_channel_name">声音文字生成</string>
     <string name="transcript_finalize_notification_title">正在生成声音文字</string>

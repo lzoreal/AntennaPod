@@ -94,7 +94,9 @@ public final class AsrGenerationSession {
                 return;
             }
             drainSegments();
-            listener.onCompleted();
+            if (running) {
+                listener.onCompleted();
+            }
         } finally {
             runner = null;
             try {

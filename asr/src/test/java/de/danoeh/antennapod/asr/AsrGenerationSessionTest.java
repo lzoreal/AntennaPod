@@ -79,7 +79,9 @@ public class AsrGenerationSessionTest {
         thread.join(2000);
 
         assertFalse(thread.isAlive());
-        assertTrue(listener.completed);
+        // A stop already reports STOPPED through the manager; completing as well would
+        // mark the wrong media as finished when the user switched episodes.
+        assertFalse(listener.completed);
         assertEquals(1, listener.segments.size());
         assertTrue(recognizer.flushed);
         assertTrue(recognizer.closed);

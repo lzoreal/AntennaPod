@@ -69,7 +69,8 @@ public final class PreReadPcmPipeline implements AutoCloseable {
                 decoder.durationMs());
         if (plan == null) {
             long durationMs = decoder.durationMs();
-            if (durationMs > 0 && decodedEndMs >= durationMs) {
+            if (durationMs > 0 && (decodedEndMs >= durationMs
+                    || playhead <= durationMs && coverage.covers(playhead, durationMs))) {
                 sourceEnded = true;
             }
             return null;
@@ -106,6 +107,25 @@ public final class PreReadPcmPipeline implements AutoCloseable {
 
     public long decodedEndMs() {
         return decodedEndMs;
+    }
+
+    /** End of the last covered range, or {@code -1} when nothing is covered. */
+    public long coverageEndMs() {
+        List<MediaRange> ranges = coverage.ranges();
+        return ranges.isEmpty() ? -1 : ranges.get(ranges.size() - 1).endMs();
+    }
+
+    /**
+     * Returns the first millisecond at or after {@code fromMs} that has no coverage, or
+     * {@code -1} when the duration is unknown.
+     */
+    public long nextUncoveredMs(long fromMs) {
+        long durationMs = decoder.durationMs();
+        if (durationMs <= 0) {
+            return -1;
+        }
+        List<MediaRange> gaps = coverage.gaps(Math.max(0, fromMs), durationMs);
+        return gaps.isEmpty() ? durationMs : gaps.get(0).startMs();
     }
 
     public boolean isSourceEnded() {

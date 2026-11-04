@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 
 import android.content.Context;
 import android.os.PowerManager;
+import android.provider.Settings;
 
 import androidx.test.core.app.ApplicationProvider;
 
@@ -25,11 +26,13 @@ public class AsrGenerationManagerTest {
     public void setUp() {
         context = ApplicationProvider.getApplicationContext();
         PlaybackServiceInterface.isCasting = false;
+        Settings.System.putInt(context.getContentResolver(), "POWER_SAVE_MODE_OPEN", 0);
     }
 
     @After
     public void tearDown() {
         PlaybackServiceInterface.isCasting = false;
+        Settings.System.putInt(context.getContentResolver(), "POWER_SAVE_MODE_OPEN", 0);
     }
 
     @Test
@@ -44,6 +47,14 @@ public class AsrGenerationManagerTest {
     public void batterySaverStopsGeneration() {
         PowerManager powerManager = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
         Shadows.shadowOf(powerManager).setIsPowerSaveMode(true);
+
+        assertEquals(R.string.transcript_generate_power_saver,
+                AsrGenerationManager.guardStopReason(context));
+    }
+
+    @Test
+    public void miuiPowerSaverStopsGeneration() {
+        Settings.System.putInt(context.getContentResolver(), "POWER_SAVE_MODE_OPEN", 1);
 
         assertEquals(R.string.transcript_generate_power_saver,
                 AsrGenerationManager.guardStopReason(context));

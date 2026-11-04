@@ -69,19 +69,26 @@ public final class AsrTranscriptStore {
     }
 
     private static void writeAtomically(File target, String content) throws IOException {
-        File parent = target.getParentFile();
+        File parent = target.getAbsoluteFile().getParentFile();
         if (parent != null && !parent.isDirectory() && !parent.mkdirs() && !parent.isDirectory()) {
             throw new IOException("cannot create " + parent);
         }
-        File temp = new File(target.getPath() + ".tmp");
-        try (OutputStream output = new FileOutputStream(temp)) {
-            output.write(content.getBytes(StandardCharsets.UTF_8));
-        }
-        if (target.exists() && !target.delete()) {
-            throw new IOException("cannot replace " + target);
-        }
-        if (!temp.renameTo(target)) {
-            throw new IOException("cannot install " + target);
+        File temp = File.createTempFile("transcript-", ".tmp", parent);
+        try {
+            try (OutputStream output = new FileOutputStream(temp)) {
+                output.write(content.getBytes(StandardCharsets.UTF_8));
+                output.flush();
+            }
+            if (!temp.renameTo(target)) {
+                // Some file systems refuse to replace an existing target.
+                if (!target.delete() || !temp.renameTo(target)) {
+                    throw new IOException("cannot install " + target);
+                }
+            }
+        } finally {
+            if (temp.exists() && !temp.delete()) {
+                temp.deleteOnExit();
+            }
         }
     }
 

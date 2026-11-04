@@ -515,6 +515,7 @@ public class Media3PlaybackService extends MediaLibraryService {
 
         @Override
         public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+            syncMediaIdFromPlayer();
             PlaybackServiceInterface.isPlaying = !Util.shouldShowPlayButton(player);
             PlaybackServiceInterface.currentPositionMs = player.getCurrentPosition();
             updatePlaybackPreferences();
@@ -522,6 +523,7 @@ public class Media3PlaybackService extends MediaLibraryService {
 
         @Override
         public void onIsPlayingChanged(boolean isPlaying) {
+            syncMediaIdFromPlayer();
             PlaybackServiceInterface.isPlaying = !Util.shouldShowPlayButton(player);
             PlaybackServiceInterface.currentPositionMs = player.getCurrentPosition();
             if (isPlaying && adSkipController != null) {
@@ -808,6 +810,21 @@ public class Media3PlaybackService extends MediaLibraryService {
                     }
                 }
             };
+
+    /** Keeps the shared media id valid when playback is restored without a media transition. */
+    private void syncMediaIdFromPlayer() {
+        if (player == null || player.getCurrentMediaItem() == null) {
+            return;
+        }
+        try {
+            long id = Long.parseLong(player.getCurrentMediaItem().mediaId);
+            if (PlaybackServiceInterface.currentMediaId != id) {
+                PlaybackServiceInterface.currentMediaId = id;
+            }
+        } catch (NumberFormatException e) {
+            // Placeholder items carry non-numeric ids.
+        }
+    }
 
     @OptIn(markerClass = UnstableApi.class)
     private void switchToPlayable(FeedMedia media) {

@@ -38,8 +38,11 @@ public final class AsrResultMapper {
         } else {
             float[] absoluteTimestamps = new float[timestamps.length];
             float offsetSeconds = (startMs - TOKEN_EMISSION_LAG_MS) / 1000f;
+            float minSeconds = startMs / 1000f;
+            float maxSeconds = endMs / 1000f;
             for (int i = 0; i < timestamps.length; i++) {
-                absoluteTimestamps[i] = Math.max(0f, timestamps[i] + offsetSeconds);
+                absoluteTimestamps[i] = Math.min(maxSeconds,
+                        Math.max(minSeconds, timestamps[i] + offsetSeconds));
             }
             words = AsrTokenizer.tokenize(segmentText, effectiveTokens, absoluteTimestamps, endMs);
         }
@@ -71,7 +74,11 @@ public final class AsrResultMapper {
             return "";
         }
         String normalized = text.trim().replaceAll("\\s+", " ");
-        return normalized.replaceAll("\\s+([,.;:!?，。！？；：、])", "$1");
+        normalized = normalized.replaceAll("\\s+([,.;:!?，。！？；：、])", "$1");
+        // CJK punctuation does not take a following space; the model emits one between pieces.
+        return normalized.replaceAll(
+                "([，。！？；：、])\\s+(?=[\\p{IsHan}\\p{IsHiragana}\\p{IsKatakana}\\p{IsHangul}])",
+                "$1");
     }
 
     private static String applySentenceCase(String text) {

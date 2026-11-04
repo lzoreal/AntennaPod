@@ -256,7 +256,9 @@ public class JsonTranscriptParser {
 
     private static int locateToken(String text, String token, int from) {
         int index = from;
-        while (index < text.length() && Character.isWhitespace(text.charAt(index))) {
+        while (index < text.length()
+                && (Character.isWhitespace(text.charAt(index))
+                || isCjkPunctuation(text.charAt(index)))) {
             index++;
         }
         int match = matchAt(text, token, index);
@@ -265,7 +267,8 @@ public class JsonTranscriptParser {
         }
         int limit = Math.min(text.length() - token.length(), index + token.length() + 40);
         for (int i = index; i <= limit; i++) {
-            if (i > 0 && !Character.isWhitespace(text.charAt(i - 1))) {
+            if (i > 0 && !Character.isWhitespace(text.charAt(i - 1))
+                    && !isCjkPunctuation(text.charAt(i - 1))) {
                 continue;
             }
             match = matchAt(text, token, i);
@@ -274,6 +277,10 @@ public class JsonTranscriptParser {
             }
         }
         return -1;
+    }
+
+    private static boolean isCjkPunctuation(char character) {
+        return "，。！？；：、…".indexOf(character) >= 0;
     }
 
     private static int matchAt(String text, String token, int index) {

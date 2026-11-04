@@ -64,14 +64,17 @@ final class TranscriptWordMapper {
     }
 
     private static int findToken(String text, String token, int from, int to) {
+        boolean cjkToken = containsCjk(token);
         int last = Math.min(to, text.length()) - token.length();
         for (int i = Math.max(from, 0); i <= last; i++) {
-            if (i > 0 && !Character.isWhitespace(text.charAt(i - 1))) {
+            if (i > 0 && !Character.isWhitespace(text.charAt(i - 1))
+                    && !(cjkToken && isCjkBoundary(text.charAt(i - 1)))) {
                 continue;
             }
             int end = i + token.length();
             if (end < text.length() && !Character.isWhitespace(text.charAt(end))
-                    && Character.isLetterOrDigit(text.charAt(end))) {
+                    && Character.isLetterOrDigit(text.charAt(end))
+                    && !(cjkToken && isCjkBoundary(text.charAt(end)))) {
                 continue;
             }
             if (text.regionMatches(i, token, 0, token.length())
@@ -80,5 +83,26 @@ final class TranscriptWordMapper {
             }
         }
         return -1;
+    }
+
+    private static boolean containsCjk(String text) {
+        for (int i = 0; i < text.length(); i++) {
+            if (isCjk(text.charAt(i))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isCjkBoundary(char character) {
+        return isCjk(character) || "，。！？；：、…".indexOf(character) >= 0;
+    }
+
+    private static boolean isCjk(char character) {
+        Character.UnicodeScript script = Character.UnicodeScript.of(character);
+        return script == Character.UnicodeScript.HAN
+                || script == Character.UnicodeScript.HIRAGANA
+                || script == Character.UnicodeScript.KATAKANA
+                || script == Character.UnicodeScript.HANGUL;
     }
 }

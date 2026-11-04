@@ -6,6 +6,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -120,12 +121,12 @@ public final class AsrGenerationManager {
 
                             @Override
                             public void onCompleted() {
-                                finish(AsrGenerationEvent.Type.COMPLETED, null);
+                                finish(AsrGenerationEvent.Type.COMPLETED, null, targetId);
                             }
 
                             @Override
                             public void onError(@NonNull Throwable error) {
-                                finish(AsrGenerationEvent.Type.ERROR, error);
+                                finish(AsrGenerationEvent.Type.ERROR, error, targetId);
                             }
                         });
                 synchronized (AsrGenerationManager.class) {
@@ -138,9 +139,9 @@ public final class AsrGenerationManager {
                 newController.start();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                finish(AsrGenerationEvent.Type.ERROR, new IOException("interrupted", e));
+                finish(AsrGenerationEvent.Type.ERROR, new IOException("interrupted", e), targetId);
             } catch (IOException | RuntimeException e) {
-                finish(AsrGenerationEvent.Type.ERROR, e);
+                finish(AsrGenerationEvent.Type.ERROR, e, targetId);
             }
         }, "AsrStart").start();
     }
@@ -172,8 +173,9 @@ public final class AsrGenerationManager {
         MAIN.removeCallbacks(mediaCheck);
         final AsrGenerationController current = controller;
         controller = null;
-        Log.i(TAG, "stop media=" + stoppedId);
-        if (appContext != null) {
+        Log.i(TAG, "stop media=" + stoppedId + " reason=" + reasonRes);
+        if (appContext != null && reasonRes == 0) {
+            // A guard stop keeps the finalizer scheduled so the episode can still be finished.
             AsrFinalizeScheduler.cancel(appContext, stoppedId);
         }
         if (current != null) {
@@ -184,7 +186,10 @@ public final class AsrGenerationManager {
     }
 
     private static synchronized void finish(AsrGenerationEvent.Type type,
-                                            @Nullable Throwable error) {
+                                            @Nullable Throwable error, long targetId) {
+        if (!running || mediaId != targetId) {
+            return;
+        }
         final long finishedId = mediaId;
         running = false;
         MAIN.removeCallbacks(mediaCheck);
@@ -209,7 +214,7 @@ public final class AsrGenerationManager {
         if (powerManager == null) {
             return 0;
         }
-        if (powerManager.isPowerSaveMode()) {
+        if (powerManager.isPowerSaveMode() || isMiuiPowerSave(context)) {
             return R.string.transcript_generate_power_saver;
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
@@ -217,6 +222,19 @@ public final class AsrGenerationManager {
             return R.string.transcript_generate_thermal;
         }
         return 0;
+    }
+
+    /**
+     * MIUI's own power saver is not the AOSP battery saver, so {@link PowerManager#isPowerSaveMode()}
+     * stays false while the system reports it as enabled. MIUI mirrors the state in this key.
+     */
+    private static boolean isMiuiPowerSave(Context context) {
+        try {
+            return Settings.System.getInt(context.getContentResolver(),
+                    "POWER_SAVE_MODE_OPEN", 0) == 1;
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     private static void post(@NonNull AsrGenerationEvent event) {

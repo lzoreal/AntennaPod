@@ -4,6 +4,7 @@ import android.app.Notification;
 import android.content.Context;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
+import android.os.SystemClock;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -45,11 +46,14 @@ public class AsrFinalizeWorker extends Worker {
     @Override
     public Result doWork() {
         long mediaId = getInputData().getLong(KEY_MEDIA_ID, -1);
+        Log.i(TAG, "run media=" + mediaId + " attempt=" + getRunAttemptCount());
         if (mediaId <= 0 || getRunAttemptCount() > 5) {
+            Log.i(TAG, "give up media=" + mediaId);
             return Result.success();
         }
         if (AsrGenerationManager.isRunning(mediaId)) {
             // A live session still owns this episode; try again later.
+            Log.i(TAG, "retry media=" + mediaId + " live session running");
             return Result.retry();
         }
         FeedMedia media = DBReader.getFeedMedia(mediaId);
@@ -57,9 +61,11 @@ public class AsrFinalizeWorker extends Worker {
                 || media.getGeneratedTranscriptFileUrl() == null
                 || media.getItem() != null && media.getItem().getTranscriptUrl() != null) {
             // Streaming sources need the player cache; finalization only covers local files.
+            Log.i(TAG, "skip media=" + mediaId + " not eligible");
             return Result.success();
         }
         if (isComplete(new File(media.getGeneratedTranscriptFileUrl()), media.getDuration())) {
+            Log.i(TAG, "skip media=" + mediaId + " already complete");
             return Result.success();
         }
         try {
@@ -98,16 +104,29 @@ public class AsrFinalizeWorker extends Worker {
             Log.w(TAG, "Cannot start finalize session", e);
             return Result.retry();
         }
+        boolean done = false;
+        long deadline = SystemClock.elapsedRealtime() + MAX_RUN_MS;
         try {
-            if (!finished.await(MAX_RUN_MS, TimeUnit.MILLISECONDS)) {
-                controller.stop();
-                return Result.retry();
+            while (!done && SystemClock.elapsedRealtime() < deadline) {
+                done = finished.await(5, TimeUnit.SECONDS);
+                if (!done && AsrGenerationManager.isRunning(mediaId)) {
+                    // The user reopened the transcript page; two writers would corrupt it.
+                    Log.i(TAG, "live session took over media=" + mediaId);
+                    controller.stop();
+                    return Result.retry();
+                }
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             controller.stop();
             return Result.retry();
         }
+        if (!done) {
+            Log.i(TAG, "timeout media=" + mediaId + " after " + MAX_RUN_MS + "ms");
+            controller.stop();
+            return Result.retry();
+        }
+        Log.i(TAG, (failed.get() ? "failed" : "done") + " media=" + mediaId);
         return failed.get() ? Result.retry() : Result.success();
     }
 

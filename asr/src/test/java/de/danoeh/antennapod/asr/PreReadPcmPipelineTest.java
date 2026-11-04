@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -103,6 +104,37 @@ public class PreReadPcmPipelineTest {
         assertEquals(Arrays.asList(0L, 100L, 200L), starts);
         assertNull(pipeline.next(0));
         assertNull(pipeline.next(0));
+    }
+
+    @Test
+    public void coveredWindowReportsTheNextGapWithoutEndingTheSource() throws IOException {
+        TranscriptCoverage coverage = new TranscriptCoverage();
+        coverage.add(new MediaRange(0, 2000));
+        PreReadPcmPipeline pipeline = new PreReadPcmPipeline(decoder,
+                new LookaheadPlanner(1000, 200), 1500, coverage);
+        pipeline.open(source);
+
+        assertNull(pipeline.next(0));
+        assertEquals(2000, pipeline.nextUncoveredMs(0));
+        assertFalse(pipeline.isSourceEnded());
+
+        coverage.add(new MediaRange(0, decoder.durationMs));
+        PreReadPcmPipeline full = new PreReadPcmPipeline(decoder,
+                new LookaheadPlanner(1000, 200), 1500, coverage);
+        full.open(source);
+        assertNull(full.next(0));
+        assertTrue(full.isSourceEnded());
+    }
+
+    @Test
+    public void coverageEndIsTheLastCoveredMillisecond() {
+        TranscriptCoverage coverage = new TranscriptCoverage();
+        assertEquals(-1, new PreReadPcmPipeline(decoder, 1000, 200).coverageEndMs());
+        coverage.add(new MediaRange(0, 1000));
+        coverage.add(new MediaRange(2000, 3000));
+        PreReadPcmPipeline pipeline = new PreReadPcmPipeline(decoder,
+                new LookaheadPlanner(1000, 200), 1500, coverage);
+        assertEquals(3000, pipeline.coverageEndMs());
     }
 
     private static List<Long> drain(PreReadPcmPipeline pipeline, long playheadMs, int maxChunks)

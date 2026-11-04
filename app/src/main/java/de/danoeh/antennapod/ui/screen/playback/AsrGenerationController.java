@@ -11,6 +11,7 @@ import androidx.media3.common.util.UnstableApi;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
@@ -22,10 +23,12 @@ import de.danoeh.antennapod.asr.AsrModelCatalog;
 import de.danoeh.antennapod.asr.AsrModelStore;
 import de.danoeh.antennapod.asr.AsrSegment;
 import de.danoeh.antennapod.asr.AsrTranscriptStore;
+import de.danoeh.antennapod.asr.AsrWord;
 import de.danoeh.antennapod.asr.FileAudioSource;
 import de.danoeh.antennapod.asr.GeneratedTranscriptCheckpoint;
 import de.danoeh.antennapod.asr.LookaheadPlanner;
 import de.danoeh.antennapod.asr.MediaCodecPcmDecoder;
+import de.danoeh.antennapod.asr.MediaRange;
 import de.danoeh.antennapod.asr.PreReadPcmPipeline;
 import de.danoeh.antennapod.asr.SherpaRecognizerFactory;
 import de.danoeh.antennapod.asr.SherpaStreamingRecognizer;
@@ -172,6 +175,14 @@ public final class AsrGenerationController {
             pipeline.close();
             return;
         }
+        if (finalizeToEnd) {
+            // Resume at the end of the checkpoint; starting inside covered ranges leaves the
+            // lookahead window fully covered and the session stalls without new callbacks.
+            long coveredEnd = pipeline.coverageEndMs();
+            if (coveredEnd > 0) {
+                finalizePlayhead.set(coveredEnd);
+            }
+        }
 
         final LongSupplier sessionPlayhead = finalizeToEnd ? finalizePlayhead::get : playheadMs;
         session = new AsrGenerationSession(pipeline, recognizer, sessionPlayhead,
@@ -211,7 +222,15 @@ public final class AsrGenerationController {
         @Override
         public void onCaughtUp(long decodedEndMs) {
             if (finalizeToEnd) {
-                finalizePlayhead.set(decodedEndMs);
+                long next = decodedEndMs;
+                if (next < 0) {
+                    // Nothing was decoded in this run and the lookahead window is already
+                    // covered: jump to the first gap so finalization makes progress.
+                    next = pipeline.nextUncoveredMs(Math.max(0, finalizePlayhead.get()));
+                }
+                if (next >= 0) {
+                    finalizePlayhead.set(next);
+                }
             }
             Log.d(TAG, "caughtUp playhead=" + playheadMs.getAsLong()
                     + " decoded=" + decodedEndMs
@@ -221,7 +240,7 @@ public final class AsrGenerationController {
 
         @Override
         public void onCompleted() {
-            save();
+            save(true);
             running = false;
             listener.onCompleted();
         }
@@ -234,16 +253,50 @@ public final class AsrGenerationController {
     }
 
     private void save() {
+        save(false);
+    }
+
+    private void save(boolean finished) {
         if (transcriptStore == null || pipeline == null) {
             return;
         }
         try {
-            transcriptStore.save(segments, durationMs, pipeline.coverageRanges(), modelId);
+            List<MediaRange> coverage = finished
+                    ? pipeline.coverageRanges() : recognizedCoverage();
+            transcriptStore.save(segments, durationMs, coverage, modelId);
             Log.i(TAG, "saved segments=" + segments.size()
-                    + " coverage=" + pipeline.coverageRanges());
+                    + " coverage=" + coverage);
         } catch (IOException e) {
             Log.e(TAG, "Unable to save generated transcript", e);
         }
+    }
+
+    /**
+     * Audio that was decoded but never finalized by the recognizer must not be marked as
+     * covered, otherwise a process death would skip it on the next run.
+     */
+    private List<MediaRange> recognizedCoverage() {
+        long recognizedEnd = -1;
+        synchronized (segments) {
+            for (AsrSegment segment : segments) {
+                List<AsrWord> words = segment.getWords();
+                if (!words.isEmpty()) {
+                    recognizedEnd = Math.max(recognizedEnd,
+                            words.get(words.size() - 1).getEndTime());
+                }
+            }
+        }
+        if (recognizedEnd < 0) {
+            return Collections.emptyList();
+        }
+        List<MediaRange> clamped = new ArrayList<>();
+        for (MediaRange range : pipeline.coverageRanges()) {
+            if (range.startMs() >= recognizedEnd) {
+                break;
+            }
+            clamped.add(new MediaRange(range.startMs(), Math.min(range.endMs(), recognizedEnd)));
+        }
+        return clamped;
     }
 
     private long resolveDuration(File localFile) {

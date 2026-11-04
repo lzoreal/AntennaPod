@@ -1,6 +1,7 @@
 package de.danoeh.antennapod.ui.screen.playback;
 
 import android.content.Context;
+import android.util.Log;
 
 import androidx.work.BackoffPolicy;
 import androidx.work.Constraints;
@@ -13,6 +14,7 @@ import java.util.concurrent.TimeUnit;
 
 /** Schedules the background finalizer that takes over if the player process goes away. */
 public final class AsrFinalizeScheduler {
+    private static final String TAG = "AsrFinalizeScheduler";
     private static final long INITIAL_DELAY_MINUTES = 15;
 
     private AsrFinalizeScheduler() {
@@ -32,10 +34,12 @@ public final class AsrFinalizeScheduler {
                 .build();
         WorkManager.getInstance(context).enqueueUniqueWork(
                 workName(mediaId), ExistingWorkPolicy.KEEP, request);
+        Log.i(TAG, "scheduled media=" + mediaId + " in " + INITIAL_DELAY_MINUTES + "min");
     }
 
     public static void cancel(Context context, long mediaId) {
         WorkManager.getInstance(context).cancelUniqueWork(workName(mediaId));
+        Log.i(TAG, "cancelled media=" + mediaId);
     }
 
     private static String workName(long mediaId) {

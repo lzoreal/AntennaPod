@@ -45,15 +45,28 @@ public final class AsrTokenizer {
                 // token (common after a stream reset) must not jump the cursor to a later period.
                 int attached = attachPunctuation(text, piece, cursor);
                 if (attached >= 0) {
+                    if (!result.isEmpty()
+                            && result.get(result.size() - 1).getEndChar() == cursor) {
+                        // CJK words are emitted per character, so the punctuation would otherwise
+                        // belong to no word and break token lookup in the transcript parser.
+                        AsrWord last = result.get(result.size() - 1);
+                        result.set(result.size() - 1, new AsrWord(
+                                text.substring(last.getStartChar(), attached),
+                                last.getStartTime(), last.getEndTime(),
+                                last.getStartChar(), attached));
+                    }
                     cursor = attached;
                 }
                 continue;
             }
+            // A token must follow closely after the cursor; otherwise a mismatch would bind it
+            // to a later identical word and shift every following character range.
+            int limit = Math.min(text.length(), cursor + piece.length() + 8);
             int index = text.indexOf(piece, cursor);
-            if (index < 0) {
+            if (index < 0 || index > limit) {
                 index = indexOfIgnoreCase(text, piece, cursor);
             }
-            if (index < 0) {
+            if (index < 0 || index > limit) {
                 if (!result.isEmpty() || isSkippablePiece(piece)) {
                     continue;
                 }

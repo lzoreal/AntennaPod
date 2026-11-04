@@ -102,6 +102,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private int followTargetEnd = -1;
     private int followBottomSpace;
     private long lastFollowSkipLogMs;
+    private long lastScrollInteractionMs;
     private int loadedSegmentCount;
     private ViewTreeObserver followObserver;
     private final ViewTreeObserver.OnPreDrawListener followPreDrawListener = () -> {
@@ -200,6 +201,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 }
                 setHighlightTickerDriving(controller != null && controller.isConnected());
             }
+            // Keep the follow frame alive: the list can be static while the current row moved,
+            // and a re-attached view may have replaced the observer.
+            scheduleFollowFrame();
             highlightHandler.postDelayed(this, highlightUpdateInterval());
         }
     };
@@ -260,6 +264,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             @Override
             public void onScrollStateChanged(@NonNull RecyclerView recyclerView, int newState) {
                 super.onScrollStateChanged(recyclerView, newState);
+                if (newState != RecyclerView.SCROLL_STATE_IDLE) {
+                    lastScrollInteractionMs = SystemClock.elapsedRealtime();
+                }
                 if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
                     userScrolling = true;
                     pendingSnapToHighlight = false;
@@ -567,6 +574,14 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             if (newCount != loadedSegmentCount) {
                 // Segments may be inserted anywhere while gaps are filled, so a full refresh is
                 // the only safe notification; the highlighted row is restored right after.
+                // Re-centre immediately instead of slowly catching up from below the viewport.
+                if (userScrolling
+                        && SystemClock.elapsedRealtime() - lastScrollInteractionMs > 2000) {
+                    // A swipe or an initial settle can leave this flag set while the user is
+                    // just listening; otherwise following would stay off across the whole gap.
+                    userScrolling = false;
+                }
+                pendingSnapToHighlight = true;
                 adapter.notifyDataSetChanged();
             }
             loadedSegmentCount = newCount;
@@ -605,6 +620,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
         viewBinding.emptyState.setVisibility(View.GONE);
         viewBinding.recyclerView.setVisibility(View.VISIBLE);
+        // The continue button is only shown once the list (not the empty state) is visible.
+        updateGenerateButtonVisibility();
 
         adapter.setMedia(currentMedia);
         setSyncPickMode(false);
@@ -625,6 +642,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         int initialPosition = currentSegmentIndex(lastPositionMs - offset);
         adapter.setHighlightPosition(initialPosition);
         scrollToPosition(initialPosition);
+        pendingSnapToHighlight = true;
+        scheduleFollowFrame();
         updateBackToCurrentVisibility();
         updateOffsetLabel();
         updateTranslationToggle();
@@ -654,6 +673,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         long mediaId = PlaybackPreferences.getCurrentlyPlayingFeedMediaId();
         if (currentMedia == null || currentMedia.getId() != mediaId) {
             loadTranscript();
+        } else {
+            updateGenerateButtonVisibility();
         }
     }
 
@@ -810,6 +831,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         if (followListenerRegistered) {
             if (followObserver == observer) {
+                // The list may be static (no text change yet) while the playhead has moved to
+                // another row; without a frame the pre-draw listener never runs.
+                viewBinding.recyclerView.postInvalidateOnAnimation();
                 return;
             }
             // The view was re-attached and got a new observer; the old listener is gone.
@@ -826,9 +850,6 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
     private void stopFollowFrame() {
         followAnimating = false;
-        followTargetPosition = -1;
-        followTargetStart = -1;
-        followTargetEnd = -1;
         if (!followListenerRegistered) {
             return;
         }
@@ -867,13 +888,16 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             bounds = new int[]{0, holder.itemView.getHeight()};
         }
         int target = holder.itemView.getTop() + (bounds[0] + bounds[1]) / 2;
-        int error = TranscriptFollowMotion.errorPx(target, viewportHeight);
-        if (position != followTargetPosition
+        int anchor = readingLinePx(recyclerView);
+        int error = target - anchor;
+        boolean targetChanged = position != followTargetPosition
                 || bounds[0] != followTargetStart
-                || bounds[1] != followTargetEnd) {
+                || bounds[1] != followTargetEnd;
+        if (targetChanged) {
             Log.d("AsrFollow", "target change pos=" + position
                     + " top=" + holder.itemView.getTop() + " h=" + holder.itemView.getHeight()
                     + " bounds=" + bounds[0] + "-" + bounds[1] + " target=" + target
+                    + " anchor=" + anchor
                     + " err=" + error + " last=" + lastPositionMs
                     + " scroll=" + recyclerView.computeVerticalScrollOffset()
                     + " canDown=" + recyclerView.canScrollVertically(1)
@@ -883,9 +907,13 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             followTargetEnd = bounds[1];
             followAnimating = false;
         }
-        if (snap) {
+        if (snap || targetChanged) {
+            // A new line or row is read: jump straight onto the reading line instead of
+            // letting it drift down and catching up afterwards.
             followAnimating = false;
-            snapToError(recyclerView, error);
+            if (!TranscriptFollowMotion.isWithinStopThreshold(error, followDensity)) {
+                snapToError(recyclerView, error);
+            }
             return false;
         }
         if (TranscriptFollowMotion.isWithinStopThreshold(error, followDensity)) {
@@ -933,6 +961,16 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         recyclerView.postInvalidateOnAnimation();
         return true;
+    }
+
+    /** Vertical centre of the window, expressed in RecyclerView coordinates. */
+    private int readingLinePx(RecyclerView recyclerView) {
+        View root = recyclerView.getRootView();
+        int[] rootLocation = new int[2];
+        int[] listLocation = new int[2];
+        root.getLocationOnScreen(rootLocation);
+        recyclerView.getLocationOnScreen(listLocation);
+        return rootLocation[1] + root.getHeight() / 2 - listLocation[1];
     }
 
     private void snapToError(RecyclerView recyclerView, int error) {
@@ -1251,7 +1289,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 return true;
             }
             int target = holder.itemView.getTop() + (bounds[0] + bounds[1]) / 2;
-            int error = TranscriptFollowMotion.errorPx(target, viewportHeight);
+            int error = target - readingLinePx(recyclerView);
             if ((error < 0 && !recyclerView.canScrollVertically(-1))
                     || (error > 0 && !recyclerView.canScrollVertically(1))) {
                 stopSearchScrollFrame(recyclerView);
@@ -1993,7 +2031,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         boolean hasSource = currentMedia != null
                 && (currentMedia.getLocalFileUrl() != null
                 || (currentMedia.getStreamUrl() != null
-                && PlaybackServiceInterface.currentMediaId == currentMedia.getId()));
+                && isCurrentPlaybackMedia(currentMedia)));
         boolean support = hasSource
                 && (currentMedia.getItem() == null
                 || currentMedia.getItem().getTranscriptUrl() == null)
@@ -2011,17 +2049,33 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
 
         boolean continueVisible = false;
+        long lastEnd = -1;
+        long duration = -1;
         if (support && viewBinding.emptyState.getVisibility() != View.VISIBLE
                 && currentMedia.getTranscript() != null
                 && currentMedia.getTranscript().isGenerated()
                 && !AsrGenerationManager.isRunning(currentMedia.getId())) {
             int segmentCount = currentMedia.getTranscript().getSegmentCount();
-            long lastEnd = segmentCount == 0 ? 0
+            lastEnd = segmentCount == 0 ? 0
                     : currentMedia.getTranscript().getSegmentAt(segmentCount - 1).getEndTime();
-            long duration = currentMedia.getTranscript().getAudioDurationMs();
+            duration = currentMedia.getTranscript().getAudioDurationMs();
             continueVisible = duration <= 0 || lastEnd < duration - 5000;
         }
+        Log.d("AsrSync", "continue support=" + support
+                + " hasSource=" + hasSource
+                + " empty=" + (viewBinding.emptyState.getVisibility() == View.VISIBLE)
+                + " gen=" + (currentMedia != null && currentMedia.getTranscript() != null
+                && currentMedia.getTranscript().isGenerated())
+                + " running=" + (currentMedia != null
+                && AsrGenerationManager.isRunning(currentMedia.getId()))
+                + " lastEnd=" + lastEnd + " duration=" + duration
+                + " visible=" + continueVisible);
         viewBinding.btnContinueTranscript.setVisibility(continueVisible ? View.VISIBLE : View.GONE);
+    }
+
+    private boolean isCurrentPlaybackMedia(FeedMedia media) {
+        return media != null && (PlaybackServiceInterface.currentMediaId == media.getId()
+                || PlaybackPreferences.getCurrentlyPlayingFeedMediaId() == media.getId());
     }
 
     private boolean isCasting() {
@@ -2099,7 +2153,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         boolean hasLocalFile = currentMedia.getLocalFileUrl() != null;
         boolean streamingHere = currentMedia.getStreamUrl() != null
-                && PlaybackServiceInterface.currentMediaId == currentMedia.getId();
+                && isCurrentPlaybackMedia(currentMedia);
         if (currentMedia.getGeneratedTranscriptFileUrl() == null
                 || (!hasLocalFile && !streamingHere)) {
             showToast(R.string.transcript_generate_needs_download);
@@ -2171,11 +2225,12 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         lastModelPercent = -1;
         final int downloadToken = asrSessionToken;
         modelDownloader = new ModelDownloader(store);
+        final ModelDownloader downloader = modelDownloader;
         viewBinding.btnGenerateTranscript.setEnabled(false);
         viewBinding.btnGenerateTranscript.setText(R.string.transcript_generate_running);
         new Thread(() -> {
             try {
-                modelDownloader.download((read, total) -> {
+                downloader.download((read, total) -> {
                     if (total <= 0) {
                         return;
                     }
@@ -2216,8 +2271,14 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
     private void updateModelDownloadProgress(int percent) {
         if (viewBinding != null && asrModelDownloading) {
-            viewBinding.btnGenerateTranscript.setText(
-                    getString(R.string.transcript_model_downloading_format, percent));
+            if (percent >= 100) {
+                // Extraction and SHA-256 verification of the 155 MB encoder run after the
+                // transfer finished and used to look like a frozen 100 %.
+                viewBinding.btnGenerateTranscript.setText(R.string.transcript_model_installing);
+            } else {
+                viewBinding.btnGenerateTranscript.setText(
+                        getString(R.string.transcript_model_downloading_format, percent));
+            }
         }
     }
 

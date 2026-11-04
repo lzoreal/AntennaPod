@@ -47,6 +47,22 @@ public class TranscriptWordMapperTest {
     }
 
     @Test
+    public void testMapsCjkCharactersInsideUnspacedText() {
+        String raw = "另外一个人，感觉很好。";
+        TranscriptSegment segment = segment(raw,
+                "另", "外", "一", "个", "人，", "感", "觉", "很", "好。");
+
+        int[][] spans = TranscriptWordMapper.map(segment, raw,
+                new int[][] {{0, raw.length()}}, new int[] {0});
+
+        assertNotNull(spans);
+        for (int i = 0; i < segment.getWordTimings().size(); i++) {
+            TranscriptWord word = segment.getWordTimings().get(i);
+            assertWord(raw, spans, i, raw.substring(word.getStartChar(), word.getEndChar()));
+        }
+    }
+
+    @Test
     public void testDoesNotMatchTokenInsideLongerWord() {
         TranscriptSegment segment = new TranscriptSegment(0, 1000, "a and", "",
                 Arrays.asList(new TranscriptWord(0, 1, 0, 10),

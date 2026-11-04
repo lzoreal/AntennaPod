@@ -14,7 +14,8 @@ public class AsrResultMapperTest {
 
         List<AsrWord> words = segment.getWords();
         assertEquals(2, words.size());
-        assertEquals(9700, words.get(0).getStartTime());
+        // Word times never precede the part of the stream that produced them.
+        assertEquals(10000, words.get(0).getStartTime());
         assertEquals(10100, words.get(0).getEndTime());
         assertEquals(10100, words.get(1).getStartTime());
         assertEquals(12000, words.get(1).getEndTime());
@@ -41,9 +42,9 @@ public class AsrResultMapperTest {
 
         List<AsrWord> words = segment.getWords();
         assertEquals(2, words.size());
-        assertEquals(4700, words.get(0).getStartTime());
-        assertEquals(4800, words.get(0).getEndTime());
-        assertEquals(4800, words.get(1).getStartTime());
+        assertEquals(5000, words.get(0).getStartTime());
+        assertEquals(5000, words.get(0).getEndTime());
+        assertEquals(5000, words.get(1).getStartTime());
         assertEquals(6000, words.get(1).getEndTime());
     }
 
@@ -77,6 +78,16 @@ public class AsrResultMapperTest {
     }
 
     @Test
+    public void cjkPunctuationTakesNoFollowingSpace() {
+        AsrSegment segment = AsrResultMapper.toSegment("嗨， 大家好， 我是",
+                new String[]{"嗨", "，", "大", "家", "好", "，", "我", "是"},
+                new float[]{0.1f, 0.3f, 0.5f, 0.7f, 0.9f, 1.1f, 1.3f, 1.5f}, 0, 2000);
+
+        assertEquals("嗨，大家好，我是。", segment.getText());
+        assertEquals(6, segment.getWords().size());
+    }
+
+    @Test
     public void unmatchedTokensFallBackToTheWholeText() {
         AsrSegment segment = AsrResultMapper.toSegment("hello",
                 new String[]{"▁hel", "zzz"}, new float[]{0.1f, 0.2f}, 10000, 12000);
@@ -87,7 +98,7 @@ public class AsrResultMapperTest {
         assertEquals("Hello", words.get(0).getText());
         assertEquals(0, words.get(0).getStartChar());
         assertEquals(5, words.get(0).getEndChar());
-        assertEquals(9700, words.get(0).getStartTime());
+        assertEquals(10000, words.get(0).getStartTime());
         assertEquals(12000, words.get(0).getEndTime());
     }
 }
