@@ -54,6 +54,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     private long lastHighlightPositionMs = 0;
     private boolean positionEventsSuppressed = false;
     private RecyclerView recyclerView;
+    private Runnable followRequester;
     private int languageMode = UserPreferences.getTranscriptLanguageMode();
     private int fontSizeStep = UserPreferences.getTranscriptFontSize();
     private float lineSpacingMultiplier;
@@ -949,6 +950,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         lastHighlightPositionMs = position;
         int sentence = sentenceIndexAt(index, position);
         int word = wordIndexAt(index, position);
+        boolean changed = false;
         if (index != highlightPosition) {
             final int previous = highlightPosition;
             highlightPosition = index;
@@ -956,13 +958,31 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             highlightedWord = word;
             refreshBoundRow(previous);
             refreshBoundRow(highlightPosition);
+            changed = true;
         } else if (sentence != highlightedSentence) {
             highlightedSentence = sentence;
             highlightedWord = word;
             refreshBoundRow(highlightPosition);
+            changed = true;
         } else if (word != highlightedWord) {
             highlightedWord = word;
             refreshBoundRow(highlightPosition);
+            changed = true;
+        }
+        if (changed) {
+            // Position updates arrive even when the highlight ticker is not running (1 s fallback
+            // events, paused page); ask for a follow frame so centring does not depend on it.
+            requestFollowFrame();
+        }
+    }
+
+    public void setFollowRequester(Runnable requester) {
+        this.followRequester = requester;
+    }
+
+    private void requestFollowFrame() {
+        if (followRequester != null) {
+            followRequester.run();
         }
     }
 

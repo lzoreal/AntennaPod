@@ -101,6 +101,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private int followTargetStart = -1;
     private int followTargetEnd = -1;
     private int followBottomSpace;
+    private int appliedLayoutSignature = Integer.MIN_VALUE;
+    private int appliedLayoutHeight = -1;
+    private long lastLayoutRecoveryMs;
     private long lastFollowSkipLogMs;
     private long lastScrollInteractionMs;
     private int loadedSegmentCount;
@@ -115,6 +118,31 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         return true;
     };
+    private final Rect followVisibleRect = new Rect();
+    private boolean followClockActive = false;
+    /**
+     * The pre-draw listener only runs when the list is drawn, so the follow needs a frame source
+     * of its own. The highlight ticker provides one only while the fragment is resumed; the page
+     * can be visible and drawing while it is merely started (ViewPager2 page behind an overlay),
+     * which used to freeze the follow until an ASR reload forced a layout.
+     */
+    private final Runnable followClock = new Runnable() {
+        @Override
+        public void run() {
+            if (viewBinding == null || !followClockActive) {
+                followClockActive = false;
+                return;
+            }
+            RecyclerView recyclerView = viewBinding.recyclerView;
+            if (!isFollowViewVisible(recyclerView)) {
+                followClockActive = false;
+                return;
+            }
+            scheduleFollowFrame();
+            recyclerView.postDelayed(this, FOLLOW_CLOCK_INTERVAL_MS);
+        }
+    };
+
     private long lastPositionMs = 0;
     private volatile long lastRawPlayerPosition = -1;
     private long lastSyncLogMs;
@@ -131,6 +159,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private int immersiveTopInset = 0;
     private static final float FOLLOW_MAX_STEP_DP = 10f;
     private static final long HIGHLIGHT_UPDATE_INTERVAL_MS = 250;
+    private static final long FOLLOW_CLOCK_INTERVAL_MS = 250;
+    private static final long TICKER_STALE_MS = 1500;
     private static final long POSITION_BACKSTEP_TOLERANCE_MS = 1200;
     private long lastBackstepLogMs;
     private static final long SAME_OFFSET_TOLERANCE_MS = 1000;
@@ -162,6 +192,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private MediaController mediaController;
     private boolean highlightTickerActive = false;
     private boolean highlightTickerDriving = false;
+    private long lastTickerMs = 0;
     private static final long ASR_RELOAD_INTERVAL_MS = 1000;
     private final Handler asrHandler = new Handler(Looper.getMainLooper());
     private boolean asrActive;
@@ -176,6 +207,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             if (!highlightTickerActive) {
                 return;
             }
+            lastTickerMs = SystemClock.elapsedRealtime();
             MediaController controller = mediaController;
             boolean playing = controller != null && controller.isConnected() && controller.isPlaying();
             if (playing) {
@@ -241,6 +273,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         followDensity = getResources().getDisplayMetrics().density;
 
         adapter = new TranscriptAdapter(getContext(), this);
+        adapter.setFollowRequester(this::scheduleFollowFrame);
         LinearLayoutManager layoutManager = new LinearLayoutManager(getContext());
         viewBinding.recyclerView.setLayoutManager(layoutManager);
         viewBinding.recyclerView.setAdapter(adapter);
@@ -327,6 +360,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         viewBinding.btnBackToCurrent.setOnClickListener(v -> returnToCurrentSentence());
         viewBinding.btnGenerateTranscript.setOnClickListener(v -> startAsrGeneration());
         viewBinding.btnContinueTranscript.setOnClickListener(v -> startAsrGeneration());
+        viewBinding.btnCancelTranscript.setOnClickListener(v -> cancelAsrGeneration());
         viewBinding.btnLineBreakToggle.setContentDescription(
                 getString(R.string.transcript_line_break_description));
         viewBinding.btnImmersive.setOnClickListener(v -> {
@@ -377,6 +411,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             asrActive = AsrGenerationManager.isRunning(currentMedia.getId());
             updateGenerateButtonVisibility();
         }
+        startFollowClock();
     }
 
     @Override
@@ -384,6 +419,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         super.onResume();
         highlightTickerActive = true;
         highlightHandler.post(highlightTicker);
+        startFollowClock();
         scheduleFollowFrame();
     }
 
@@ -400,6 +436,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     @Override
     public void onStop() {
         super.onStop();
+        stopFollowClock();
         if (disposable != null) {
             disposable.dispose();
         }
@@ -460,6 +497,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     @Override
     public void onDestroyView() {
         super.onDestroyView();
+        stopFollowClock();
         stopFollowFrame();
         searchHandler.removeCallbacks(searchRunnable);
         if (modelDownloader != null) {
@@ -714,7 +752,18 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onPlaybackPositionEvent(PlaybackPositionEvent event) {
         if (highlightTickerDriving) {
-            return;
+            long now = SystemClock.elapsedRealtime();
+            if (now - lastTickerMs <= TICKER_STALE_MS) {
+                return;
+            }
+            // The ticker stopped without clearing its driving flag (process/session hiccup):
+            // hand the position back to the event path and restart it if it should be running.
+            Log.d("AsrFollow", "ticker stale " + (now - lastTickerMs) + "ms, restarting");
+            setHighlightTickerDriving(false);
+            if (highlightTickerActive) {
+                highlightHandler.removeCallbacks(highlightTicker);
+                highlightHandler.post(highlightTicker);
+            }
         }
         handlePlaybackPosition(toTranscriptTime(event.getPosition()));
     }
@@ -792,7 +841,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
         if (lastScrolledPosition >= 0 && Math.abs(pos - lastScrolledPosition) <= 1) {
             lastScrolledPosition = pos;
-            pendingSnapToHighlight = false;
+            // Do not clear pendingSnapToHighlight here: a load/reload asked for a jump to the
+            // current row, and the row may still be far off screen. Dropping the flag made the
+            // follow crawl at 10px per frame (and only when a frame happened at all).
             scheduleFollowFrame();
             return;
         }
@@ -803,6 +854,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private boolean canAutoFollow() {
         boolean visible = viewBinding != null && viewBinding.getRoot().isShown();
         boolean can = isAdded() && visible && adapter != null && !userScrolling
+                && viewBinding != null && isFollowViewVisible(viewBinding.recyclerView)
                 && viewBinding.recyclerView.getScrollState() == RecyclerView.SCROLL_STATE_IDLE
                 && adapter.getHighlightPosition() >= 0;
         if (!can) {
@@ -821,6 +873,36 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         return can;
     }
 
+    private void startFollowClock() {
+        if (followClockActive || viewBinding == null) {
+            return;
+        }
+        followClockActive = true;
+        viewBinding.recyclerView.post(followClock);
+    }
+
+    private void stopFollowClock() {
+        followClockActive = false;
+        if (viewBinding != null) {
+            viewBinding.recyclerView.removeCallbacks(followClock);
+        }
+    }
+
+    /** True only while this pager page is actually on screen, not just attached. */
+    private boolean isFollowViewVisible(RecyclerView recyclerView) {
+        if (!recyclerView.isAttachedToWindow()
+                || recyclerView.getWindowVisibility() != View.VISIBLE
+                || !recyclerView.isShown()) {
+            return false;
+        }
+        if (!recyclerView.getGlobalVisibleRect(followVisibleRect)
+                || followVisibleRect.isEmpty()) {
+            return false;
+        }
+        int height = recyclerView.getHeight();
+        return height <= 0 || followVisibleRect.height() >= height / 2;
+    }
+
     private void scheduleFollowFrame() {
         if (viewBinding == null || !canAutoFollow()) {
             return;
@@ -830,13 +912,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         if (followListenerRegistered) {
-            if (followObserver == observer) {
-                // The list may be static (no text change yet) while the playhead has moved to
-                // another row; without a frame the pre-draw listener never runs.
-                viewBinding.recyclerView.postInvalidateOnAnimation();
-                return;
-            }
-            // The view was re-attached and got a new observer; the old listener is gone.
+            // Re-register every time: a re-attached view can hand out a new observer without
+            // the old listener following, and there is no way to query the observer for it.
             if (followObserver != null && followObserver.isAlive()) {
                 followObserver.removeOnPreDrawListener(followPreDrawListener);
             }
@@ -846,6 +923,11 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         followObserver = observer;
         followListenerRegistered = true;
         viewBinding.recyclerView.postInvalidateOnAnimation();
+        if (!followClockActive) {
+            // Self-heal: the clock stops itself when the page goes off screen, so restart it
+            // whenever a new follow target needs it.
+            startFollowClock();
+        }
     }
 
     private void stopFollowFrame() {
@@ -870,13 +952,21 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         RecyclerView.ViewHolder holder = recyclerView.findViewHolderForAdapterPosition(position);
         if (!(holder instanceof TranscriptViewholder)) {
             followAnimating = false;
-            if (pendingSnapToHighlight) {
-                // Keep the jump pending until the row is laid out (e.g. while the page is being
-                // measured), then centre it on the next frame.
-                recyclerView.scrollToPosition(position);
-                return true;
+            // scrollToPosition() issued from a pre-draw pass only sets a pending position that
+            // waits for the next unrelated layout (an ASR reload), so the view froze for tens of
+            // seconds while the highlight row sat off screen. scrollBy() is applied immediately,
+            // so step a whole viewport per frame until the row is laid out, then snap onto it.
+            // Half the viewport cannot skip past an adjacent row (tallest generated row is
+            // under the viewport height), so this converges without oscillating.
+            int step = Math.max(followStepPx(), viewportHeight / 2);
+            boolean stepped = stepTowardsRow(recyclerView, position, step);
+            if (!stepped) {
+                // The row is reported as visible by the layout manager but has no holder (its
+                // absolute adapter position was invalidated by a pending update that was never
+                // applied). Refresh so the next layout re-binds everything; do not give up.
+                recoverStaleLayout();
             }
-            return stepTowardsRow(recyclerView, position);
+            return true;
         }
         int[] bounds = adapter.getSentenceBounds((TranscriptViewholder) holder);
         boolean snap = pendingSnapToHighlight;
@@ -970,7 +1060,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         int[] listLocation = new int[2];
         root.getLocationOnScreen(rootLocation);
         recyclerView.getLocationOnScreen(listLocation);
-        return rootLocation[1] + root.getHeight() / 2 - listLocation[1];
+        return rootLocation[1] + Math.round(
+                root.getHeight() * TranscriptFollowMotion.ANCHOR_RATIO) - listLocation[1];
     }
 
     private void snapToError(RecyclerView recyclerView, int error) {
@@ -994,7 +1085,30 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         return true;
     }
 
-    private boolean stepTowardsRow(RecyclerView recyclerView, int position) {
+    private int followStepPx() {
+        return Math.round(FOLLOW_MAX_STEP_DP * followDensity);
+    }
+
+    private void recoverStaleLayout() {
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastLayoutRecoveryMs < 1000) {
+            return;
+        }
+        lastLayoutRecoveryMs = now;
+        if (viewBinding == null || adapter == null) {
+            return;
+        }
+        // notifyDataSetChanged() is not enough here: the RecyclerView keeps the old children
+        // with invalidated adapter positions and never runs the layout that would re-bind them,
+        // so touch scrolling no longer works either. Re-attach the adapter to force a full
+        // detach/re-bind and a real layout pass.
+        Log.d("AsrFollow", "recover stale layout: reattach adapter");
+        viewBinding.recyclerView.setAdapter(null);
+        viewBinding.recyclerView.setAdapter(adapter);
+        pendingSnapToHighlight = true;
+    }
+
+    private boolean stepTowardsRow(RecyclerView recyclerView, int position, int stepPx) {
         LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
         if (lm == null) {
             return false;
@@ -1002,7 +1116,11 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         int first = lm.findFirstVisibleItemPosition();
         int last = lm.findLastVisibleItemPosition();
         if (first == RecyclerView.NO_POSITION) {
-            return false;
+            // The children are still drawn but their adapter positions were invalidated by a
+            // data-set change that never got laid out; scrollBy and scrollToPosition both do
+            // nothing in this state. Refresh the adapter so the next layout re-binds them.
+            recoverStaleLayout();
+            return true;
         }
         int direction = position < first ? -1 : position > last ? 1 : 0;
         if (direction == 0) {
@@ -1014,7 +1132,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (direction > 0 && !recyclerView.canScrollVertically(1)) {
             return false;
         }
-        recyclerView.scrollBy(0, direction * Math.round(FOLLOW_MAX_STEP_DP * followDensity));
+        recyclerView.scrollBy(0, direction * stepPx);
         return true;
     }
 
@@ -1797,15 +1915,31 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         int padding = Math.round(UserPreferences.getTranscriptVerticalSpacingDp()
                 * getResources().getDisplayMetrics().density);
-        viewBinding.recyclerView.setPadding(0, padding, 0, padding);
+        // This also runs from the layout-change listener. Keep it idempotent: touching the
+        // padding or calling notifyDataSetChanged on every layout pass kept the page in a
+        // height oscillation (2327/1696), and each pass invalidated every ViewHolder position
+        // (getAdapterPosition() == -1), which silently killed the follow after a new ASR
+        // segment was appended.
+        int signature = UserPreferences.getTranscriptFontSize() * 1000000
+                + UserPreferences.getTranscriptLineSpacingStep() * 10000
+                + UserPreferences.getTranscriptSideMarginsStep() * 100
+                + UserPreferences.getTranscriptVerticalSpacingStep();
+        if (signature != appliedLayoutSignature) {
+            appliedLayoutSignature = signature;
+            viewBinding.recyclerView.setPadding(0, padding, 0, padding);
+            if (adapter != null) {
+                adapter.refreshLayout();
+            }
+        }
         // A footer gap extends the scrollable content without shrinking the visible viewport,
         // so the last rows can still reach the 45% reading line (bottom padding cannot).
         int height = viewBinding.recyclerView.getHeight();
-        followBottomSpace = height > 0
+        int bottomSpace = height > 0
                 ? Math.round(height * (1f - TranscriptFollowMotion.ANCHOR_RATIO)) : 0;
-        viewBinding.recyclerView.invalidateItemDecorations();
-        if (adapter != null) {
-            adapter.refreshLayout();
+        if (height != appliedLayoutHeight || bottomSpace != followBottomSpace) {
+            appliedLayoutHeight = height;
+            followBottomSpace = bottomSpace;
+            viewBinding.recyclerView.invalidateItemDecorations();
         }
     }
 
@@ -2071,6 +2205,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 + " lastEnd=" + lastEnd + " duration=" + duration
                 + " visible=" + continueVisible);
         viewBinding.btnContinueTranscript.setVisibility(continueVisible ? View.VISIBLE : View.GONE);
+        boolean runningHere = currentMedia != null
+                && AsrGenerationManager.isRunning(currentMedia.getId());
+        viewBinding.btnCancelTranscript.setVisibility(runningHere ? View.VISIBLE : View.GONE);
     }
 
     private boolean isCurrentPlaybackMedia(FeedMedia media) {
@@ -2280,6 +2417,15 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                         getString(R.string.transcript_model_downloading_format, percent));
             }
         }
+    }
+
+    private void cancelAsrGeneration() {
+        if (currentMedia == null) {
+            return;
+        }
+        AsrGenerationManager.stopIfRunningFor(currentMedia.getId());
+        asrActive = false;
+        updateGenerateButtonVisibility();
     }
 
     private void startAsrSession() {

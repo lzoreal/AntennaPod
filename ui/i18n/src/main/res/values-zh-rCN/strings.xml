@@ -193,6 +193,7 @@
     <string name="transcript_generate">生成声音文字</string>
     <string name="transcript_continue">继续生成声音文字</string>
     <string name="transcript_generate_running">生成中…</string>
+    <string name="transcript_cancel_generate">取消生成</string>
     <string name="transcript_generate_progress_format">已生成到 %1$s</string>
     <string name="transcript_generate_done">声音文字已生成</string>
     <string name="transcript_generate_failed">生成声音文字失败</string>

@@ -1,7 +1,7 @@
 package de.danoeh.antennapod.ui.screen.playback;
 
 final class TranscriptFollowMotion {
-    static final float ANCHOR_RATIO = 0.45f;
+    static final float ANCHOR_RATIO = 0.40f;
     static final float START_DP = 8f;
     static final float STOP_DP = 2f;
     static final float SNAP_RATIO = 0.75f;

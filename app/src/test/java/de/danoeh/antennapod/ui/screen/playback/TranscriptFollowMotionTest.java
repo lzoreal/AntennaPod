@@ -9,15 +9,15 @@ import org.junit.Test;
 public class TranscriptFollowMotionTest {
 
     @Test
-    public void anchorIsAt45PercentOfViewport() {
-        assertEquals(900, TranscriptFollowMotion.anchorY(2000));
+    public void anchorIsAt40PercentOfViewport() {
+        assertEquals(800, TranscriptFollowMotion.anchorY(2000));
         assertEquals(0, TranscriptFollowMotion.anchorY(0));
     }
 
     @Test
     public void errorIsMeasuredAgainstTheAnchor() {
-        assertEquals(-100, TranscriptFollowMotion.errorPx(800, 2000));
-        assertEquals(100, TranscriptFollowMotion.errorPx(1000, 2000));
+        assertEquals(-200, TranscriptFollowMotion.errorPx(600, 2000));
+        assertEquals(200, TranscriptFollowMotion.errorPx(1000, 2000));
     }
 
     @Test

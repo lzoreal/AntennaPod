@@ -3,7 +3,7 @@
 Branch: `transcript-asr-word-timestamps`, based on `develop`.
 Entry point for the feature itself: [transcript-handover.md](transcript-handover.md); decisions: [ADR 0001](adr/0001-generated-transcripts-decode-ahead-of-playhead.md), [ADR 0002](adr/0002-generated-transcripts-are-gap-aware-artifacts.md).
 
-Read this file first when you need the intent of an ASR commit. Each row is one commit on the branch; subjects are the original messages, notes say what the change actually established. Device-verified status lives in handover §5.2.
+The branch history was squashed on 2026-11-05 into the six thematic commits below. Each one is a real snapshot that built and passed its tests at the time. The pre-squash history is kept on `backup/transcript-asr-before-squash-20261105`.
 
 ## How the work is layered
 
@@ -15,60 +15,20 @@ Read this file first when you need the intent of an ASR commit. Each row is one 
 
 ## Commits
 
-### `:asr` module, pipeline, persistence
-
-| Commit | Subject | What it established |
+| Commit | Area | What it established |
 | --- | --- | --- |
-| `99e0b9c72` | word-level ASR with corrected token timing | Base commit: module, decode pipeline, recognizer wrapper, word JSON, session, first UI wiring. |
-| `2ecd12677` | count local files as transcript availability | A local `.transcript` file alone is enough to show/enter the transcript. |
-| `cbbf62661` | quiet high-frequency debug logs | `AsrSync`/`AsrFollow`/tick logs to debug level. |
-| `8a918f855` | satisfy checkstyle in new ASR UI code | Style-only cleanup for the new app code. |
-| `82c210810` | fix resume, stop reporting and atomic saves | Review batch: stopped sessions no longer emit COMPLETED; finalize advances past covered windows; checkpoints only cover finalized audio; unique temp file + rename; stops no longer cancel the finalizer; worker yields to a live session; download NPE. |
-| `bf9175347` | resume finalization from the coverage end | A finalizer starting inside covered ranges stalled (window covered, no `decodedEnd` change, deduped callback). It now starts at `PreReadPcmPipeline.coverageEndMs()`. |
+| `ecdef0718` | foundation | `:asr` module, pre-read decode pipeline, streaming recognizer wrapper, token→word mapping, word JSON with coverage checkpoint, first transcript-page wiring. |
+| `94a6f909e` | model + timing | x-asr 480 ms bilingual punctuated model; rule3 30 s and 40 s window; token quirks (stray `▁.`, standalone `▁`, punctuation attach); 400 ms emission lag; follow stabilised for long sentences. |
+| `bdbf8ffad` | polish | exact model size in the prompt, local transcript files count as available, high-frequency logs to debug, checkstyle. |
+| `3757da020` | streaming + lifecycle | streaming episodes via `SimpleCache`; SHA-256 per model file; casting/battery-saver/thermal stops; WorkManager finalizer after process death. |
+| `33ad76c75` | tests + docs | scheduler/completeness/streaming-load/guard tests; per-language routing removed; handover anchors, device checklist and onboarding refreshed. |
+| `91afdeab7` | device fixes | stop no longer reports completion; finalize resumes from the coverage end; atomic saves; checkpoint covers only finalized audio; CJK punctuation, spacing and word lookup; window-centre reading line and frame keep-alive; MIUI power saver; continue-generating; download install phase. Includes the device-run records. |
 
-### Recognition, tokens, timing
+## After the squash
 
-| Commit | Subject | What it established |
-| --- | --- | --- |
-| `7d9bc6ea2` | adopt punctuated zh-en model, stabilise follow | Moved to the x-asr 480 ms bilingual model; rule3 30 s/window 40 s; token quirks (stray `▁.`, standalone `▁`, punctuation attach); follow fixes. |
-| `29bb1d2c3` | drop spaces after CJK punctuation | The punctuated model separates pieces with spaces; CJK punctuation takes none. |
-| `1a1324da3` | CJK word lookup and keep follow frames alive | CJK punctuation kept in the preceding word, parser tolerates unlisted CJK punctuation, mapper treats CJK chars as boundaries; follow frames kept alive on a static list; screen-centre reading line; follow starts on first load; stale `userScrolling` cleared on gap fills. |
-
-### Model distribution
-
-| Commit | Subject | What it established |
-| --- | --- | --- |
-| `771a48c0c` | pin SHA-256 for the model files | Per-file SHA-256 in `AsrModelCatalog`; downloader rejects mismatches. |
-| `ea846ac56` | show the model download size | Prompt shows the exact 134 MB. |
-| `1b27107cf` | drop the per-language model routing | `AsrModelLanguage` removed; one model everywhere. |
-| `28f4c442f` | show the model install phase after the download | 100 % + extraction/SHA looked frozen; the button now says "installing". |
-
-### Streaming, finalizer, guards
-
-| Commit | Subject | What it established |
-| --- | --- | --- |
-| `e07989355` | generate for streaming episodes from the cache | `CacheAudioSource` over the player's `SimpleCache`; transcript under `files/asr-transcripts/<mediaId>.transcript`. |
-| `4f32f4119` | finish in the background after process death | Unique +15 min WorkManager job, foreground notification, checkpoint continuation, 9-min runs, retry cap. |
-| `c7518cd13` | stop when casting, battery saver or heat starts | Per-second guard; STOPPED carries the reason. |
-| `c2e2c7d5f` | detect MIUI power saver in the run guard | MIUI keeps `isPowerSaveMode()` false; also read `POWER_SAVE_MODE_OPEN`. |
-
-### Ad-skip interaction
-
-| Commit | Subject | What it established |
-| --- | --- | --- |
-| `a77125fad` | log skip decisions; drop unused ASR model pins | `skip media/from/to/tier/seg` and `skip undo shift` logs used during device runs. |
-
-### Tests and documentation
-
-| Commit | Subject | What it established |
-| --- | --- | --- |
-| `a29e211c8` | cover the finalize scheduler with tests | Unique per-media work, cancellation, independence. |
-| `2dd677ba1` | test streaming load and finalize completeness | Streaming transcript load; completeness by coverage end. |
-| `ef23f0d17` | test the runtime guard decisions | Casting / power saver / normal. |
-| `e9e3de80c`, `1abbaab6e`, `b7f257233`, `5ebb78938` | anchor refreshes | Code-map anchors after the ASR changes. |
-| `b25b1fb78` | device checklist for ASR, streaming and guards | Handover §5.4. |
-| `749d72cb3` | refresh the 30-second onboarding for ASR | Handover §0. |
-| `c74967a5e`, `c22548761` | device-run records | Ad-skip regression, model download, finalizer findings. |
+| Commit | What it established |
+| --- | --- |
+| `6785193db` | A "cancel generation" chip in the top-right corner of the transcript list stops the current session; generated segments stay and no completion toast is shown. |
 
 ## Where to look next
 
