@@ -218,7 +218,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         long now = SystemClock.elapsedRealtime();
         if (now - lastBackstepLogMs > 2000) {
             lastBackstepLogMs = now;
-            Log.i("AsrSync", "ignored position back-step " + (previous - position) + "ms");
+            Log.d("AsrSync", "ignored position back-step " + (previous - position) + "ms");
         }
         return previous;
     }
@@ -723,7 +723,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         long lastEnd = transcript.getSegmentCount() == 0 ? -1
                 : transcript.getSegmentAt(transcript.getSegmentCount() - 1).getEndTime();
-        Log.i("AsrSync", "raw=" + lastRawPlayerPosition
+        Log.d("AsrSync", "raw=" + lastRawPlayerPosition
                 + " tx=" + position
                 + " scale=" + transcriptTimeScale
                 + " off=" + offset
@@ -788,7 +788,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             long now = SystemClock.elapsedRealtime();
             if (now - lastFollowSkipLogMs > 2000) {
                 lastFollowSkipLogMs = now;
-                Log.i("AsrFollow", "skip added=" + isAdded() + " visible=" + visible
+                Log.d("AsrFollow", "skip added=" + isAdded() + " visible=" + visible
                         + " life=" + getLifecycle().getCurrentState()
                         + " binding=" + (viewBinding != null) + " adapter=" + (adapter != null)
                         + " userScrolling=" + userScrolling
@@ -871,7 +871,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (position != followTargetPosition
                 || bounds[0] != followTargetStart
                 || bounds[1] != followTargetEnd) {
-            Log.i("AsrFollow", "target change pos=" + position
+            Log.d("AsrFollow", "target change pos=" + position
                     + " top=" + holder.itemView.getTop() + " h=" + holder.itemView.getHeight()
                     + " bounds=" + bounds[0] + "-" + bounds[1] + " target=" + target
                     + " err=" + error + " last=" + lastPositionMs
@@ -943,7 +943,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         if (error != 0) {
-            Log.i("AsrSync", "snap error=" + error + " scroll="
+            Log.d("AsrSync", "snap error=" + error + " scroll="
                     + recyclerView.computeVerticalScrollOffset());
             recyclerView.scrollBy(0, error);
         }
@@ -996,7 +996,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         int first = lm.findFirstVisibleItemPosition();
         int last = lm.findLastVisibleItemPosition();
-        Log.i("AsrSync", "scrollTo pos=" + pos + " snap=" + snap + " first=" + first
+        Log.d("AsrSync", "scrollTo pos=" + pos + " snap=" + snap + " first=" + first
                 + " last=" + last);
         if (first != RecyclerView.NO_POSITION && pos >= first && pos <= last) {
             pendingSnapToHighlight = snap;
@@ -2115,7 +2115,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         new AlertDialog.Builder(context)
                 .setTitle(R.string.transcript_model_download_title)
-                .setMessage(R.string.transcript_model_download_message)
+                .setMessage(getString(R.string.transcript_model_download_message,
+                        modelSizeLabel(store, language)))
                 .setPositiveButton(android.R.string.ok,
                         (dialog, which) -> confirmMobileDownload(store, language))
                 .setNegativeButton(android.R.string.cancel, null)
@@ -2139,11 +2140,18 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         new AlertDialog.Builder(context)
                 .setTitle(R.string.transcript_model_download_title)
-                .setMessage(R.string.transcript_model_download_mobile_message)
+                .setMessage(getString(R.string.transcript_model_download_mobile_message,
+                        modelSizeLabel(store, language)))
                 .setPositiveButton(android.R.string.ok,
                         (dialog, which) -> downloadModel(store, language))
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
+    }
+
+    private String modelSizeLabel(AsrModelStore store, AsrModelLanguage language) {
+        long bytes = store.descriptor(language).getDownloadSizeBytes();
+        return getString(R.string.transcript_model_size_mb,
+                Math.max(1, Math.round(bytes / 1_000_000.0)));
     }
 
     private void downloadModel(AsrModelStore store, AsrModelLanguage language) {

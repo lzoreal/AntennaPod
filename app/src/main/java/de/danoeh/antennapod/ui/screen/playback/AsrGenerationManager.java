@@ -42,7 +42,7 @@ public final class AsrGenerationManager {
                 stop();
                 return;
             }
-            Log.i(TAG, "tick media=" + mediaId + " playMedia=" + currentId
+            Log.d(TAG, "tick media=" + mediaId + " playMedia=" + currentId
                     + " pos=" + PlaybackServiceInterface.currentPositionMs
                     + " last=" + lastPosition);
             MAIN.postDelayed(this, MEDIA_CHECK_INTERVAL_MS);
@@ -155,7 +155,7 @@ public final class AsrGenerationManager {
         if (!running && controller == null) {
             return;
         }
-        long stoppedId = mediaId;
+        final long stoppedId = mediaId;
         running = false;
         MAIN.removeCallbacks(mediaCheck);
         AsrGenerationController current = controller;
@@ -169,7 +169,7 @@ public final class AsrGenerationManager {
 
     private static synchronized void finish(AsrGenerationEvent.Type type,
                                             @Nullable Throwable error) {
-        long finishedId = mediaId;
+        final long finishedId = mediaId;
         running = false;
         MAIN.removeCallbacks(mediaCheck);
         controller = null;

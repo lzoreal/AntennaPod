@@ -314,9 +314,10 @@
     <string name="transcript_generate_power_saver">Turn off battery saver to generate transcripts</string>
     <string name="transcript_generate_thermal">The device is too warm to generate transcripts</string>
     <string name="transcript_model_download_title">Speech model</string>
-    <string name="transcript_model_download_message">Generate transcripts on this device. Download the speech model now?</string>
-    <string name="transcript_model_download_mobile_message">You are on mobile data. Continue downloading the speech model?</string>
+    <string name="transcript_model_download_message">Generate transcripts on this device. Download the speech model (%1$s) now?</string>
+    <string name="transcript_model_download_mobile_message">You are on mobile data. Continue downloading the speech model (%1$s)?</string>
     <string name="transcript_model_downloading_format">Downloading model… %1$d%%</string>
+    <string name="transcript_model_size_mb">%1$d MB</string>
     <string name="transcript_model_download_failed">Speech model download failed</string>
     <string name="pref_asr_category">Transcript generation</string>
     <string name="pref_asr_lookahead_title">Look-ahead window</string>

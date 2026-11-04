@@ -950,7 +950,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         int sentence = sentenceIndexAt(index, position);
         int word = wordIndexAt(index, position);
         if (index != highlightPosition) {
-            int previous = highlightPosition;
+            final int previous = highlightPosition;
             highlightPosition = index;
             highlightedSentence = sentence;
             highlightedWord = word;

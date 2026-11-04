@@ -14,6 +14,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.io.File;
 import java.util.List;
 
 import de.danoeh.antennapod.R;
@@ -91,7 +92,7 @@ public class FeedItemMenuHandler {
             canDownload |= hasMedia && !item.getMedia().isDownloaded() && !isDownloading;
             canAddFavorite |= !item.isTagged(FeedItem.TAG_FAVORITE);
             canRemoveFavorite |= item.isTagged(FeedItem.TAG_FAVORITE);
-            canShowTranscript |= item.hasTranscript();
+            canShowTranscript |= item.hasTranscript() || hasGeneratedTranscript(item.getMedia());
             canShowSocialInteract |= item.getSocialInteractUrl() != null;
         }
 
@@ -306,4 +307,17 @@ public class FeedItemMenuHandler {
         markReadWithUndo(fragment, item, FeedItem.UNPLAYED, false);
     }
 
+
+    /** Generated transcripts are stored next to the downloaded audio file. */
+    private static boolean hasGeneratedTranscript(FeedMedia media) {
+        if (media == null) {
+            return false;
+        }
+        String transcriptFile = media.getTranscriptFileUrl();
+        if (transcriptFile == null) {
+            return false;
+        }
+        File file = new File(transcriptFile);
+        return file.isFile() && file.length() > 0;
+    }
 }

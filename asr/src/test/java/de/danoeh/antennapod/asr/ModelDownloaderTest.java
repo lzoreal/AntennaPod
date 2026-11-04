@@ -121,6 +121,7 @@ public class ModelDownloaderTest {
         AsrModelDescriptor catalog = AsrModelCatalog.forLanguage(AsrModelLanguage.ZH);
         AsrModelDescriptor descriptor = new AsrModelDescriptor(
                 catalog.getLanguage(), catalog.getId(), catalog.getDownloadUrl(),
+                catalog.getDownloadSizeBytes(),
                 catalog.getEncoderFile(), catalog.getDecoderFile(), catalog.getJoinerFile(),
                 catalog.getTokensFile(),
                 Collections.singletonMap(catalog.getEncoderFile(), "deadbeef"));

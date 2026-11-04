@@ -14,6 +14,7 @@ public final class AsrModelDescriptor {
     private final AsrModelLanguage language;
     private final String id;
     private final String downloadUrl;
+    private final long downloadSizeBytes;
     private final String encoderFile;
     private final String decoderFile;
     private final String joinerFile;
@@ -21,12 +22,14 @@ public final class AsrModelDescriptor {
     private final Map<String, String> sha256ByFile;
 
     public AsrModelDescriptor(@NonNull AsrModelLanguage language, @NonNull String id,
-                              @NonNull String downloadUrl, @NonNull String encoderFile,
+                              @NonNull String downloadUrl, long downloadSizeBytes,
+                              @NonNull String encoderFile,
                               @NonNull String decoderFile, @NonNull String joinerFile,
                               @NonNull String tokensFile, @NonNull Map<String, String> sha256ByFile) {
         this.language = language;
         this.id = requireText(id, "id");
         this.downloadUrl = requireText(downloadUrl, "downloadUrl");
+        this.downloadSizeBytes = Math.max(0, downloadSizeBytes);
         this.encoderFile = requireText(encoderFile, "encoderFile");
         this.decoderFile = requireText(decoderFile, "decoderFile");
         this.joinerFile = requireText(joinerFile, "joinerFile");
@@ -44,6 +47,10 @@ public final class AsrModelDescriptor {
 
     public String getDownloadUrl() {
         return downloadUrl;
+    }
+
+    public long getDownloadSizeBytes() {
+        return downloadSizeBytes;
     }
 
     public String getEncoderFile() {

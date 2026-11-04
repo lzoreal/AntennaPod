@@ -102,6 +102,7 @@ import org.greenrobot.eventbus.ThreadMode;
 
 import java.util.Calendar;
 import java.util.Collections;
+import java.io.File;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -144,7 +145,10 @@ public class Media3PlaybackService extends MediaLibraryService {
                 if (target != null) {
                     exoPlayer.seekTo(target);
                     AdSegment skipped = adSkipController.lastSkipped();
-                    Log.d(TAG, "Skipped ad to " + target);
+                    Log.i(TAG, "skip media=" + adSkipMediaId + " from=" + position
+                            + " to=" + target + " tier=" + (skipped == null ? -1 : skipped.getTier())
+                            + " seg=" + (skipped == null ? "-" : skipped.getStartMs()
+                            + "-" + skipped.getEndMs()));
                     if (skipped != null) {
                         showSkipUndo(skipped, position);
                     }
@@ -378,13 +382,26 @@ public class Media3PlaybackService extends MediaLibraryService {
 
     private void startFloatingTranscript(long mediaId) {
         if (currentPlayable instanceof FeedMedia) {
-            FeedItem item = ((FeedMedia) currentPlayable).getItem();
-            if (item == null || !item.hasTranscript()) {
+            FeedMedia media = (FeedMedia) currentPlayable;
+            if (media.getItem() == null || !hasTranscriptAvailable(media)) {
                 stopFloatingTranscript();
                 return;
             }
         }
         TranscriptFloatingWindowService.start(this, mediaId);
+    }
+
+    /** Official transcripts come from the feed; generated ones only exist as a local file. */
+    private static boolean hasTranscriptAvailable(FeedMedia media) {
+        if (media.hasTranscript()) {
+            return true;
+        }
+        String transcriptFile = media.getTranscriptFileUrl();
+        if (transcriptFile == null) {
+            return false;
+        }
+        File file = new File(transcriptFile);
+        return file.isFile() && file.length() > 0;
     }
 
     private void stopFloatingTranscript() {
@@ -640,7 +657,8 @@ public class Media3PlaybackService extends MediaLibraryService {
 
     private void showSkipUndo(AdSegment skipped, long positionMs) {
         lastTranscriptShift = TranscriptSync.alignAfterSkip(adSkipMediaId, skipped, positionMs);
-        Log.d(TAG, "Transcript shift after ad: " + (lastTranscriptShift != null));
+        Log.i(TAG, "skip undo shift=" + (lastTranscriptShift != null)
+                + " media=" + adSkipMediaId + " at=" + positionMs);
         int seconds = Math.max(1, (skipped.getEndMs() - skipped.getStartMs()) / 1000);
         String message = getString(R.string.ad_skipped_message, seconds);
         EventBus.getDefault().post(new MessageEvent(message,

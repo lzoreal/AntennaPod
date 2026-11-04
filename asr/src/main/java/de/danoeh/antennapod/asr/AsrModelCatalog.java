@@ -12,31 +12,10 @@ public final class AsrModelCatalog {
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
                     + "sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8"
                     + "-2026-06-05.tar.bz2",
+            133895136L,
             "encoder.int8.onnx",
             "decoder.onnx",
             "joiner.int8.onnx",
-            "tokens.txt",
-            Collections.emptyMap());
-
-    private static final AsrModelDescriptor ZH = new AsrModelDescriptor(
-            AsrModelLanguage.ZH,
-            "sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23",
-            "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
-                    + "sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23.tar.bz2",
-            "encoder-epoch-99-avg-1.int8.onnx",
-            "decoder-epoch-99-avg-1.onnx",
-            "joiner-epoch-99-avg-1.int8.onnx",
-            "tokens.txt",
-            Collections.emptyMap());
-
-    private static final AsrModelDescriptor EN = new AsrModelDescriptor(
-            AsrModelLanguage.EN,
-            "sherpa-onnx-streaming-zipformer-en-20M-2023-02-17",
-            "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
-                    + "sherpa-onnx-streaming-zipformer-en-20M-2023-02-17.tar.bz2",
-            "encoder-epoch-99-avg-1.int8.onnx",
-            "decoder-epoch-99-avg-1.onnx",
-            "joiner-epoch-99-avg-1.int8.onnx",
             "tokens.txt",
             Collections.emptyMap());
 

@@ -189,7 +189,7 @@ public final class AsrGenerationController {
 
         @Override
         public void onCaughtUp(long decodedEndMs) {
-            Log.i(TAG, "caughtUp playhead=" + playheadMs.getAsLong()
+            Log.d(TAG, "caughtUp playhead=" + playheadMs.getAsLong()
                     + " decoded=" + decodedEndMs
                     + " coverage=" + pipeline.coverageRanges());
             listener.onProgress(decodedEndMs);
