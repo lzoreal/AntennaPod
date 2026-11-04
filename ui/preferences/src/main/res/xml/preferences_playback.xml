@@ -45,7 +45,7 @@
 
     <PreferenceCategory android:title="@string/pref_asr_category">
         <androidx.preference.SeekBarPreference
-                android:defaultValue="30"
+                android:defaultValue="40"
                 android:key="prefAsrLookaheadSeconds"
                 android:max="120"
                 android:summary="@string/pref_asr_lookahead_summary"

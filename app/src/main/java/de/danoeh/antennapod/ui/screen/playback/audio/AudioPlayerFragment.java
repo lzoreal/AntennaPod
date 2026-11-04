@@ -60,6 +60,7 @@ import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
 
+import java.io.File;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
 import java.util.Collections;
@@ -213,7 +214,7 @@ public class AudioPlayerFragment extends Fragment implements
     }
 
     private void updateToolbarButtonsVisibility(int position) {
-        boolean hasTranscript = currentMedia != null && currentMedia.hasTranscript();
+        boolean hasTranscript = hasTranscriptAvailable(currentMedia);
 
         MenuItem controlsItem = toolbar.getMenu().findItem(R.id.transcript_menu_item);
         if (controlsItem != null) {
@@ -232,6 +233,22 @@ public class AudioPlayerFragment extends Fragment implements
         if (adItem != null) {
             adItem.setVisible(adSegmentsAvailable);
         }
+    }
+
+    /** Official transcripts come from the feed; generated ones only exist as a local file. */
+    private boolean hasTranscriptAvailable(FeedMedia media) {
+        if (media == null) {
+            return false;
+        }
+        if (media.hasTranscript()) {
+            return true;
+        }
+        String transcriptFile = media.getTranscriptFileUrl();
+        if (transcriptFile == null) {
+            return false;
+        }
+        File file = new File(transcriptFile);
+        return file.isFile() && file.length() > 0;
     }
 
     private void refreshAdSegmentsAvailability(FeedMedia media) {

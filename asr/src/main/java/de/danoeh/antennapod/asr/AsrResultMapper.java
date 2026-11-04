@@ -19,7 +19,7 @@ public final class AsrResultMapper {
 
     public static AsrSegment toSegment(String text, String[] tokens, float[] timestamps,
                                        long streamStartMs, long fallbackEndMs) {
-        String segmentText = text == null ? "" : text;
+        String segmentText = normalizeText(text);
         String[] effectiveTokens = tokens;
         if (isMostlyUppercase(segmentText)) {
             segmentText = segmentText.toLowerCase(Locale.ROOT);
@@ -64,6 +64,14 @@ public final class AsrResultMapper {
             }
         }
         return new AsrSegment(normalized, updatedWords);
+    }
+
+    private static String normalizeText(String text) {
+        if (text == null) {
+            return "";
+        }
+        String normalized = text.trim().replaceAll("\\s+", " ");
+        return normalized.replaceAll("\\s+([,.;:!?，。！？；：、])", "$1");
     }
 
     private static String applySentenceCase(String text) {

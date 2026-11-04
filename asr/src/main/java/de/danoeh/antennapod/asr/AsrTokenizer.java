@@ -23,15 +23,36 @@ public final class AsrTokenizer {
         int cursor = 0;
         int wordStartChar = -1;
         long wordStartMs = -1;
+        boolean pendingBoundary = false;
         for (int i = 0; i < count; i++) {
             String token = tokens[i];
             if (token == null || token.isEmpty()) {
                 continue;
             }
-            boolean boundary = token.length() > 1
-                    && (token.charAt(0) == WORD_BOUNDARY || token.charAt(0) == ' ');
-            String piece = boundary ? token.substring(1) : token;
+            if (token.length() == 1
+                    && (token.charAt(0) == WORD_BOUNDARY || token.charAt(0) == ' ')) {
+                // Some models emit a standalone ▁ for a word gap instead of prefixing the next word.
+                pendingBoundary = true;
+                continue;
+            }
+            boolean prefixed = token.charAt(0) == WORD_BOUNDARY || token.charAt(0) == ' ';
+            final boolean boundary = pendingBoundary
+                    || (prefixed && token.length() > 1);
+            pendingBoundary = false;
+            String piece = prefixed && token.length() > 1 ? token.substring(1) : token;
+            if (isPunctuationPiece(piece)) {
+                // Punctuation must sit right after the current cursor; a stray leading punctuation
+                // token (common after a stream reset) must not jump the cursor to a later period.
+                int attached = attachPunctuation(text, piece, cursor);
+                if (attached >= 0) {
+                    cursor = attached;
+                }
+                continue;
+            }
             int index = text.indexOf(piece, cursor);
+            if (index < 0) {
+                index = indexOfIgnoreCase(text, piece, cursor);
+            }
             if (index < 0) {
                 if (!result.isEmpty() || isSkippablePiece(piece)) {
                     continue;
@@ -103,5 +124,38 @@ public final class AsrTokenizer {
             }
         }
         return true;
+    }
+
+    private static int indexOfIgnoreCase(String text, String piece, int from) {
+        int last = text.length() - piece.length();
+        for (int i = Math.max(0, from); i <= last; i++) {
+            if (text.regionMatches(true, i, piece, 0, piece.length())) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static boolean isPunctuationPiece(String piece) {
+        if (piece.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < piece.length(); i++) {
+            if (",.;:!?，。！？；：、…\"'”’)]}".indexOf(piece.charAt(i)) < 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Returns the cursor after {@code piece} if it directly follows {@code cursor}.
+     */
+    private static int attachPunctuation(String text, String piece, int cursor) {
+        int i = cursor;
+        while (i < text.length() && Character.isWhitespace(text.charAt(i))) {
+            i++;
+        }
+        return text.startsWith(piece, i) ? i + piece.length() : -1;
     }
 }

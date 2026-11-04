@@ -23,6 +23,9 @@ public class UserPreferencesTest {
 
     @Test
     public void asrLookaheadIsClamped() {
+        assertEquals(UserPreferences.ASR_LOOKAHEAD_DEFAULT_SECONDS,
+                UserPreferences.getAsrLookaheadSeconds());
+
         UserPreferences.setAsrLookaheadSeconds(5);
         assertEquals(UserPreferences.ASR_LOOKAHEAD_MIN_SECONDS,
                 UserPreferences.getAsrLookaheadSeconds());

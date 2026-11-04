@@ -181,6 +181,7 @@ public class ModelDownloaderTest {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (BZip2CompressorOutputStream bzip = new BZip2CompressorOutputStream(bytes);
              TarArchiveOutputStream tar = new TarArchiveOutputStream(bzip)) {
+            tar.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX);
             for (Map.Entry<String, byte[]> entry : entries.entrySet()) {
                 TarArchiveEntry tarEntry = new TarArchiveEntry(entry.getKey());
                 tarEntry.setSize(entry.getValue().length);

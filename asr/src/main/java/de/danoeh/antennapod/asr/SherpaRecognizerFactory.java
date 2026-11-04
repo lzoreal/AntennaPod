@@ -3,6 +3,7 @@ package de.danoeh.antennapod.asr;
 import android.util.Log;
 
 import com.k2fsa.sherpa.onnx.EndpointConfig;
+import com.k2fsa.sherpa.onnx.EndpointRule;
 import com.k2fsa.sherpa.onnx.FeatureConfig;
 import com.k2fsa.sherpa.onnx.OnlineModelConfig;
 import com.k2fsa.sherpa.onnx.OnlineRecognizer;
@@ -12,6 +13,8 @@ import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig;
 /** Builds a sherpa-onnx streaming transducer recognizer from local model files. */
 public final class SherpaRecognizerFactory {
     private static final String TAG = "AsrRecognizerFactory";
+    /** Forced cuts before this length split words in the middle ("reply" + "Ing"). */
+    private static final float RULE3_MIN_UTTERANCE_S = 30f;
 
     private SherpaRecognizerFactory() {
     }
@@ -40,7 +43,12 @@ public final class SherpaRecognizerFactory {
         OnlineRecognizerConfig recognizerConfig = new OnlineRecognizerConfig();
         recognizerConfig.setFeatConfig(featureConfig);
         recognizerConfig.setModelConfig(modelConfig);
-        recognizerConfig.setEndpointConfig(new EndpointConfig());
+        EndpointConfig defaultEndpoint = new EndpointConfig();
+        EndpointRule rule3 = defaultEndpoint.getRule3();
+        recognizerConfig.setEndpointConfig(new EndpointConfig(
+                defaultEndpoint.getRule1(), defaultEndpoint.getRule2(),
+                new EndpointRule(rule3.getMustContainNonSilence(),
+                        rule3.getMinTrailingSilence(), RULE3_MIN_UTTERANCE_S)));
         recognizerConfig.setEnableEndpoint(true);
         recognizerConfig.setDecodingMethod("greedy_search");
 

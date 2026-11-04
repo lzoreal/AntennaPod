@@ -40,6 +40,52 @@ public class AsrTokenizerTest {
     }
 
     @Test
+    public void punctuationStaysWithThePrecedingWord() {
+        List<AsrWord> words = AsrTokenizer.tokenize("four. She",
+                new String[]{"▁four", "▁.", "▁She"}, new float[]{0.1f, 0.2f, 0.5f}, 1000);
+
+        assertEquals(2, words.size());
+        assertEquals("four.", words.get(0).getText());
+        assertEquals(0, words.get(0).getStartChar());
+        assertEquals(5, words.get(0).getEndChar());
+        assertEquals("She", words.get(1).getText());
+    }
+
+    @Test
+    public void standaloneBoundaryTokenStartsANewWord() {
+        List<AsrWord> words = AsrTokenizer.tokenize("darkly ironic",
+                new String[]{"▁dark", "ly", "▁", "ironic"}, new float[]{0.1f, 0.2f, 0.3f, 0.5f}, 1000);
+
+        assertEquals(2, words.size());
+        assertEquals("darkly", words.get(0).getText());
+        assertEquals("ironic", words.get(1).getText());
+        assertEquals(7, words.get(1).getStartChar());
+    }
+
+    @Test
+    public void leadingStrayPunctuationDoesNotBreakWordMapping() {
+        List<AsrWord> words = AsrTokenizer.tokenize("Unlike Alice",
+                new String[]{"▁.", "▁Unlike", "▁Alice"}, new float[]{0.1f, 0.2f, 0.5f}, 1000);
+
+        assertEquals(2, words.size());
+        assertEquals("Unlike", words.get(0).getText());
+        assertEquals(0, words.get(0).getStartChar());
+        assertEquals("Alice", words.get(1).getText());
+    }
+
+    @Test
+    public void tokenCaseMismatchStillMaps() {
+        List<AsrWord> words = AsrTokenizer.tokenize("Surely she",
+                new String[]{"▁SURELY", "▁she"}, new float[]{0.1f, 0.5f}, 1000);
+
+        assertEquals(2, words.size());
+        assertEquals("Surely", words.get(0).getText());
+        assertEquals(0, words.get(0).getStartChar());
+        assertEquals(6, words.get(0).getEndChar());
+        assertEquals("she", words.get(1).getText());
+    }
+
+    @Test
     public void cjkPiecesBecomeOneWordPerCharacter() {
         List<AsrWord> words = AsrTokenizer.tokenize("你好",
                 new String[]{"你", "好"}, new float[]{0.1f, 0.2f}, 1000);

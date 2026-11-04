@@ -64,6 +64,19 @@ public class AsrResultMapperTest {
     }
 
     @Test
+    public void punctuationSpacingAndLeadingSpaceAreNormalized() {
+        AsrSegment segment = AsrResultMapper.toSegment(" surely four , and five .",
+                new String[]{"▁surely", "▁four", "▁,", "▁and", "▁five", "▁."},
+                new float[]{0.1f, 0.5f, 1.0f, 1.2f, 1.6f, 2.0f}, 10000, 12000);
+
+        assertEquals("Surely four, and five.", segment.getText());
+        assertEquals(4, segment.getWords().size());
+        assertEquals("Surely", segment.getWords().get(0).getText());
+        assertEquals("four,", segment.getWords().get(1).getText());
+        assertEquals("five.", segment.getWords().get(3).getText());
+    }
+
+    @Test
     public void unmatchedTokensFallBackToTheWholeText() {
         AsrSegment segment = AsrResultMapper.toSegment("hello",
                 new String[]{"▁hel", "zzz"}, new float[]{0.1f, 0.2f}, 10000, 12000);

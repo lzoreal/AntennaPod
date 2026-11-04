@@ -118,6 +118,10 @@ public final class SherpaStreamingRecognizer implements StreamingAsr {
         AsrSegment segment = AsrResultMapper.toSegment(text, result.getTokens(),
                 result.getTimestamps(), Math.max(0, streamStartMs), fallbackEndMs);
         segments.add(segment);
+        if (segment.getWords().size() <= 1) {
+            Log.w(TAG, "one-word segment text=[" + abbreviate(text) + "] tokens="
+                    + abbreviate(result.getTokens()));
+        }
         float[] times = result.getTimestamps();
         long mappedFirst = segment.getWords().isEmpty() ? -1
                 : segment.getWords().get(0).getStartTime();

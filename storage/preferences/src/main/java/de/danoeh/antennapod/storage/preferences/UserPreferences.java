@@ -140,7 +140,7 @@ public abstract class UserPreferences {
     public static final String PREF_ASR_LOOKAHEAD_SECONDS = "prefAsrLookaheadSeconds";
     public static final int ASR_LOOKAHEAD_MIN_SECONDS = 10;
     public static final int ASR_LOOKAHEAD_MAX_SECONDS = 120;
-    public static final int ASR_LOOKAHEAD_DEFAULT_SECONDS = 30;
+    public static final int ASR_LOOKAHEAD_DEFAULT_SECONDS = 40;
     public static final int TRANSCRIPT_LANGUAGE_MODE_BOTH = 0;
     public static final int TRANSCRIPT_LANGUAGE_MODE_PRIMARY_ONLY = 1;
     public static final int TRANSCRIPT_LANGUAGE_MODE_SECONDARY_ONLY = 2;

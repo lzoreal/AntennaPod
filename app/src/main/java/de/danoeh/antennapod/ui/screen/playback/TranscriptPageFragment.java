@@ -2,6 +2,7 @@ package de.danoeh.antennapod.ui.screen.playback;
 
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.graphics.Rect;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
 import android.os.Build;
@@ -99,6 +100,10 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private int followTargetPosition = -1;
     private int followTargetStart = -1;
     private int followTargetEnd = -1;
+    private int followBottomSpace;
+    private long lastFollowSkipLogMs;
+    private int loadedSegmentCount;
+    private ViewTreeObserver followObserver;
     private final ViewTreeObserver.OnPreDrawListener followPreDrawListener = () -> {
         if (!canAutoFollow()) {
             stopFollowFrame();
@@ -125,6 +130,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private int immersiveTopInset = 0;
     private static final float FOLLOW_MAX_STEP_DP = 10f;
     private static final long HIGHLIGHT_UPDATE_INTERVAL_MS = 250;
+    private static final long POSITION_BACKSTEP_TOLERANCE_MS = 1200;
+    private long lastBackstepLogMs;
     private static final long SAME_OFFSET_TOLERANCE_MS = 1000;
     private static final long WORD_HIGHLIGHT_UPDATE_INTERVAL_MS = 100;
     private static final long SEARCH_DEBOUNCE_MS = 200;
@@ -171,7 +178,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             MediaController controller = mediaController;
             boolean playing = controller != null && controller.isConnected() && controller.isPlaying();
             if (playing) {
-                long rawPosition = controller.getCurrentPosition();
+                long rawPosition = smoothPlayingPosition(controller.getCurrentPosition());
                 lastRawPlayerPosition = rawPosition;
                 long position = toTranscriptTime(rawPosition);
                 setHighlightTickerDriving(true);
@@ -191,11 +198,30 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                     }
                     handlePlaybackPosition(position);
                 }
-                setHighlightTickerDriving(false);
+                setHighlightTickerDriving(controller != null && controller.isConnected());
             }
             highlightHandler.postDelayed(this, highlightUpdateInterval());
         }
     };
+
+    /**
+     * MediaController interpolates between session updates; at 1.5x a late update can step the
+     * reported position back by up to a second, which flips the highlighted sentence back a line
+     * and then forward again. Ignore those small back-steps while playing.
+     */
+    private long smoothPlayingPosition(long position) {
+        long previous = lastRawPlayerPosition;
+        if (position < 0 || previous < 0 || position >= previous
+                || previous - position > POSITION_BACKSTEP_TOLERANCE_MS) {
+            return position;
+        }
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastBackstepLogMs > 2000) {
+            lastBackstepLogMs = now;
+            Log.i("AsrSync", "ignored position back-step " + (previous - position) + "ms");
+        }
+        return previous;
+    }
 
     private long highlightUpdateInterval() {
         return currentMedia != null && currentMedia.getTranscript() != null
@@ -214,6 +240,17 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         LinearLayoutManager layoutManager = new LinearLayoutManager(getContext());
         viewBinding.recyclerView.setLayoutManager(layoutManager);
         viewBinding.recyclerView.setAdapter(adapter);
+        viewBinding.recyclerView.addItemDecoration(new RecyclerView.ItemDecoration() {
+            @Override
+            public void getItemOffsets(@NonNull Rect outRect, @NonNull View view,
+                                       @NonNull RecyclerView parent,
+                                       @NonNull RecyclerView.State state) {
+                int position = parent.getChildAdapterPosition(view);
+                if (adapter != null && position == adapter.getItemCount() - 1) {
+                    outRect.bottom = followBottomSpace;
+                }
+            }
+        });
         RecyclerView.ItemAnimator animator = viewBinding.recyclerView.getItemAnimator();
         if (animator instanceof SimpleItemAnimator) {
             ((SimpleItemAnimator) animator).setSupportsChangeAnimations(false);
@@ -230,6 +267,21 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                     stopSearchScrollFrame(recyclerView);
                     updateBackToCurrentVisibility();
                 } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    if (userScrolling && adapter != null
+                            && viewBinding.recyclerView.getLayoutManager()
+                            instanceof LinearLayoutManager) {
+                        LinearLayoutManager lm = (LinearLayoutManager)
+                                viewBinding.recyclerView.getLayoutManager();
+                        int first = lm.findFirstVisibleItemPosition();
+                        int last = lm.findLastVisibleItemPosition();
+                        int pos = adapter.getHighlightPosition();
+                        if (first != RecyclerView.NO_POSITION && pos >= first && pos <= last) {
+                            // A page swipe can drag the list a little; keep following while the
+                            // highlighted row is still on screen.
+                            userScrolling = false;
+                            updateBackToCurrentVisibility();
+                        }
+                    }
                     scheduleFollowFrame();
                 }
             }
@@ -281,6 +333,12 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         updateOffsetToggle();
         updateLayoutControls();
         applyTranscriptLayout();
+        viewBinding.recyclerView.addOnLayoutChangeListener((v, left, top, right, bottom,
+                oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (bottom - top != oldBottom - oldTop) {
+                applyTranscriptLayout();
+            }
+        });
         updateSegmentLoopToggle();
         updateBackToCurrentVisibility();
 
@@ -505,11 +563,20 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 && adapter.getItemCount() > 0
                 && currentMedia.getTranscript() == media.getTranscript()) {
             currentMedia = media;
+            int newCount = media.getTranscript().getSegmentCount();
+            if (newCount != loadedSegmentCount) {
+                // Segments may be inserted anywhere while gaps are filled, so a full refresh is
+                // the only safe notification; the highlighted row is restored right after.
+                adapter.notifyDataSetChanged();
+            }
+            loadedSegmentCount = newCount;
+            adapter.updatePlaybackPosition(lastPositionMs);
             asrActive = AsrGenerationManager.isRunning(media.getId());
             updateLoadedTranscriptSource(media);
             viewBinding.progLoading.setVisibility(View.GONE);
             updateOffsetAvailability();
             updateGenerateButtonVisibility();
+            scheduleFollowFrame();
             return;
         }
         if (searchActive) {
@@ -529,6 +596,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
 
         int segmentCount = currentMedia.getTranscript().getSegmentCount();
+        loadedSegmentCount = segmentCount;
 
         if (segmentCount == 0) {
             showEmptyState();
@@ -567,6 +635,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (viewBinding == null) {
             return;
         }
+        loadedSegmentCount = 0;
         if (searchActive) {
             closeSearch();
         }
@@ -675,6 +744,10 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (currentMedia == null || currentMedia.getTranscript() == null || viewBinding == null) {
             return;
         }
+        if (adapter != null && position >= 0) {
+            // Keep the highlight in step whichever source drives us (ticker or 1 s events).
+            adapter.updatePlaybackPosition(position);
+        }
 
         if (segmentLooping && position >= 0) {
             applySegmentLoop(position);
@@ -707,20 +780,46 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     }
 
     private boolean canAutoFollow() {
-        return isResumed() && viewBinding != null && adapter != null && !userScrolling
+        boolean visible = viewBinding != null && viewBinding.getRoot().isShown();
+        boolean can = isAdded() && visible && adapter != null && !userScrolling
                 && viewBinding.recyclerView.getScrollState() == RecyclerView.SCROLL_STATE_IDLE
                 && adapter.getHighlightPosition() >= 0;
+        if (!can) {
+            long now = SystemClock.elapsedRealtime();
+            if (now - lastFollowSkipLogMs > 2000) {
+                lastFollowSkipLogMs = now;
+                Log.i("AsrFollow", "skip added=" + isAdded() + " visible=" + visible
+                        + " life=" + getLifecycle().getCurrentState()
+                        + " binding=" + (viewBinding != null) + " adapter=" + (adapter != null)
+                        + " userScrolling=" + userScrolling
+                        + " state=" + (viewBinding == null ? -1
+                        : viewBinding.recyclerView.getScrollState())
+                        + " pos=" + (adapter == null ? -1 : adapter.getHighlightPosition()));
+            }
+        }
+        return can;
     }
 
     private void scheduleFollowFrame() {
-        if (viewBinding == null || followListenerRegistered || !canAutoFollow()) {
+        if (viewBinding == null || !canAutoFollow()) {
             return;
         }
         ViewTreeObserver observer = viewBinding.recyclerView.getViewTreeObserver();
         if (!observer.isAlive()) {
             return;
         }
+        if (followListenerRegistered) {
+            if (followObserver == observer) {
+                return;
+            }
+            // The view was re-attached and got a new observer; the old listener is gone.
+            if (followObserver != null && followObserver.isAlive()) {
+                followObserver.removeOnPreDrawListener(followPreDrawListener);
+            }
+            followListenerRegistered = false;
+        }
         observer.addOnPreDrawListener(followPreDrawListener);
+        followObserver = observer;
         followListenerRegistered = true;
         viewBinding.recyclerView.postInvalidateOnAnimation();
     }
@@ -734,13 +833,10 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         followListenerRegistered = false;
-        if (viewBinding == null) {
-            return;
+        if (followObserver != null && followObserver.isAlive()) {
+            followObserver.removeOnPreDrawListener(followPreDrawListener);
         }
-        ViewTreeObserver observer = viewBinding.recyclerView.getViewTreeObserver();
-        if (observer.isAlive()) {
-            observer.removeOnPreDrawListener(followPreDrawListener);
-        }
+        followObserver = null;
     }
 
     private boolean scrollTowardsCurrentSentence() {
@@ -775,6 +871,13 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (position != followTargetPosition
                 || bounds[0] != followTargetStart
                 || bounds[1] != followTargetEnd) {
+            Log.i("AsrFollow", "target change pos=" + position
+                    + " top=" + holder.itemView.getTop() + " h=" + holder.itemView.getHeight()
+                    + " bounds=" + bounds[0] + "-" + bounds[1] + " target=" + target
+                    + " err=" + error + " last=" + lastPositionMs
+                    + " scroll=" + recyclerView.computeVerticalScrollOffset()
+                    + " canDown=" + recyclerView.canScrollVertically(1)
+                    + " n=" + adapter.getItemCount());
             followTargetPosition = position;
             followTargetStart = bounds[0];
             followTargetEnd = bounds[1];
@@ -840,6 +943,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         if (error != 0) {
+            Log.i("AsrSync", "snap error=" + error + " scroll="
+                    + recyclerView.computeVerticalScrollOffset());
             recyclerView.scrollBy(0, error);
         }
     }
@@ -891,6 +996,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         int first = lm.findFirstVisibleItemPosition();
         int last = lm.findLastVisibleItemPosition();
+        Log.i("AsrSync", "scrollTo pos=" + pos + " snap=" + snap + " first=" + first
+                + " last=" + last);
         if (first != RecyclerView.NO_POSITION && pos >= first && pos <= last) {
             pendingSnapToHighlight = snap;
             followAnimating = false;
@@ -1653,6 +1760,12 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         int padding = Math.round(UserPreferences.getTranscriptVerticalSpacingDp()
                 * getResources().getDisplayMetrics().density);
         viewBinding.recyclerView.setPadding(0, padding, 0, padding);
+        // A footer gap extends the scrollable content without shrinking the visible viewport,
+        // so the last rows can still reach the 45% reading line (bottom padding cannot).
+        int height = viewBinding.recyclerView.getHeight();
+        followBottomSpace = height > 0
+                ? Math.round(height * (1f - TranscriptFollowMotion.ANCHOR_RATIO)) : 0;
+        viewBinding.recyclerView.invalidateItemDecorations();
         if (adapter != null) {
             adapter.refreshLayout();
         }

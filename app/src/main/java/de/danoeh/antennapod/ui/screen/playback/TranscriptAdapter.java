@@ -44,18 +44,16 @@ import org.jsoup.internal.StringUtil;
 public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder> {
     private static final int SEARCH_MATCH_COLOR = 0x4DFFEB3B;
     private static final int CURRENT_SEARCH_MATCH_COLOR = 0xB3FFC107;
-    private static final Object SENTENCE_HIGHLIGHT_PAYLOAD = new Object();
-    private static final Object WORD_HIGHLIGHT_PAYLOAD = new Object();
     private static final Object SEGMENT_HIGHLIGHT_PAYLOAD = new Object();
     private final SegmentClickListener segmentClickListener;
     private final Context context;
     private FeedMedia media;
-    private int prevHighlightPosition = -1;
     private int highlightPosition = -1;
     private int highlightedSentence = -1;
     private int highlightedWord = -1;
     private long lastHighlightPositionMs = 0;
     private boolean positionEventsSuppressed = false;
+    private RecyclerView recyclerView;
     private int languageMode = UserPreferences.getTranscriptLanguageMode();
     private int fontSizeStep = UserPreferences.getTranscriptFontSize();
     private float lineSpacingMultiplier;
@@ -212,7 +210,6 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         }
         this.media = (FeedMedia) media;
         highlightPosition = -1;
-        prevHighlightPosition = -1;
         highlightedSentence = -1;
         highlightedWord = -1;
         displayCache.clear();
@@ -228,7 +225,6 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     public void clear() {
         media = null;
         highlightPosition = -1;
-        prevHighlightPosition = -1;
         highlightedSentence = -1;
         highlightedWord = -1;
         lastHighlightPositionMs = 0;
@@ -507,6 +503,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         holder.viewTimecode.setTextColor(transcriptMutedColor);
         SpannableString graded = new SpannableString(info.text);
         int activeWord = highlighted ? segment.getWordIndexAt(lastHighlightPositionMs) : -1;
+        boolean beforeCurrentRow = position < highlightPosition;
         List<TranscriptWord> timings = segment.getWordTimings();
         for (int i = 0; i < info.wordStarts.length && i < timings.size(); i++) {
             int start = info.wordStarts[i];
@@ -517,7 +514,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             long wordEnd = wordEndTime(segment, i);
             boolean active = highlighted && i == activeWord
                     && lastHighlightPositionMs < wordEnd;
-            boolean past = !active && wordEnd <= lastHighlightPositionMs;
+            boolean past = !active && (beforeCurrentRow || wordEnd <= lastHighlightPositionMs);
             int color = active || past ? transcriptStrongColor : transcriptMutedColor;
             graded.setSpan(new ForegroundColorSpan(color), start, end,
                     Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -663,7 +660,14 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         }
         int start;
         int end;
-        if (info.interleaved) {
+        int word = segment.getWordIndexAt(lastHighlightPositionMs);
+        if (word >= 0 && info.wordStarts != null && word < info.wordStarts.length
+                && info.wordStarts[word] >= 0
+                && info.wordEnds[word] > info.wordStarts[word]) {
+            // Word-level rows can hold very long sentences; centre the word being read.
+            start = info.wordStarts[word];
+            end = info.wordEnds[word];
+        } else if (info.interleaved) {
             if (sentence >= info.pairStarts.length) {
                 return null;
             }
@@ -935,32 +939,48 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         if (positionMs < 0 || media == null || media.getTranscript() == null) {
             return;
         }
-        long position = positionMs - UserPreferences.getTranscriptTimeOffset(media.getId(), positionMs);
+        long offset = media.getTranscript().isGenerated()
+                ? 0 : UserPreferences.getTranscriptTimeOffset(media.getId(), positionMs);
+        long position = positionMs - offset;
         int index = media.getTranscript().findSegmentIndexBefore(position);
         if (index < 0 || index >= media.getTranscript().getSegmentCount()) {
             return;
-        }
-        if (prevHighlightPosition != highlightPosition) {
-            prevHighlightPosition = highlightPosition;
         }
         lastHighlightPositionMs = position;
         int sentence = sentenceIndexAt(index, position);
         int word = wordIndexAt(index, position);
         if (index != highlightPosition) {
+            int previous = highlightPosition;
             highlightPosition = index;
             highlightedSentence = sentence;
             highlightedWord = word;
-            if (prevHighlightPosition >= 0) {
-                notifyItemChanged(prevHighlightPosition, SEGMENT_HIGHLIGHT_PAYLOAD);
-            }
-            notifyItemChanged(highlightPosition, SEGMENT_HIGHLIGHT_PAYLOAD);
+            refreshBoundRow(previous);
+            refreshBoundRow(highlightPosition);
         } else if (sentence != highlightedSentence) {
             highlightedSentence = sentence;
             highlightedWord = word;
-            notifyItemChanged(highlightPosition, SENTENCE_HIGHLIGHT_PAYLOAD);
+            refreshBoundRow(highlightPosition);
         } else if (word != highlightedWord) {
             highlightedWord = word;
-            notifyItemChanged(highlightPosition, WORD_HIGHLIGHT_PAYLOAD);
+            refreshBoundRow(highlightPosition);
+        }
+    }
+
+    /**
+     * Re-applies the highlight on the bound row. Item change notifications are avoided here:
+     * rebinding a row while the list is scrolled to its end clamps the scroll back by a row,
+     * so the follow scrolls forward again and the list visibly jitters.
+     */
+    private void refreshBoundRow(int position) {
+        if (position < 0) {
+            return;
+        }
+        RecyclerView.ViewHolder holder = recyclerView == null ? null
+                : recyclerView.findViewHolderForAdapterPosition(position);
+        if (holder instanceof TranscriptViewholder) {
+            bindText((TranscriptViewholder) holder, position, position == highlightPosition);
+        } else {
+            notifyItemChanged(position, SEGMENT_HIGHLIGHT_PAYLOAD);
         }
     }
 
@@ -978,7 +998,6 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         }
         final int previous = highlightPosition;
         highlightPosition = position;
-        prevHighlightPosition = position;
         highlightedSentence = -1;
         highlightedWord = -1;
         if (previous >= 0) {
@@ -994,7 +1013,6 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         }
         final int previous = highlightPosition;
         highlightPosition = position;
-        prevHighlightPosition = position;
         highlightedSentence = -1;
         highlightedWord = -1;
         if (previous >= 0 && previous != position) {
@@ -1018,6 +1036,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     @Override
     public void onAttachedToRecyclerView(@NonNull RecyclerView recyclerView) {
         super.onAttachedToRecyclerView(recyclerView);
+        this.recyclerView = recyclerView;
         fontSizeStep = UserPreferences.getTranscriptFontSize();
         EventBus.getDefault().register(this);
     }
@@ -1025,6 +1044,9 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     @Override
     public void onDetachedFromRecyclerView(@NonNull RecyclerView recyclerView) {
         super.onDetachedFromRecyclerView(recyclerView);
+        if (this.recyclerView == recyclerView) {
+            this.recyclerView = null;
+        }
         EventBus.getDefault().unregister(this);
     }
 
