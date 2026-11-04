@@ -2,6 +2,7 @@ package de.danoeh.antennapod.ui.screen.playback;
 
 import android.content.Context;
 import android.os.Build;
+import android.os.SystemClock;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -11,7 +12,6 @@ import androidx.media3.common.util.UnstableApi;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
@@ -23,7 +23,7 @@ import de.danoeh.antennapod.asr.AsrModelCatalog;
 import de.danoeh.antennapod.asr.AsrModelStore;
 import de.danoeh.antennapod.asr.AsrSegment;
 import de.danoeh.antennapod.asr.AsrTranscriptStore;
-import de.danoeh.antennapod.asr.AsrWord;
+import de.danoeh.antennapod.asr.AudioFingerprint;
 import de.danoeh.antennapod.asr.FileAudioSource;
 import de.danoeh.antennapod.asr.GeneratedTranscriptCheckpoint;
 import de.danoeh.antennapod.asr.LookaheadPlanner;
@@ -45,6 +45,8 @@ public final class AsrGenerationController {
     private static final long CUSHION_MS = 5000;
     private static final long SEEK_THRESHOLD_MS = 1500;
     private static final long IDLE_SLEEP_MS = 50;
+    private static final int COMPACT_SEGMENT_COUNT = 20;
+    private static final long COMPACT_INTERVAL_MS = 30_000;
 
     public interface Listener {
         void onSegment(@NonNull AsrSegment segment);
@@ -65,10 +67,15 @@ public final class AsrGenerationController {
     private final AsrModelStore modelStore;
     private final String modelId;
     private long durationMs;
+    private long audioBytes;
+    private String audioFingerprint;
     private final List<AsrSegment> segments = new ArrayList<>();
+    private int pendingJournalSegments;
+    private long lastCompactionMs;
 
     private volatile boolean running;
     private volatile boolean stopRequested;
+    private boolean leaseHeld;
     private AsrTranscriptStore transcriptStore;
     private PreReadPcmPipeline pipeline;
     private AsrGenerationSession session;
@@ -119,6 +126,19 @@ public final class AsrGenerationController {
         if (running) {
             throw new IllegalStateException("generation is already running");
         }
+        if (!AsrSessionLease.acquire(media.getId())) {
+            throw new SessionBusyException(media.getId());
+        }
+        leaseHeld = true;
+        try {
+            startLocked();
+        } catch (IOException | RuntimeException e) {
+            releaseLease();
+            throw e;
+        }
+    }
+
+    private void startLocked() throws IOException {
         File localFile = media.getLocalFileUrl() == null ? null : new File(media.getLocalFileUrl());
         String transcriptPath = media.getGeneratedTranscriptFileUrl();
         if (transcriptPath == null) {
@@ -132,6 +152,10 @@ public final class AsrGenerationController {
             }
         }
         durationMs = localFile != null ? resolveDuration(localFile) : Math.max(0, media.getDuration());
+        if (localFile != null) {
+            audioBytes = localFile.length();
+            audioFingerprint = AudioFingerprint.of(localFile);
+        }
         Log.i(TAG, "start media=" + media.getId()
                 + " duration=" + durationMs + " playhead=" + playheadMs.getAsLong()
                 + " streaming=" + (localFile == null));
@@ -141,11 +165,23 @@ public final class AsrGenerationController {
             segments.clear();
             if (transcriptStore.hasTranscript()) {
                 try {
-                    GeneratedTranscriptCheckpoint checkpoint = transcriptStore.loadCheckpoint();
                     segments.addAll(transcriptStore.loadSegments());
-                    coverage = checkpoint.toCoverage();
                 } catch (IOException e) {
                     segments.clear();
+                }
+                try {
+                    GeneratedTranscriptCheckpoint checkpoint = transcriptStore.loadCheckpoint();
+                    if (!checkpoint.matchesAudio(durationMs, audioBytes, audioFingerprint)) {
+                        // The episode was replaced or re-downloaded; old words do not line up.
+                        Log.i(TAG, "checkpoint audio changed; discarding previous progress");
+                        segments.clear();
+                    } else {
+                        coverage = checkpoint.toCoverage();
+                    }
+                } catch (IOException e) {
+                    for (MediaRange range : AsrTranscriptStore.coverageOf(segments)) {
+                        coverage.add(range);
+                    }
                 }
             }
         }
@@ -153,6 +189,10 @@ public final class AsrGenerationController {
         pipeline = new PreReadPcmPipeline(new MediaCodecPcmDecoder(),
                 new LookaheadPlanner(UserPreferences.getAsrLookaheadSeconds() * 1000L, CUSHION_MS),
                 SEEK_THRESHOLD_MS, coverage);
+        if (transcriptStore.hasJournal()) {
+            // Fold a journal left by a crash into the snapshot before the UI reads it again.
+            save();
+        }
         if (localFile != null) {
             pipeline.open(new FileAudioSource(localFile));
         } else {
@@ -160,6 +200,7 @@ public final class AsrGenerationController {
         }
         if (stopRequested) {
             pipeline.close();
+            releaseLease();
             return;
         }
 
@@ -173,6 +214,7 @@ public final class AsrGenerationController {
         if (stopRequested) {
             recognizer.close();
             pipeline.close();
+            releaseLease();
             return;
         }
         if (finalizeToEnd) {
@@ -189,7 +231,13 @@ public final class AsrGenerationController {
                 new SessionListener(), IDLE_SLEEP_MS);
         running = true;
         Log.i(TAG, "Generation started");
-        new Thread(session::run, "AsrGeneration").start();
+        new Thread(() -> {
+            try {
+                session.run();
+            } finally {
+                releaseLease();
+            }
+        }, "AsrGeneration").start();
     }
 
     public void stop() {
@@ -200,6 +248,20 @@ public final class AsrGenerationController {
         }
     }
 
+    private synchronized void releaseLease() {
+        if (leaseHeld) {
+            leaseHeld = false;
+            AsrSessionLease.release(media.getId());
+        }
+    }
+
+    /** Another session (live page or finalize worker) already owns this episode. */
+    public static final class SessionBusyException extends IOException {
+        SessionBusyException(long mediaId) {
+            super("generation already owns media " + mediaId);
+        }
+    }
+
     private final class SessionListener implements AsrGenerationSession.Listener {
         @Override
         public void onSegment(@NonNull AsrSegment segment) {
@@ -207,14 +269,14 @@ public final class AsrGenerationController {
                     : segment.getWords().get(0).getStartTime();
             long segmentEnd = segment.getWords().isEmpty() ? -1
                     : segment.getWords().get(segment.getWords().size() - 1).getEndTime();
-            Log.i(TAG, "segment start=" + segmentStart + " end=" + segmentEnd
+            Log.d(TAG, "segment start=" + segmentStart + " end=" + segmentEnd
                     + " words=" + segment.getWords().size()
                     + " playhead=" + playheadMs.getAsLong()
                     + " decoded=" + pipeline.decodedEndMs()
                     + " coverage=" + pipeline.coverageRanges());
             synchronized (segments) {
                 segments.add(segment);
-                save();
+                appendOrCompact(segment);
             }
             listener.onSegment(segment);
         }
@@ -240,7 +302,7 @@ public final class AsrGenerationController {
 
         @Override
         public void onCompleted() {
-            save(true);
+            save();
             running = false;
             listener.onCompleted();
         }
@@ -252,51 +314,45 @@ public final class AsrGenerationController {
         }
     }
 
-    private void save() {
-        save(false);
+    /**
+     * Appends one finalized segment to the journal and only rewrites the full snapshot when the
+     * journal grows large or old. Audio that was decoded but never finalized is never marked as
+     * covered, so a process death cannot skip it.
+     */
+    private void appendOrCompact(AsrSegment segment) {
+        try {
+            transcriptStore.append(segment);
+            pendingJournalSegments++;
+        } catch (IOException e) {
+            Log.w(TAG, "Unable to append generated segment; falling back to a snapshot", e);
+            save();
+            return;
+        }
+        long now = SystemClock.elapsedRealtime();
+        if (pendingJournalSegments >= COMPACT_SEGMENT_COUNT
+                || now - lastCompactionMs >= COMPACT_INTERVAL_MS) {
+            save();
+        }
     }
 
-    private void save(boolean finished) {
+    private void save() {
         if (transcriptStore == null || pipeline == null) {
             return;
         }
+        List<MediaRange> coverage;
+        synchronized (segments) {
+            coverage = AsrTranscriptStore.coverageOf(segments);
+        }
         try {
-            List<MediaRange> coverage = finished
-                    ? pipeline.coverageRanges() : recognizedCoverage();
-            transcriptStore.save(segments, durationMs, coverage, modelId);
+            transcriptStore.save(segments, durationMs, coverage, modelId,
+                    audioBytes, audioFingerprint);
+            pendingJournalSegments = 0;
+            lastCompactionMs = SystemClock.elapsedRealtime();
             Log.i(TAG, "saved segments=" + segments.size()
                     + " coverage=" + coverage);
         } catch (IOException e) {
             Log.e(TAG, "Unable to save generated transcript", e);
         }
-    }
-
-    /**
-     * Audio that was decoded but never finalized by the recognizer must not be marked as
-     * covered, otherwise a process death would skip it on the next run.
-     */
-    private List<MediaRange> recognizedCoverage() {
-        long recognizedEnd = -1;
-        synchronized (segments) {
-            for (AsrSegment segment : segments) {
-                List<AsrWord> words = segment.getWords();
-                if (!words.isEmpty()) {
-                    recognizedEnd = Math.max(recognizedEnd,
-                            words.get(words.size() - 1).getEndTime());
-                }
-            }
-        }
-        if (recognizedEnd < 0) {
-            return Collections.emptyList();
-        }
-        List<MediaRange> clamped = new ArrayList<>();
-        for (MediaRange range : pipeline.coverageRanges()) {
-            if (range.startMs() >= recognizedEnd) {
-                break;
-            }
-            clamped.add(new MediaRange(range.startMs(), Math.min(range.endMs(), recognizedEnd)));
-        }
-        return clamped;
     }
 
     private long resolveDuration(File localFile) {

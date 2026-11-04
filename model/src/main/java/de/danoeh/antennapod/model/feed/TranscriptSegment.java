@@ -23,10 +23,13 @@ public class TranscriptSegment {
         this.wordTimings = wordTimings == null ? Collections.emptyList() : wordTimings;
     }
 
-    public void append(long newEndTime, String wordsToAppend) {
+    /** @return true when appended text invalidated the previous word timings */
+    public boolean append(long newEndTime, String wordsToAppend) {
+        boolean hadWordTimings = !wordTimings.isEmpty();
         endTime = Math.max(endTime, newEndTime);
         words += " " + wordsToAppend;
         wordTimings = Collections.emptyList();
+        return hadWordTimings;
     }
 
     public long getStartTime() {

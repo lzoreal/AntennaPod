@@ -983,6 +983,17 @@ public abstract class UserPreferences {
         return !getStoredTranscriptTimeOffsets(mediaId).isEmpty();
     }
 
+    /** Snapshot of every anchor of one episode, so a destructive edit can be undone. */
+    public static synchronized TranscriptTimeOffsets getTranscriptTimeOffsetsForMedia(long mediaId) {
+        return getStoredTranscriptTimeOffsets(mediaId).copy();
+    }
+
+    /** Restores a snapshot taken by {@link #getTranscriptTimeOffsetsForMedia(long)}. */
+    public static synchronized void setTranscriptTimeOffsetsForMedia(
+            long mediaId, TranscriptTimeOffsets offsets) {
+        storeTranscriptTimeOffsets(mediaId, offsets.copy());
+    }
+
     /** Starts a new offset segment at {@code mediaPositionMs}, e.g. right after an inserted ad. */
     public static synchronized void setTranscriptTimeOffset(
             long mediaId, long mediaPositionMs, long offsetMs) {

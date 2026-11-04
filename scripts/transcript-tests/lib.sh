@@ -432,8 +432,16 @@ prepare_local_audio() {
   size="$(wc -c < "$WORK/silence.mp3" | tr -d ' ')"
   echo "$size" > "$WORK/audio.size"
   adb_sh mkdir -p "/sdcard/Android/data/$PKG/files" >/dev/null 2>&1 || true
-  MSYS_NO_PATHCONV=1 "${ADB[@]}" shell "cat > $DEVICE_AUDIO_PATH" \
-    < "$WORK/silence.mp3" || abort "推送静音音频失败"
+  # 二进制不能走 `adb shell cat`（Windows 主机上会被截断/改行），必须用 adb push；
+  # adb.exe 只认 Windows 源路径，设备目标路径则要禁用 MSYS 转换。
+  local src_win
+  src_win="$(cygpath -w "$WORK/silence.mp3")"
+  MSYS_NO_PATHCONV=1 "${ADB[@]}" push "$src_win" "$DEVICE_AUDIO_PATH" \
+    >/dev/null || abort "推送静音音频失败"
+  local remote_size
+  remote_size="$(adb_sh wc -c "$DEVICE_AUDIO_PATH" | awk '{print $1}' | tr -d '\r')"
+  [ "$remote_size" = "$size" ] \
+    || abort "静音音频大小不符：设备 $remote_size != 本机 $size"
   record_pass "本地静音音频已推送（$size bytes）"
 }
 
@@ -441,7 +449,9 @@ prepare_db() {
   local url="http://127.0.0.1:${PORT}/${VTT_FILE}"
   local audio_size=0
   [ -f "$WORK/audio.size" ] && audio_size="$(cat "$WORK/audio.size")"
-  "$PYTHON" - "$WORK/Antennapod.db.orig" "$WORK/Antennapod.test.db" "${MEDIA_ID}" "$url" \
+  # 设备路径必须以 POSIX 原样写进库：禁用 MSYS 转换，主机路径单独转成 Windows 形式
+  MSYS_NO_PATHCONV=1 "$PYTHON" - "$(cygpath -w "$WORK/Antennapod.db.orig")" \
+    "$(cygpath -w "$WORK/Antennapod.test.db")" "${MEDIA_ID}" "$url" \
     "$POSITION" "$TRANSCRIPT_TYPE" "${DEVICE_AUDIO_PATH:-}" "$audio_size" <<'PY'
 import shutil, sqlite3, sys
 
@@ -546,8 +556,14 @@ def set_plain_value(name, value, tag):
 # 固定测试视图：双语 + 逐句成行，避免设备残留偏好让词级/句级分支走错
 set_plain_value("prefTranscriptLanguageMode", 0, "int")
 set_plain_value("prefTranscriptSentencePerLine", "true", "boolean")
+# 静音音频整段都是 silence；跳过静音会把播放瞬间推到文件结尾，播放随即结束。
+# temporarySkipSilence 优先级高于全局开关，必须两处都关（2=AGGRESSIVE）。
+set_plain_value("prefSkipSilence", "false", "boolean")
+set_plain_value("de.danoeh.antennapod.preferences.temporarySkipSilence", 0, "int")
+set_plain_value("de.danoeh.antennapod.preferences.temporaryPlaybackSpeed", 1.0, "float")
 open(dst, "w", encoding="utf-8").write(text)
-print("playback prefs:", media_id, "feed", feed_id, "language=both sentencePerLine=true")
+print("playback prefs:", media_id, "feed", feed_id,
+      "language=both sentencePerLine=true skipSilence=false")
 PY
   MEDIA_ID="$(cat "$WORK/Antennapod.test.db.media_id")"
   record_pass "播放/转录偏好已准备（媒体=$MEDIA_ID，双语+逐句成行）"

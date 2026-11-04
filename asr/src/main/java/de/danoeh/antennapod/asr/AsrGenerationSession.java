@@ -11,6 +11,9 @@ import java.util.function.LongSupplier;
  */
 public final class AsrGenerationSession {
     private static final long DEFAULT_IDLE_SLEEP_MS = 50;
+    private static final int MAX_CONSECUTIVE_RETRIES = 12;
+    private static final long RETRY_BACKOFF_MS = 500;
+    private static final long MAX_RETRY_BACKOFF_MS = 4000;
 
     public interface Listener {
         void onSegment(@NonNull AsrSegment segment);
@@ -59,12 +62,20 @@ public final class AsrGenerationSession {
             throw new IllegalStateException("session is already running");
         }
         runner = Thread.currentThread();
+        int consecutiveRetries = 0;
         try {
             while (running) {
                 long playhead = Math.max(0, playheadMs.getAsLong());
                 PcmChunk chunk;
                 try {
                     chunk = pipeline.next(playhead);
+                    consecutiveRetries = 0;
+                } catch (AsrRetryableException e) {
+                    if (!retryAfterBackoff(++consecutiveRetries)) {
+                        listener.onError(e);
+                        return;
+                    }
+                    continue;
                 } catch (IOException | RuntimeException e) {
                     listener.onError(e);
                     return;
@@ -127,6 +138,20 @@ public final class AsrGenerationSession {
         if (decodedEndMs != lastCaughtUpMs) {
             lastCaughtUpMs = decodedEndMs;
             listener.onCaughtUp(decodedEndMs);
+        }
+    }
+
+    private boolean retryAfterBackoff(int attempt) {
+        if (attempt > MAX_CONSECUTIVE_RETRIES) {
+            return false;
+        }
+        long backoff = Math.min(MAX_RETRY_BACKOFF_MS, RETRY_BACKOFF_MS * attempt);
+        try {
+            Thread.sleep(backoff);
+            return running;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 

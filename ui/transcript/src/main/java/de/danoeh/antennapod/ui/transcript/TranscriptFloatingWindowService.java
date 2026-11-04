@@ -1,8 +1,10 @@
 package de.danoeh.antennapod.ui.transcript;
 
 import android.app.Service;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.PixelFormat;
@@ -38,7 +40,7 @@ import de.danoeh.antennapod.storage.database.DBReader;
 import de.danoeh.antennapod.storage.preferences.PlaybackPreferences;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.ui.appstartintent.MainActivityStarter;
-import io.reactivex.rxjava3.core.Observable;
+import io.reactivex.rxjava3.core.Maybe;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
@@ -77,19 +79,34 @@ public class TranscriptFloatingWindowService extends Service {
     private long positionBase = -1;
     private long positionBaseRealtime = -1;
     private float playbackSpeed = 1f;
+    private volatile TranscriptSession session;
     private boolean playing;
     private boolean positionLocked;
     private boolean windowHidden = true;
-    private boolean controlsWereVisible;
     private boolean positionTickRunning;
+    private boolean screenOn = true;
     private final Handler controlsHandler = new Handler(Looper.getMainLooper());
     private final Handler positionTickHandler = new Handler(Looper.getMainLooper());
     private final Runnable hideControlsRunnable = () -> setControlsVisible(false);
+    private final BroadcastReceiver screenReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            screenOn = Intent.ACTION_SCREEN_ON.equals(intent.getAction());
+            if (screenOn) {
+                if (playing) {
+                    startPositionTick();
+                }
+                updateTranscript(true);
+            } else {
+                stopPositionTick();
+            }
+        }
+    };
     private final Runnable positionTick = new Runnable() {
         @Override
         public void run() {
             positionTickRunning = false;
-            if (!playing || windowHidden || transcript == null) {
+            if (!screenOn || !playing || windowHidden || transcript == null) {
                 return;
             }
             lastPlaybackPosition = estimatedPosition();
@@ -137,6 +154,13 @@ public class TranscriptFloatingWindowService extends Service {
         positionLocked = UserPreferences.isFloatingTranscriptLocked();
         EventBus.getDefault().register(this);
         UserPreferences.registerFloatingTranscriptListener(languageModeListener);
+        IntentFilter screenFilter = new IntentFilter(Intent.ACTION_SCREEN_ON);
+        screenFilter.addAction(Intent.ACTION_SCREEN_OFF);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(screenReceiver, screenFilter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(screenReceiver, screenFilter);
+        }
     }
 
     @Override
@@ -218,7 +242,6 @@ public class TranscriptFloatingWindowService extends Service {
                         startX = params.x;
                         startY = params.y;
                         moved = false;
-                        controlsWereVisible = areControlsVisible();
                         showControls();
                         return true;
                     case MotionEvent.ACTION_MOVE:
@@ -248,10 +271,10 @@ public class TranscriptFloatingWindowService extends Service {
                                 saveFloatingPosition();
                             }
                             showControls();
-                        } else if (controlsWereVisible) {
-                            openTranscriptPage();
                         } else {
-                            showControls();
+                            // A tap on the transcript opens it; controls are reached by dragging
+                            // or by tapping their buttons while the bar is visible.
+                            openTranscriptPage();
                         }
                         return true;
                 }
@@ -272,7 +295,7 @@ public class TranscriptFloatingWindowService extends Service {
         if (floatingControls == null) {
             return;
         }
-        floatingControls.setVisibility(visible ? View.VISIBLE : View.INVISIBLE);
+        floatingControls.setVisibility(visible ? View.VISIBLE : View.GONE);
         controlsHandler.removeCallbacks(hideControlsRunnable);
     }
 
@@ -283,10 +306,6 @@ public class TranscriptFloatingWindowService extends Service {
         floatingControls.setVisibility(View.VISIBLE);
         controlsHandler.removeCallbacks(hideControlsRunnable);
         controlsHandler.postDelayed(hideControlsRunnable, CONTROLS_HIDE_DELAY_MS);
-    }
-
-    private boolean areControlsVisible() {
-        return floatingControls != null && floatingControls.getVisibility() == View.VISIBLE;
     }
 
     private void updateLockButton() {
@@ -392,6 +411,7 @@ public class TranscriptFloatingWindowService extends Service {
             positionBase = -1;
             positionBaseRealtime = -1;
             currentFeedId = -1;
+            session = null;
             hideTranscript();
         }
         lastSentenceSegmentStart = -1;
@@ -401,7 +421,7 @@ public class TranscriptFloatingWindowService extends Service {
         sentenceCacheSplit = -1;
         sentenceCacheStarts = null;
         translationCacheStarts = null;
-        loadDisposable = Observable.fromCallable(() -> {
+        loadDisposable = Maybe.fromCallable(() -> {
             FeedMedia media = DBReader.getFeedMedia(mediaId);
             if (media == null || media.getItem() == null) {
                 return null;
@@ -412,13 +432,6 @@ public class TranscriptFloatingWindowService extends Service {
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(media -> {
-                    if (media == null || media.getItem() == null) {
-                        if (!keepPosition) {
-                            hideTranscript();
-                            stopSelf();
-                        }
-                        return;
-                    }
                     currentFeedId = media.getItem().getFeedId();
                     if (lastPlaybackPosition < 0) {
                         lastPlaybackPosition = Math.max(0, media.getPosition());
@@ -434,9 +447,17 @@ public class TranscriptFloatingWindowService extends Service {
                         return;
                     }
                     this.transcript = loaded;
+                    session = new TranscriptSession(mediaId, loaded);
+                    session.setDuration(media.getDuration());
                     updateTranscript(true);
                 }, e -> {
                     Log.e(TAG, "Unable to load transcript", e);
+                    if (!keepPosition) {
+                        hideTranscript();
+                        stopSelf();
+                    }
+                }, () -> {
+                    // No playable media: a normal empty state, not a load failure.
                     if (!keepPosition) {
                         hideTranscript();
                         stopSelf();
@@ -513,10 +534,15 @@ public class TranscriptFloatingWindowService extends Service {
                 || transcript.getSegmentCount() == 0 || tvTranscript == null) {
             return;
         }
+        TranscriptSession current = session;
+        if (current == null) {
+            hideTranscript();
+            return;
+        }
 
-        long offset = transcript.isGenerated() ? 0
-                : UserPreferences.getTranscriptTimeOffset(currentMediaId, lastPlaybackPosition);
-        long position = lastPlaybackPosition - offset;
+        long transcriptPosition = current.toTranscriptTime(lastPlaybackPosition);
+        long offset = current.offsetAt(transcriptPosition);
+        long position = transcriptPosition - offset;
         long firstStart = transcript.getSegmentAt(0).getStartTime();
         long lastEnd = transcript.getSegmentAt(transcript.getSegmentCount() - 1).getEndTime();
         if (position < firstStart || position > lastEnd) {
@@ -562,7 +588,7 @@ public class TranscriptFloatingWindowService extends Service {
         lastSentenceIndex = sentenceIndex;
         long sentenceEndTime = TranscriptTextUtils.sentenceEndTime(
                 segment, sentenceStarts, sentenceIndex);
-        long remainingMs = sentenceEndTime + offset - lastPlaybackPosition;
+        long remainingMs = sentenceEndTime + offset - transcriptPosition;
 
         int languageMode = UserPreferences.getTranscriptLanguageMode();
         boolean showTranslation = bilingual
@@ -702,6 +728,11 @@ public class TranscriptFloatingWindowService extends Service {
 
     @Override
     public void onDestroy() {
+        try {
+            unregisterReceiver(screenReceiver);
+        } catch (IllegalArgumentException e) {
+            Log.d(TAG, "Screen receiver was not registered", e);
+        }
         super.onDestroy();
         controlsHandler.removeCallbacks(hideControlsRunnable);
         stopPositionTick();

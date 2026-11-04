@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import de.danoeh.antennapod.asr.AsrSegment;
 import de.danoeh.antennapod.asr.AsrTranscriptStore;
+import de.danoeh.antennapod.asr.AudioFingerprint;
 import de.danoeh.antennapod.asr.GeneratedTranscriptCheckpoint;
 import de.danoeh.antennapod.asr.MediaRange;
 import de.danoeh.antennapod.model.feed.FeedMedia;
@@ -64,7 +65,9 @@ public class AsrFinalizeWorker extends Worker {
             Log.i(TAG, "skip media=" + mediaId + " not eligible");
             return Result.success();
         }
-        if (isComplete(new File(media.getGeneratedTranscriptFileUrl()), media.getDuration())) {
+        File audioFile = new File(media.getLocalFileUrl());
+        if (isComplete(new File(media.getGeneratedTranscriptFileUrl()), media.getDuration(),
+                audioFile)) {
             Log.i(TAG, "skip media=" + mediaId + " already complete");
             return Result.success();
         }
@@ -131,12 +134,20 @@ public class AsrFinalizeWorker extends Worker {
     }
 
     static boolean isComplete(File transcriptFile, long durationMs) {
+        return isComplete(transcriptFile, durationMs, null);
+    }
+
+    static boolean isComplete(File transcriptFile, long durationMs, File audioFile) {
         AsrTranscriptStore store = new AsrTranscriptStore(transcriptFile);
         if (!store.hasTranscript()) {
             return false;
         }
         try {
             GeneratedTranscriptCheckpoint checkpoint = store.loadCheckpoint();
+            if (audioFile != null && !checkpoint.matchesAudio(durationMs,
+                    audioFile.length(), AudioFingerprint.of(audioFile))) {
+                return false;
+            }
             List<MediaRange> ranges = checkpoint.getCoverage();
             if (ranges.isEmpty() || durationMs <= 0) {
                 return false;

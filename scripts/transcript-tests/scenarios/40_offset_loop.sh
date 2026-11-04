@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 场景：时间偏移控制条（重置为 0、+30 秒；「对齐到本句」→ 点选句子建分段、分段内 +30 只影响本段；
-# 长按「对齐到本句」= 第一句对齐整集；再重置）。
+# 场景：时间偏移控制条（重置为 0、+30 秒；「对齐到当前行」→ 点选当前行建分段、分段内 +30 只影响本段；
+# 长按「对齐到当前行」= 第一行对齐整集；再重置）。
 # 单独运行: bash scripts/transcript-tests/scenarios/40_offset_loop.sh [选项]
 
 tt_offset_chip_seconds() {
@@ -56,7 +56,7 @@ tt_scenario_offset() {
   sleep 1
   dump_ui "$WORK/offset_02_controls.xml" || { record_fail "偏移：控制条 UI dump 为空"; return; }
   tap_node "$WORK/offset_02_controls.xml" \
-    'content-desc="(声音文字偏移控制|Transcript offset controls)"' "打开偏移控制条" || return
+    'content-desc="(声音文字偏移控制|Transcript offset controls)[^"]*"' "打开偏移控制条" || return
   sleep 1
   dump_ui "$WORK/offset_03_panel.xml" || { record_fail "偏移：控制条 dump 为空"; return; }
   assert_dump_has "$WORK/offset_03_panel.xml" 'text="(偏移：|Offset: )' "偏移控制条已展开"
@@ -70,15 +70,15 @@ tt_scenario_offset() {
     "偏移 +30 秒" 'text="(偏移：\+30 秒|Offset: \+30 s)"' 4 || return
   record_pass "偏移显示 +30"
 
-  # 对齐到本句：先进入点选模式，再点“正在播放的那一句”，以它为锚建新段
+  # 对齐到当前行：先进入点选模式，再点“正在播放的那一行”，以它为锚建新段
   tap_node "$WORK/offset_03_panel.xml" 'resource-id="[^"]*:id/btnOffsetSync"' \
-    "对齐到本句（进入点选模式）" || return
+    "对齐到当前行（进入点选模式）" || return
   sleep 1
   dump_ui "$WORK/offset_08_pick.xml" || { record_fail "偏移：进入点选模式后 dump 为空"; return; }
-  if grep -qE 'text="(点选句子|Pick line)"' "$WORK/offset_08_pick.xml"; then
-    record_pass "对齐到本句进入点选模式"
+  if grep -qE 'text="(点选当前行|Pick line)"' "$WORK/offset_08_pick.xml"; then
+    record_pass "对齐到当前行进入点选模式"
   else
-    record_fail "对齐到本句未进入点选模式"
+    record_fail "对齐到当前行未进入点选模式"
   fi
   # 先点“当前显示的那句”：应被保护拦下，不改偏移、仍停在点选模式
   local text_row='text="[^"]+".*resource-id="[^"]*:id/content"'
@@ -86,7 +86,7 @@ tt_scenario_offset() {
   sleep 1
   dump_ui "$WORK/offset_08b_guard.xml" || { record_fail "偏移：点已显示句后 dump 为空"; return; }
   if [ "$(tt_offset_chip_seconds "$WORK/offset_08b_guard.xml")" = "+30" ] \
-      && grep -qE 'text="(点选句子|Pick line)"' "$WORK/offset_08b_guard.xml"; then
+      && grep -qE 'text="(点选当前行|Pick line)"' "$WORK/offset_08b_guard.xml"; then
     record_pass "点已显示的那句被拦下（偏移不变、仍在点选模式）"
   else
     record_fail "点已显示的那句未被拦下或退出了点选模式"
@@ -96,7 +96,7 @@ tt_scenario_offset() {
   # 写锚点与刷新高亮由下面的长按（同一 setTranscriptTimeOffset 路径）覆盖。
   local adjusted pref
   pref="$(tt_offset_pref_value)"
-  if tt_offset_pref_has_anchor "$pref"; then
+  if printf '%s' "$pref" | grep -qE '(&quot;|")1(&quot;|"):\[[^]]*&quot;p&quot;'; then
     record_pass "偏移按分段锚点持久化"
   else
     record_fail "偏移未写入分段锚点：$pref"
@@ -113,21 +113,32 @@ tt_scenario_offset() {
     record_fail "分段内 +30 秒结果不符：+30 → $adjusted"
   fi
 
-  # 长按「对齐到本句」= 把第一句对齐到当前位置（整集重新对齐，只留一个 0 处锚点）
+  # 长按「对齐到当前行」= 把第一行对齐到当前位置（整集重新对齐，只留一个 0 处锚点）
   tt_long_press_node "$WORK/offset_10_sync30.xml" 'resource-id="[^"]*:id/btnOffsetSync"' \
     "长按按第一句对齐整集" || return
   sleep 1
+  dump_ui "$WORK/offset_11_dialog.xml" || { record_fail "偏移：长按后 dump 为空"; return; }
+  if grep -qE 'text="(对齐|Align)"' "$WORK/offset_11_dialog.xml"; then
+    tap_node "$WORK/offset_11_dialog.xml" 'text="(对齐|Align)"' "确认整集对齐" || return
+    sleep 1
+  fi
   dump_ui "$WORK/offset_11_first.xml" || { record_fail "偏移：长按对齐后 dump 为空"; return; }
   local first_off anchors
   first_off="$(tt_offset_chip_seconds "$WORK/offset_11_first.xml")"
-  if awk "BEGIN{exit !(${first_off:-0} > 0)}"; then
+  # 脚本不启动播放时控制器位置为 0，对齐结果就是 0；这里只校验数值可读，
+  # 锚点是否只剩 0 处由下一条断言覆盖。
+  if [ -n "$first_off" ] && awk "BEGIN{exit !(${first_off} >= 0)}"; then
     record_pass "长按按第一句对齐整集后偏移胶囊=$first_off"
   else
     record_fail "长按按第一句对齐整集后偏移胶囊异常：$first_off"
   fi
   pref="$(tt_offset_pref_value)"
-  anchors="$(printf '%s' "$pref" | grep -o '&quot;p&quot;' | wc -l | tr -d ' ')"
-  if [ "$anchors" = "1" ] && printf '%s' "$pref" | grep -q '&quot;p&quot;:0,'; then
+  # 设备上其他单集可能已有真实锚点，只统计当前测试 media
+  anchors="$(printf '%s' "$pref" | grep -oE '(&quot;|")1(&quot;|"):\[[^]]*\]' \
+    | grep -o '&quot;p&quot;' | wc -l | tr -d ' ')"
+  if [ "$anchors" = "1" ] \
+      && printf '%s' "$pref" | grep -oE '(&quot;|")1(&quot;|"):\[[^]]*\]' \
+      | grep -q '&quot;p&quot;:0,'; then
     record_pass "整集对齐只保留 0 处锚点"
   else
     record_fail "整集对齐后锚点数量/位置不符：$pref"
@@ -137,14 +148,14 @@ tt_scenario_offset() {
     "再次重置偏移" 'text="(偏移：0 秒|Offset: 0 s)"' 4 || return
   record_pass "偏移重置为 0"
   pref="$(tt_offset_pref_value)"
-  if tt_offset_pref_has_anchor "$pref"; then
+  if printf '%s' "$pref" | grep -qE '(&quot;|")1(&quot;|"):\[[^]]*&quot;p&quot;'; then
     record_fail "重置后仍留有分段锚点：$pref"
   else
     record_pass "重置清空分段锚点"
   fi
   capture_screen "$WORK/offset_07.png" || return
   tap_node "$WORK/offset_03_panel.xml" \
-    'content-desc="(声音文字偏移控制|Transcript offset controls)"' "收起偏移控制条"
+    'content-desc="(声音文字偏移控制|Transcript offset controls)[^"]*"' "收起偏移控制条"
   record_pass "偏移控制条截图已保存（$WORK/offset_07.png）"
 }
 

@@ -51,6 +51,7 @@ import de.danoeh.antennapod.playback.service.internal.AdSkipCommand;
 import de.danoeh.antennapod.playback.service.internal.AdSkipController;
 import de.danoeh.antennapod.event.FeedItemEvent;
 import de.danoeh.antennapod.event.PlayerErrorEvent;
+import de.danoeh.antennapod.event.PlaybackServiceShutdownEvent;
 import de.danoeh.antennapod.event.StreamingConfirmationEvent;
 import de.danoeh.antennapod.event.settings.VolumeAdaptionChangedEvent;
 import de.danoeh.antennapod.event.PlayerStatusEvent;
@@ -645,6 +646,8 @@ public class Media3PlaybackService extends MediaLibraryService {
             player.removeListener(playerListener);
             player.release();
         }
+        // Let generated-transcript sessions stop before their stream cache disappears.
+        EventBus.getDefault().post(new PlaybackServiceShutdownEvent());
         ExoPlayerUtils.releaseCache();
         if (mediaSession != null) {
             mediaSession.release();
@@ -834,6 +837,9 @@ public class Media3PlaybackService extends MediaLibraryService {
         PlaybackServiceInterface.currentMediaId = media.getId();
         PlaybackServiceInterface.currentPositionMs = lastPlayerPositionMs;
         if (media.getId() != adSkipMediaId) {
+            // A pending undo belongs to the episode that was skipped, not to the new one.
+            lastTranscriptShift = null;
+            NotificationUtils.cancelAdSkipUndo(this);
             adSkipMediaId = media.getId();
             adSkipHandler.removeCallbacks(adSkipTick);
             adSkipController = new AdSkipController(media.getId());

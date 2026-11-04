@@ -5,13 +5,20 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fillViewport="false"
+        android:scrollbars="none">
+
     <LinearLayout
         android:id="@+id/controlsBar"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="48dp"
+        android:layout_gravity="end"
         android:gravity="end|center_vertical"
         android:orientation="horizontal"
-        android:visibility="gone">
+        android:visibility="visible">
 
         <ImageButton
             android:id="@+id/btnOffsetToggle"
@@ -40,11 +47,13 @@
 
         <TextView
             android:id="@+id/btnLayout"
-            android:layout_width="48dp"
+            android:layout_width="wrap_content"
             android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/transcript_layout_toggle_description"
             android:gravity="center"
+            android:minWidth="48dp"
+            android:paddingHorizontal="8dp"
             android:text="@string/transcript_layout_toggle"
             android:textColor="?android:attr/textColorPrimary"
             android:textSize="16sp"
@@ -75,6 +84,7 @@
             android:contentDescription="@string/immersive_mode"
             android:src="@drawable/ic_fullscreen" />
     </LinearLayout>
+    </HorizontalScrollView>
 
     <LinearLayout
         android:id="@+id/searchBar"
@@ -153,105 +163,31 @@
             android:src="@drawable/ic_close" />
     </LinearLayout>
 
-    <FrameLayout
+    <TextView
+        android:id="@+id/pickModeBanner"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/recyclerView"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:clipToPadding="false"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:visibility="gone" />
-
-        <ProgressBar
-            android:id="@+id/progLoading"
-            style="?android:attr/progressBarStyle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:visibility="gone" />
-
-        <LinearLayout
-            android:id="@+id/emptyState"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:gravity="center_horizontal"
-            android:orientation="vertical"
-            android:visibility="gone">
-
-            <TextView
-                android:id="@+id/emptyView"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/no_transcript_label" />
-
-            <Button
-                android:id="@+id/btnGenerateTranscript"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="@string/transcript_generate"
-                android:textAllCaps="false"
-                android:visibility="gone" />
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/btnBackToCurrent"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:layout_gravity="bottom|center_horizontal"
-            android:layout_marginBottom="16dp"
-            android:background="@drawable/bg_transcript_offset_button"
-            android:gravity="center"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:text="@string/transcript_back_to_current"
-            android:textColor="?android:attr/textColorPrimary"
-            android:textSize="13sp"
-            android:visibility="gone" />
-
-        <TextView
-            android:id="@+id/btnContinueTranscript"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:layout_gravity="bottom|center_horizontal"
-            android:layout_marginBottom="60dp"
-            android:background="@drawable/bg_transcript_offset_button"
-            android:gravity="center"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:text="@string/transcript_continue"
-            android:textColor="?android:attr/textColorPrimary"
-            android:textSize="13sp"
-            android:visibility="gone" />
-
-        <TextView
-            android:id="@+id/btnCancelTranscript"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:layout_gravity="top|end"
-            android:layout_marginTop="8dp"
-            android:layout_marginEnd="12dp"
-            android:background="@drawable/bg_transcript_offset_button"
-            android:gravity="center"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:text="@string/transcript_cancel_generate"
-            android:textColor="?android:attr/textColorPrimary"
-            android:textSize="12sp"
-            android:visibility="gone" />
-    </FrameLayout>
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        android:clickable="true"
+        android:contentDescription="@string/transcript_offset_pick_mode_banner"
+        android:focusable="true"
+        android:gravity="center"
+        android:minHeight="40dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:text="@string/transcript_offset_pick_mode_banner"
+        android:textColor="?android:attr/textColorPrimary"
+        android:textSize="13sp"
+        android:visibility="gone" />
 
     <LinearLayout
         android:id="@+id/offsetControls"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="14dp"
+        android:layout_marginTop="8dp"
         android:layout_marginEnd="14dp"
         android:layout_marginBottom="8dp"
         android:background="@drawable/bg_transcript_panel"
@@ -451,6 +387,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="14dp"
+        android:layout_marginTop="8dp"
         android:layout_marginEnd="14dp"
         android:layout_marginBottom="8dp"
         android:background="@drawable/bg_transcript_panel"
@@ -673,4 +610,108 @@
             android:textColor="?android:attr/textColorPrimary"
             android:textSize="13sp" />
     </LinearLayout>
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recyclerView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:visibility="gone" />
+
+        <ProgressBar
+            android:id="@+id/progLoading"
+            style="?android:attr/progressBarStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/emptyState"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/emptyView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="@string/no_transcript_label" />
+
+            <Button
+                android:id="@+id/btnRetryTranscript"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/retry_label"
+                android:textAllCaps="false"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/btnGenerateTranscript"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/transcript_generate"
+                android:textAllCaps="false"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/btnBackToCurrent"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/bg_transcript_offset_button"
+            android:gravity="center"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:text="@string/transcript_back_to_current"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/btnContinueTranscript"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="60dp"
+            android:background="@drawable/bg_transcript_offset_button"
+            android:gravity="center"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:text="@string/transcript_continue"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/btnCancelTranscript"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="8dp"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/bg_transcript_offset_button"
+            android:gravity="center"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:text="@string/transcript_cancel_generate"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="12sp"
+            android:visibility="gone" />
+    </FrameLayout>
+
 </LinearLayout>

@@ -39,6 +39,14 @@ public final class TranscriptTimeOffsets {
         return Collections.unmodifiableList(anchors);
     }
 
+    public TranscriptTimeOffsets copy() {
+        TranscriptTimeOffsets copy = new TranscriptTimeOffsets();
+        for (Anchor anchor : anchors) {
+            copy.anchors.add(new Anchor(anchor.mediaPositionMs, anchor.offsetMs));
+        }
+        return copy;
+    }
+
     public long offsetAtMediaTime(long mediaPositionMs) {
         Anchor governing = null;
         for (Anchor anchor : anchors) {

@@ -127,7 +127,7 @@ public final class SherpaStreamingRecognizer implements StreamingAsr {
                 : segment.getWords().get(0).getStartTime();
         long mappedLast = segment.getWords().isEmpty() ? -1
                 : segment.getWords().get(segment.getWords().size() - 1).getEndTime();
-        Log.i(TAG, "result streamStart=" + streamStartMs + " fallbackEnd=" + fallbackEndMs
+        Log.d(TAG, "result streamStart=" + streamStartMs + " fallbackEnd=" + fallbackEndMs
                 + " tokens=" + (result.getTokens() == null ? 0 : result.getTokens().length)
                 + " words=" + segment.getWords().size()
                 + " firstTime=" + (times == null || times.length == 0 ? "none" : times[0])

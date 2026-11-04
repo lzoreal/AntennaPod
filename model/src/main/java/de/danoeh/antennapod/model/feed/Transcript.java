@@ -2,6 +2,7 @@ package de.danoeh.antennapod.model.feed;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Set;
 
 public class Transcript {
@@ -56,7 +57,9 @@ public class Transcript {
     }
 
     public void setSpeakers(Set<String> speakers) {
-        this.speakers = speakers;
+        this.speakers = speakers == null || speakers.isEmpty()
+                ? Collections.emptySet()
+                : Collections.unmodifiableSet(new HashSet<>(speakers));
     }
 
     public int getSegmentCount() {

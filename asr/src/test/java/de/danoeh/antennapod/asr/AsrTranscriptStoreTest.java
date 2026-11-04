@@ -50,9 +50,70 @@ public class AsrTranscriptStoreTest {
         GeneratedTranscriptCheckpoint checkpoint = store.loadCheckpoint();
         assertEquals("zh-14m", checkpoint.getModelId());
         assertEquals(12500, checkpoint.getAudioDurationMs());
-        assertEquals(Collections.singletonList(new MediaRange(0, 1000)),
+        // Coverage is derived from persisted words, not from the ranges handed to save().
+        assertEquals(Collections.singletonList(new MediaRange(100, 1000)),
                 checkpoint.getCoverage());
         assertFalse(new File(file.getPath() + ".tmp").exists());
+    }
+
+    @Test
+    public void journalSegmentsAreLoadedAndCompactedBySave() throws IOException {
+        File file = new File(folder.getRoot(), "journal.transcript");
+        AsrTranscriptStore store = new AsrTranscriptStore(file);
+        AsrSegment first = segment("hello", 0, 500);
+        store.save(Collections.singletonList(first), 5000,
+                Collections.singletonList(new MediaRange(0, 500)), "en");
+        AsrSegment second = segment("world", 600, 900);
+
+        store.append(second);
+
+        assertTrue(store.hasTranscript());
+        assertEquals(2, store.loadSegments().size());
+        assertEquals(Collections.singletonList(new MediaRange(0, 900)),
+                store.loadCheckpoint().getCoverage());
+        File journal = new File(file.getPath() + ".journal");
+        assertTrue(journal.exists());
+
+        store.save(store.loadSegments(), 5000,
+                Collections.singletonList(new MediaRange(0, 900)), "en");
+
+        assertFalse(journal.exists());
+        assertEquals(2, store.loadSegments().size());
+    }
+
+    @Test
+    public void journalReplayDoesNotDuplicateSegmentsAlreadyInSnapshot() throws IOException {
+        File file = new File(folder.getRoot(), "duplicate.transcript");
+        AsrTranscriptStore store = new AsrTranscriptStore(file);
+        AsrSegment first = segment("hello", 0, 500);
+        AsrSegment second = segment("world", 600, 900);
+        store.save(Arrays.asList(first, second), 5000,
+                Collections.singletonList(new MediaRange(0, 900)), "en");
+
+        // Simulate a crash after the snapshot was replaced but before the journal was cleared.
+        store.append(second);
+
+        assertEquals(2, store.loadSegments().size());
+    }
+
+    @Test
+    public void tornJournalTailIsIgnored() throws IOException {
+        File file = new File(folder.getRoot(), "torn.transcript");
+        AsrTranscriptStore store = new AsrTranscriptStore(file);
+        store.save(Collections.singletonList(segment("hello", 0, 500)), 5000,
+                Collections.singletonList(new MediaRange(0, 500)), "en");
+        store.append(segment("world", 600, 900));
+        try (FileOutputStream output = new FileOutputStream(
+                new File(file.getPath() + ".journal"), true)) {
+            output.write("{\"text\":\"torn".getBytes(StandardCharsets.UTF_8));
+        }
+
+        assertEquals(2, store.loadSegments().size());
+    }
+
+    private static AsrSegment segment(String text, long start, long end) {
+        return new AsrSegment(text, Collections.singletonList(
+                new AsrWord(text, start, end, 0, text.length())));
     }
 
     @Test

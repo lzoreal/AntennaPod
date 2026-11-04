@@ -30,6 +30,7 @@ import de.danoeh.antennapod.playback.service.PlaybackController;
 import de.danoeh.antennapod.storage.database.DBReader;
 import de.danoeh.antennapod.storage.preferences.PlaybackPreferences;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
+import de.danoeh.antennapod.ui.transcript.TranscriptSession;
 import de.danoeh.antennapod.ui.transcript.TranscriptUtils;
 import io.reactivex.rxjava3.core.Maybe;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
@@ -48,6 +49,7 @@ public class TranscriptDialogFragment extends DialogFragment
     private Transcript transcript;
     private TranscriptAdapter adapter = null;
     private LinearLayoutManager layoutManager;
+    private volatile TranscriptSession session;
 
     @Override
     public void onResume() {
@@ -105,17 +107,19 @@ public class TranscriptDialogFragment extends DialogFragment
     @Override
     public void onTranscriptClicked(int pos, TranscriptSegment segment,
                                     long sentenceStartTime, long sentenceEndTime) {
-        long offset = media instanceof FeedMedia
-                ? UserPreferences.getTranscriptTimeOffsetAtCueTime(
-                        ((FeedMedia) media).getId(), sentenceStartTime) : 0;
+        long offset = session == null ? 0 : session.offsetAtCue(sentenceStartTime);
         long startTime = sentenceStartTime + offset;
         long endTime = sentenceEndTime + offset;
 
         scrollToPosition(pos);
         PlaybackController.bindToMedia3Service(getActivity(), controller -> {
-            if (!(controller.getCurrentPosition() >= startTime
-                    && controller.getCurrentPosition() <= endTime)) {
-                controller.seekTo(Math.max(0, startTime));
+            TranscriptSession current = session;
+            if (current == null) {
+                return;
+            }
+            long currentPosition = current.toTranscriptTime(controller.getCurrentPosition());
+            if (!(currentPosition >= startTime && currentPosition <= endTime)) {
+                controller.seekTo(Math.max(0, current.toPlayerTime(startTime)));
             } else if (controller.isPlaying()) {
                 controller.pause();
             } else {
@@ -162,13 +166,10 @@ public class TranscriptDialogFragment extends DialogFragment
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onEventMainThread(PlaybackPositionEvent event) {
-        if (transcript == null || event.getPosition() < 0) {
+        if (transcript == null || session == null || event.getPosition() < 0) {
             return;
         }
-        long offset = media instanceof FeedMedia
-                ? UserPreferences.getTranscriptTimeOffset(
-                        ((FeedMedia) media).getId(), event.getPosition()) : 0;
-        int pos = transcript.findSegmentIndexBefore(event.getPosition() - offset);
+        int pos = session.segmentIndexAtPlayerPosition(event.getPosition());
         scrollToPosition(pos);
     }
 
@@ -232,10 +233,11 @@ public class TranscriptDialogFragment extends DialogFragment
         viewBinding.progLoading.setVisibility(View.GONE);
         adapter.setMedia(media);
 
+        session = new TranscriptSession(((FeedMedia) media).getId(), loadedTranscript);
+        session.setDuration(((FeedMedia) media).getDuration());
         long mediaPosition = Math.max(0, ((FeedMedia) media).getPosition());
-        long offset = UserPreferences.getTranscriptTimeOffset(
-                ((FeedMedia) media).getId(), mediaPosition);
-        long position = Math.max(0, mediaPosition - offset);
+        long position = Math.max(0,
+                session.toTranscriptTime(mediaPosition) - session.offsetAt(mediaPosition));
         int initialPosition = loadedTranscript.findSegmentIndexBefore(position);
         long initialMediaId = ((FeedMedia) media).getId();
         adapter.setHighlightPosition(initialPosition);

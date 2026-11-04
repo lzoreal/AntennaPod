@@ -50,7 +50,7 @@ public final class CacheAudioSource implements AudioSource {
                 return length;
             }
             if (System.nanoTime() > deadline) {
-                throw new IOException("cache has no content length for " + key);
+                throw new AsrRetryableException("cache has no content length for " + key);
             }
             try {
                 Thread.sleep(50);

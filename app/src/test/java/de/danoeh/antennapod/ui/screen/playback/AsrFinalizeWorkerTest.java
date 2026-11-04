@@ -43,8 +43,11 @@ public class AsrFinalizeWorkerTest {
 
     private File write(long coverageEndMs) throws Exception {
         File file = folder.newFile("episode.transcript");
+        // Coverage is derived from the persisted words, not from the legacy coverage array.
         String json = "{\"version\":1,\"model\":\"test\",\"audio_seconds\":60,"
-                + "\"coverage\":[[0," + coverageEndMs + "]],\"segments\":[]}";
+                + "\"coverage\":[[0," + coverageEndMs + "]],\"segments\":[{\"start\":0,\"end\":"
+                + coverageEndMs + ",\"text\":\"hello\",\"words\":[[\"hello\",0,"
+                + coverageEndMs + "]]}]}";
         Files.write(file.toPath(), json.getBytes(StandardCharsets.UTF_8));
         return file;
     }

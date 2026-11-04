@@ -24,28 +24,42 @@ tt_scenario_layout() {
   tap_node "$WORK/layout_03_panel.xml" 'resource-id="[^"]*:id/btnLayoutReset"' "恢复默认" || return
   sleep 1
   dump_ui "$WORK/layout_05_default.xml"
-  assert_dump_has "$WORK/layout_05_default.xml" 'text="1×"' "默认行距 1×"
-  assert_dump_has "$WORK/layout_05_default.xml" 'text="24 dp"' "默认左右边距 24 dp"
-  assert_dump_has "$WORK/layout_05_default.xml" 'text="(标准|Standard)"' "默认上下留白 标准"
+  assert_dump_has "$WORK/layout_05_default.xml" 'text="(紧凑|Compact)"' "默认行距 紧凑"
+  assert_dump_has "$WORK/layout_05_default.xml" 'text="(标准|Standard)"' "默认字号/边距/留白为 标准"
+  if grep -qE 'text="(宽|Wide|宽松|Loose)"' "$WORK/layout_05_default.xml"; then
+    record_fail "默认排版不应出现 宽/宽松"
+  else
+    record_pass "默认排版为 紧凑/标准"
+  fi
 
   tap_node "$WORK/layout_05_default.xml" \
     'resource-id="[^"]*:id/btnLineSpacingUp"' "行距 +" || return
   sleep 1
   dump_ui "$WORK/layout_06_after.xml"
-  assert_dump_has "$WORK/layout_06_after.xml" 'text="1\.15×"' "行距调到 1.15×"
-
+  assert_dump_has "$WORK/layout_06_after.xml" 'text="(标准|Standard)"' "行距 + 后为 标准"
   tap_node "$WORK/layout_06_after.xml" \
+    'resource-id="[^"]*:id/btnLineSpacingUp"' "行距 ++" || return
+  sleep 1
+  dump_ui "$WORK/layout_06b_after.xml"
+  assert_dump_has "$WORK/layout_06b_after.xml" 'text="(宽松|Loose)"' "行距调到 宽松"
+
+  tap_node "$WORK/layout_06b_after.xml" \
     'resource-id="[^"]*:id/btnSideMarginsUp"' "边距 +" || return
   sleep 1
   dump_ui "$WORK/layout_07_after.xml"
-  assert_dump_has "$WORK/layout_07_after.xml" 'text="32 dp"' "边距调到 32 dp"
+  assert_dump_has "$WORK/layout_07_after.xml" 'text="(宽|Wide)"' "边距调到 宽"
 
   tap_node "$WORK/layout_07_after.xml" \
     'resource-id="[^"]*:id/btnLayoutReset"' "再次恢复默认" || return
   sleep 1
   dump_ui "$WORK/layout_08_reset.xml"
-  assert_dump_has "$WORK/layout_08_reset.xml" 'text="1×"' "重置后行距 1×"
-  assert_dump_has "$WORK/layout_08_reset.xml" 'text="24 dp"' "重置后边距 24 dp"
+  assert_dump_has "$WORK/layout_08_reset.xml" 'text="(紧凑|Compact)"' "重置后行距 紧凑"
+  assert_dump_has "$WORK/layout_08_reset.xml" 'text="(标准|Standard)"' "重置后边距/留白 标准"
+  if grep -qE 'text="(宽|Wide|宽松|Loose)"' "$WORK/layout_08_reset.xml"; then
+    record_fail "重置后仍有 宽/宽松"
+  else
+    record_pass "重置后排版恢复 紧凑/标准"
+  fi
   capture_screen "$WORK/layout_09_reset.png" || return
   tap_node "$WORK/layout_08_reset.xml" \
     'content-desc="(声音文字排版|Transcript appearance)"' "收起排版面板"

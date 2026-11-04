@@ -18,12 +18,16 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.Collections;
 
 import fi.iki.elonen.NanoHTTPD;
 import de.danoeh.antennapod.model.feed.FeedItem;
 import de.danoeh.antennapod.model.feed.FeedMedia;
 import de.danoeh.antennapod.model.feed.Transcript;
+import de.danoeh.antennapod.model.feed.TranscriptSegment;
+import de.danoeh.antennapod.model.feed.TranscriptWord;
 import de.danoeh.antennapod.net.common.AntennapodHttpClient;
+import de.danoeh.antennapod.parser.transcript.TranscriptJournal;
 
 @RunWith(RobolectricTestRunner.class)
 public class TranscriptUtilsTest {
@@ -86,16 +90,62 @@ public class TranscriptUtilsTest {
     }
 
     @Test
-    public void testLegacyLocalTranscriptIsParsedAndAdopted() throws Exception {
-        FeedMedia media = media(3, "text/vtt", "https://example.com/legacy.vtt");
+    public void testLegacyLocalTranscriptWithoutOfficialUrlIsAdopted() throws Exception {
+        FeedMedia media = media(3, null, null);
         File transcriptFile = new File(media.getTranscriptFileUrl());
-        FileUtils.writeStringToFile(transcriptFile, VTT, StandardCharsets.UTF_8);
+        String json = "{\"segments\":[{\"start\":0,\"end\":1000,\"text\":\"hello\","
+                + "\"words\":[[\"hello\",0,1000]]}]}";
+        FileUtils.writeStringToFile(transcriptFile, json, StandardCharsets.UTF_8);
         assertFalse(new File(media.getTranscriptMetadataFileUrl()).exists());
 
         Transcript transcript = TranscriptUtils.loadTranscript(media, false);
 
         assertNotNull(transcript);
         assertTrue(new File(media.getTranscriptMetadataFileUrl()).exists());
+    }
+
+    @Test
+    public void testLegacyLocalTranscriptYieldsToOfficialUrl() throws Exception {
+        TranscriptServer server = new TranscriptServer(VTT);
+        try {
+            String url = "http://127.0.0.1:" + server.getListeningPort() + "/official.vtt";
+            FeedMedia media = media(10, "text/vtt", url);
+            File transcriptFile = new File(media.getTranscriptFileUrl());
+            FileUtils.writeStringToFile(transcriptFile,
+                    "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nLegacy", StandardCharsets.UTF_8);
+
+            Transcript transcript = TranscriptUtils.loadTranscript(media, false);
+
+            assertNotNull(transcript);
+            assertEquals("Hello", transcript.getSegmentAt(0).getWords());
+            assertEquals(VTT, FileUtils.readFileToString(
+                    transcriptFile, StandardCharsets.UTF_8));
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    public void testGeneratedMarkerYieldsToOfficialUrl() throws Exception {
+        TranscriptServer server = new TranscriptServer(VTT);
+        try {
+            String url = "http://127.0.0.1:" + server.getListeningPort() + "/official.vtt";
+            FeedMedia media = media(11, "text/vtt", url);
+            File transcriptFile = new File(media.getTranscriptFileUrl());
+            FileUtils.writeStringToFile(transcriptFile,
+                    "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nGenerated", StandardCharsets.UTF_8);
+            FileUtils.writeStringToFile(new File(media.getTranscriptMetadataFileUrl()),
+                    TranscriptUtils.GENERATED_SOURCE, StandardCharsets.UTF_8);
+
+            Transcript transcript = TranscriptUtils.loadTranscript(media, false);
+
+            assertNotNull(transcript);
+            assertEquals("Hello", transcript.getSegmentAt(0).getWords());
+            assertEquals(VTT, FileUtils.readFileToString(
+                    transcriptFile, StandardCharsets.UTF_8));
+        } finally {
+            server.stop();
+        }
     }
 
     @Test
@@ -155,6 +205,23 @@ public class TranscriptUtilsTest {
 
         assertNotNull(transcript);
         assertEquals("Hello", transcript.getSegmentAt(0).getWords());
+    }
+
+    @Test
+    public void testJournalSegmentsAreMergedIntoLocalTranscript() throws Exception {
+        FeedMedia media = media(12, null, null);
+        File transcriptFile = new File(media.getTranscriptFileUrl());
+        String json = "{\"segments\":[{\"start\":0,\"end\":1000,\"text\":\"hello\","
+                + "\"words\":[[\"hello\",0,1000]]}]}";
+        FileUtils.writeStringToFile(transcriptFile, json, StandardCharsets.UTF_8);
+        TranscriptJournal.append(transcriptFile, new TranscriptSegment(2000, 3000, "world", null,
+                Collections.singletonList(new TranscriptWord(0, 5, 2000, 3000))));
+
+        Transcript transcript = TranscriptUtils.loadTranscript(media, false);
+
+        assertNotNull(transcript);
+        assertEquals(2, transcript.getSegmentCount());
+        assertEquals("world", transcript.getSegmentAt(1).getWords());
     }
 
     @Test

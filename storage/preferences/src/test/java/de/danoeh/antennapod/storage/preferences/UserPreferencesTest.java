@@ -141,6 +141,31 @@ public class UserPreferencesTest {
     }
 
     @Test
+    public void testTranscriptOffsetSnapshotCanBeRestored() {
+        UserPreferences.setTranscriptTimeOffset(1, 200_000, 90_000);
+        UserPreferences.setTranscriptTimeOffset(1, 1_000_000, 60_000);
+        TranscriptTimeOffsets snapshot = UserPreferences.getTranscriptTimeOffsetsForMedia(1);
+
+        UserPreferences.setTranscriptStartOffset(1, 100_000);
+        assertEquals(100_000, UserPreferences.getTranscriptTimeOffset(1, 500_000));
+
+        UserPreferences.setTranscriptTimeOffsetsForMedia(1, snapshot);
+        assertEquals(90_000, UserPreferences.getTranscriptTimeOffset(1, 500_000));
+        assertEquals(60_000, UserPreferences.getTranscriptTimeOffset(1, 1_500_000));
+    }
+
+    @Test
+    public void testTranscriptOffsetSnapshotIsIndependentOfLiveAnchors() {
+        UserPreferences.setTranscriptTimeOffset(1, 0, 30_000);
+        TranscriptTimeOffsets snapshot = UserPreferences.getTranscriptTimeOffsetsForMedia(1);
+
+        UserPreferences.setTranscriptTimeOffset(1, 400_000, 80_000);
+        UserPreferences.setTranscriptTimeOffsetsForMedia(1, snapshot);
+
+        assertEquals(30_000, UserPreferences.getTranscriptTimeOffset(1, 400_000));
+    }
+
+    @Test
     public void testTranscriptOffsetAnchorIsReplacedAtSamePosition() {
         UserPreferences.setTranscriptTimeOffset(1, 300_000, 80_000);
         UserPreferences.setTranscriptTimeOffset(1, 300_400, 100_000);

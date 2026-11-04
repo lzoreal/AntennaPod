@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Shader;
+import android.os.SystemClock;
 import android.text.TextPaint;
 import android.util.AttributeSet;
 import android.util.TypedValue;
@@ -15,11 +16,14 @@ import android.widget.TextView;
 
 public class ScrollTextView extends TextView {
     private static final float OUTLINE_WIDTH_DP = 1.5f;
+    /** 30 fps is visually indistinguishable for 300 px/s text and halves overlay composition. */
+    private static final long FRAME_INTERVAL_MS = 33;
     private final float outlineWidth = TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_DIP, OUTLINE_WIDTH_DP, getResources().getDisplayMetrics());
     private final Shader outlineShader = new LinearGradient(0f, 0f, 1f, 1f,
             Color.BLACK, Color.BLACK, Shader.TileMode.CLAMP);
     private ValueAnimator scrollAnimator;
+    private long lastFrameBucket = -1;
 
     public ScrollTextView(Context context) { super(context); }
     public ScrollTextView(Context context, AttributeSet attrs) { super(context, attrs); }
@@ -57,7 +61,7 @@ public class ScrollTextView extends TextView {
         scrollAnimator.setDuration(actualDuration);
         scrollAnimator.setInterpolator(new LinearInterpolator());
         scrollAnimator.addUpdateListener(animation ->
-                setScrollX((int) (float) animation.getAnimatedValue())
+                applyScroll((int) (float) animation.getAnimatedValue(), animation)
         );
         scrollAnimator.start();
     }
@@ -116,15 +120,25 @@ public class ScrollTextView extends TextView {
             // Keep the word being read in the middle of the window; the clamps leave the
             // first and the last words aligned to the edges instead.
             float target = prefixWidth * textWidth / totalWidth - center;
-            setScrollX(Math.round(Math.max(0f, Math.min(target, scrollDistance))));
+            applyScroll(Math.round(Math.max(0f, Math.min(target, scrollDistance))), animation);
         });
         scrollAnimator.start();
+    }
+
+    private void applyScroll(int scrollX, ValueAnimator animation) {
+        long bucket = SystemClock.uptimeMillis() / FRAME_INTERVAL_MS;
+        if (bucket == lastFrameBucket && animation.getAnimatedFraction() < 1f) {
+            return;
+        }
+        lastFrameBucket = bucket;
+        setScrollX(scrollX);
     }
 
     public void stopAutoScroll() {
         if (scrollAnimator != null && scrollAnimator.isRunning()) {
             scrollAnimator.cancel();
         }
+        lastFrameBucket = -1;
         setScrollX(0);
     }
 

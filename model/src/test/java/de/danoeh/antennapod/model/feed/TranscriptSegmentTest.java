@@ -44,9 +44,11 @@ public class TranscriptSegmentTest {
                 new TranscriptWord(0, 3, 1000, 1200));
         TranscriptSegment segment = new TranscriptSegment(1000, 2000, "one", "", words);
 
-        segment.append(3000, "two");
+        boolean droppedWordTimings = segment.append(3000, "two");
 
+        assertTrue(droppedWordTimings);
         assertFalse(segment.hasWordTimings());
         assertEquals(-1, segment.getWordIndexAt(1500));
+        assertFalse(segment.append(4000, "three"));
     }
 }

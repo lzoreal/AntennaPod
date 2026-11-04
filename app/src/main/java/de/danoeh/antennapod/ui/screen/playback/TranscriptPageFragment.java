@@ -3,33 +3,23 @@ package de.danoeh.antennapod.ui.screen.playback;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Rect;
-import android.net.ConnectivityManager;
-import android.net.NetworkCapabilities;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.PowerManager;
 import android.os.SystemClock;
-import android.text.Editable;
-import android.text.TextWatcher;
-import android.text.format.DateUtils;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewTreeObserver;
-import android.view.inputmethod.EditorInfo;
-import android.view.inputmethod.InputMethodManager;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.appcompat.app.AlertDialog;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
+import androidx.lifecycle.Lifecycle;
 import androidx.media3.common.DeviceInfo;
 import androidx.media3.session.MediaController;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -39,8 +29,6 @@ import androidx.recyclerview.widget.SimpleItemAnimator;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import de.danoeh.antennapod.R;
-import de.danoeh.antennapod.asr.AsrModelStore;
-import de.danoeh.antennapod.asr.ModelDownloader;
 import de.danoeh.antennapod.databinding.TranscriptPageFragmentBinding;
 import de.danoeh.antennapod.event.FeedItemEvent;
 import de.danoeh.antennapod.event.FeedListUpdateEvent;
@@ -50,9 +38,7 @@ import de.danoeh.antennapod.model.feed.FeedItem;
 import de.danoeh.antennapod.model.feed.FeedMedia;
 import de.danoeh.antennapod.model.feed.Transcript;
 import de.danoeh.antennapod.model.feed.TranscriptSegment;
-import de.danoeh.antennapod.model.playback.MediaType;
 import de.danoeh.antennapod.model.playback.Playable;
-import de.danoeh.antennapod.parser.media.Mp3DurationScanner;
 import de.danoeh.antennapod.playback.service.PlaybackController;
 import de.danoeh.antennapod.storage.database.DBReader;
 import de.danoeh.antennapod.playback.service.PlaybackServiceInterface;
@@ -60,21 +46,15 @@ import de.danoeh.antennapod.storage.preferences.PlaybackPreferences;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.ui.screen.playback.audio.AudioPlayerFragment;
 import de.danoeh.antennapod.ui.transcript.TranscriptUtils;
+import de.danoeh.antennapod.ui.transcript.TranscriptTiming;
 import de.danoeh.antennapod.ui.transcript.TranscriptViewholder;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.core.Maybe;
 import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
-import java.io.File;
 import java.io.IOException;
-import java.text.DecimalFormat;
-import java.util.Locale;
-import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
@@ -90,117 +70,297 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private boolean userScrolling = false;
     private boolean pendingSnapToHighlight = false;
     private int lastScrolledPosition = -1;
-    private float followDensity = 1f;
-    private boolean followListenerRegistered = false;
-    private boolean followAnimating = false;
-    private long followStartMs = 0;
-    private long followDurationMs = 0;
-    private int followStartError = 0;
-    private int followScrolled = 0;
-    private int followTargetPosition = -1;
-    private int followTargetStart = -1;
-    private int followTargetEnd = -1;
-    private int followBottomSpace;
-    private int appliedLayoutSignature = Integer.MIN_VALUE;
-    private int appliedLayoutHeight = -1;
-    private long lastLayoutRecoveryMs;
-    private long lastFollowSkipLogMs;
     private long lastScrollInteractionMs;
     private int loadedSegmentCount;
-    private ViewTreeObserver followObserver;
-    private final ViewTreeObserver.OnPreDrawListener followPreDrawListener = () -> {
-        if (!canAutoFollow()) {
-            stopFollowFrame();
-            return true;
-        }
-        if (!scrollTowardsCurrentSentence()) {
-            stopFollowFrame();
-        }
-        return true;
-    };
-    private final Rect followVisibleRect = new Rect();
-    private boolean followClockActive = false;
-    /**
-     * The pre-draw listener only runs when the list is drawn, so the follow needs a frame source
-     * of its own. The highlight ticker provides one only while the fragment is resumed; the page
-     * can be visible and drawing while it is merely started (ViewPager2 page behind an overlay),
-     * which used to freeze the follow until an ASR reload forced a layout.
-     */
-    private final Runnable followClock = new Runnable() {
-        @Override
-        public void run() {
-            if (viewBinding == null || !followClockActive) {
-                followClockActive = false;
-                return;
-            }
-            RecyclerView recyclerView = viewBinding.recyclerView;
-            if (!isFollowViewVisible(recyclerView)) {
-                followClockActive = false;
-                return;
-            }
-            scheduleFollowFrame();
-            recyclerView.postDelayed(this, FOLLOW_CLOCK_INTERVAL_MS);
-        }
-    };
+
+    private final TranscriptFollowController followController =
+            new TranscriptFollowController(new TranscriptFollowController.Host() {
+                @Override
+                public Context getContext() {
+                    return TranscriptPageFragment.this.getContext();
+                }
+
+                @Override
+                public boolean isAdded() {
+                    return TranscriptPageFragment.this.isAdded();
+                }
+
+                @Override
+                public Lifecycle.State getLifecycleState() {
+                    return getLifecycle().getCurrentState();
+                }
+
+                @Override
+                public TranscriptAdapter getAdapter() {
+                    return adapter;
+                }
+
+                @Override
+                public long getLastPositionMs() {
+                    return lastPositionMs;
+                }
+
+                @Override
+                public boolean isUserScrolling() {
+                    return userScrolling;
+                }
+
+                @Override
+                public void setUserScrolling(boolean scrolling) {
+                    userScrolling = scrolling;
+                }
+
+                @Override
+                public boolean isPendingSnapToHighlight() {
+                    return pendingSnapToHighlight;
+                }
+
+                @Override
+                public void setPendingSnapToHighlight(boolean pending) {
+                    pendingSnapToHighlight = pending;
+                }
+
+                @Override
+                public void setLastScrolledPosition(int position) {
+                    lastScrolledPosition = position;
+                }
+            });
 
     private long lastPositionMs = 0;
     private volatile long lastRawPlayerPosition = -1;
     private long lastSyncLogMs;
     private int lastSyncLogSegment = -2;
-    private volatile double transcriptTimeScale = 1.0;
-    private long timeScaleGeneration = 0;
-    private static final long MIN_DURATION_DIFF_MS = 250;
-    private static final Map<String, Double> TIME_SCALE_CACHE = new ConcurrentHashMap<>();
-    private final ExecutorService durationExecutor = Executors.newSingleThreadExecutor();
-    private long lastOffsetLabelMs = Long.MIN_VALUE;
-    private boolean syncPickMode = false;
     private boolean controlsBarVisibleBeforeImmersive = false;
     private boolean immersiveMode = false;
     private int immersiveTopInset = 0;
-    private static final float FOLLOW_MAX_STEP_DP = 10f;
     private static final long HIGHLIGHT_UPDATE_INTERVAL_MS = 250;
-    private static final long FOLLOW_CLOCK_INTERVAL_MS = 250;
     private static final long TICKER_STALE_MS = 1500;
     private static final long POSITION_BACKSTEP_TOLERANCE_MS = 1200;
     private long lastBackstepLogMs;
-    private static final long SAME_OFFSET_TOLERANCE_MS = 1000;
     private static final long WORD_HIGHLIGHT_UPDATE_INTERVAL_MS = 100;
-    private static final long SEARCH_DEBOUNCE_MS = 200;
-    private static final int SEARCH_SCROLL_MAX_ATTEMPTS = 20;
-    private static final int FONT_SIZE_MIN_STEP = UserPreferences.TRANSCRIPT_FONT_SIZE_MIN_STEP;
-    private static final int FONT_SIZE_MAX_STEP = UserPreferences.TRANSCRIPT_FONT_SIZE_MAX_STEP;
-    private static final int[] VERTICAL_SPACING_LABELS = {
-            R.string.transcript_layout_compact,
-            R.string.transcript_layout_standard,
-            R.string.transcript_layout_loose};
+    private static final String STATE_SEARCH_ACTIVE = "transcript_search_active";
+    private static final String STATE_SEARCH_QUERY = "transcript_search_query";
+    private static final String STATE_SEARCH_HIT = "transcript_search_hit";
+    private static final String STATE_SEGMENT_LOOPING = "transcript_segment_looping";
+    private static final String STATE_SYNC_PICK_MODE = "transcript_sync_pick_mode";
+    private static final String STATE_IMMERSIVE = "transcript_immersive";
+    private static final String STATE_USER_SCROLLING = "transcript_user_scrolling";
     private boolean segmentLooping = false;
     private int loopSegmentIndex = -1;
-    private boolean searchActive = false;
-    private final Handler searchHandler = new Handler(Looper.getMainLooper());
-    private ViewTreeObserver.OnPreDrawListener searchScrollListener;
-    private int searchScrollPosition = -1;
-    private int searchScrollIndex = -1;
-    private int searchScrollAttempts = 0;
-    private final Runnable searchRunnable = () -> {
-        if (viewBinding == null) {
-            return;
-        }
-        runSearch(viewBinding.searchInput.getText().toString());
-    };
+    private Bundle restoredState;
     private final Handler highlightHandler = new Handler(Looper.getMainLooper());
     private ListenableFuture<MediaController> controllerFuture;
     private MediaController mediaController;
     private boolean highlightTickerActive = false;
     private boolean highlightTickerDriving = false;
     private long lastTickerMs = 0;
-    private static final long ASR_RELOAD_INTERVAL_MS = 1000;
-    private final Handler asrHandler = new Handler(Looper.getMainLooper());
-    private boolean asrActive;
-    private boolean asrModelDownloading;
-    private ModelDownloader modelDownloader;
-    private int lastModelPercent = -1;
-    private long lastAsrReloadMs;
-    private volatile int asrSessionToken;
+    private final TranscriptAsrCoordinator asrCoordinator =
+            new TranscriptAsrCoordinator(new TranscriptAsrCoordinator.Host() {
+                @Override
+                public Context getContext() {
+                    return TranscriptPageFragment.this.getContext();
+                }
+
+                @Override
+                public FeedMedia getCurrentMedia() {
+                    return currentMedia;
+                }
+
+                @Override
+                public TranscriptAdapter getAdapter() {
+                    return adapter;
+                }
+
+                @Override
+                public boolean isCasting() {
+                    return TranscriptPageFragment.this.isCasting();
+                }
+
+                @Override
+                public void reloadTranscript() {
+                    loadTranscript(true);
+                }
+
+                @Override
+                public void showToast(int resId) {
+                    TranscriptPageFragment.this.showToast(resId);
+                }
+
+                @Override
+                public void onGeneratedSegmentsAppended() {
+                    followController.scheduleFrame();
+                }
+            });
+
+    private final TranscriptLayoutController layoutController =
+            new TranscriptLayoutController(new TranscriptLayoutController.Host() {
+                @Override
+                public Context getContext() {
+                    return TranscriptPageFragment.this.getContext();
+                }
+
+                @Override
+                public TranscriptAdapter getAdapter() {
+                    return adapter;
+                }
+            });
+
+    private final TranscriptSearchController searchController =
+            new TranscriptSearchController(new TranscriptSearchController.Host() {
+                @Override
+                public Context getContext() {
+                    return TranscriptPageFragment.this.getContext();
+                }
+
+                @Override
+                public TranscriptAdapter getAdapter() {
+                    return adapter;
+                }
+
+                @Override
+                public void hideControlPanels() {
+                    TranscriptPageFragment.this.hideControlPanels();
+                }
+
+                @Override
+                public void stopFollowFrame() {
+                    followController.stopFrame();
+                }
+
+                @Override
+                public void scheduleFollowFrame() {
+                    followController.scheduleFrame();
+                }
+
+                @Override
+                public void setUserScrolling(boolean scrolling) {
+                    userScrolling = scrolling;
+                }
+
+                @Override
+                public void setPendingSnapToHighlight(boolean pending) {
+                    pendingSnapToHighlight = pending;
+                }
+
+                @Override
+                public void updateBackToCurrentVisibility() {
+                    followController.updateBackToCurrentVisibility();
+                }
+
+                @Override
+                public void scrollToPosition(int position, boolean snap) {
+                    followController.scrollToPosition(position, snap);
+                }
+
+                @Override
+                public int readingLinePx(RecyclerView recyclerView) {
+                    return followController.readingLinePx(recyclerView);
+                }
+            });
+
+    private final TranscriptPositionSource positionSource =
+            new TranscriptPositionSource(new TranscriptPositionSource.Host() {
+                @Override
+                public boolean isAdded() {
+                    return TranscriptPageFragment.this.isAdded();
+                }
+
+                @Override
+                public FeedMedia getMedia() {
+                    return currentMedia;
+                }
+
+                @Override
+                public long getLastPositionMs() {
+                    return lastPositionMs;
+                }
+
+                @Override
+                public long getPlayerPositionOrNegative() {
+                    MediaController controller = mediaController;
+                    return controller != null && controller.isConnected()
+                            ? controller.getCurrentPosition() : -1;
+                }
+
+                @Override
+                public void post(Runnable runnable) {
+                    highlightHandler.post(runnable);
+                }
+
+                @Override
+                public void onScaleResolved(long mediaId) {
+                    refreshPositionForTimeScale();
+                }
+            });
+
+    private final TranscriptOffsetController offsetController =
+            new TranscriptOffsetController(new TranscriptOffsetController.Host() {
+                @Override
+                public Context getContext() {
+                    return TranscriptPageFragment.this.getContext();
+                }
+
+                @Override
+                public FeedMedia getMedia() {
+                    return currentMedia;
+                }
+
+                @Override
+                public TranscriptAdapter getAdapter() {
+                    return adapter;
+                }
+
+                @Override
+                public long getLastPositionMs() {
+                    return lastPositionMs;
+                }
+
+                @Override
+                public void setLastPositionMs(long positionMs) {
+                    lastPositionMs = positionMs;
+                }
+
+                @Override
+                public long currentPlaybackPosition() {
+                    return positionSource.currentPlaybackPosition();
+                }
+
+                @Override
+                public void setUserScrolling(boolean scrolling) {
+                    userScrolling = scrolling;
+                }
+
+                @Override
+                public void updateBackToCurrentVisibility() {
+                    followController.updateBackToCurrentVisibility();
+                }
+
+                @Override
+                public void resetScrolledPosition() {
+                    lastScrolledPosition = -1;
+                }
+
+                @Override
+                public void scrollToPosition(int position, boolean snap) {
+                    followController.scrollToPosition(position, snap);
+                }
+
+                @Override
+                public void showToast(int resId) {
+                    TranscriptPageFragment.this.showToast(resId);
+                }
+
+                @Override
+                public void setToggleState(View view, int descriptionRes, boolean on) {
+                    TranscriptPageFragment.this.setToggleState(view, descriptionRes, on);
+                }
+
+                @Override
+                public void onLayoutPanelStateChanged() {
+                    layoutController.updateControls();
+                }
+            });
+
     private final Runnable highlightTicker = new Runnable() {
         @Override
         public void run() {
@@ -213,7 +373,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             if (playing) {
                 long rawPosition = smoothPlayingPosition(controller.getCurrentPosition());
                 lastRawPlayerPosition = rawPosition;
-                long position = toTranscriptTime(rawPosition);
+                long position = positionSource.toTranscriptTime(rawPosition);
                 setHighlightTickerDriving(true);
                 if (adapter != null) {
                     adapter.updatePlaybackPosition(position);
@@ -224,7 +384,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                         ? controller.getCurrentPosition() : -1;
                 if (playerPosition >= 0 && playerPosition != lastRawPlayerPosition) {
                     lastRawPlayerPosition = playerPosition;
-                    long position = toTranscriptTime(playerPosition);
+                    long position = positionSource.toTranscriptTime(playerPosition);
                     setHighlightTickerDriving(true);
                     if (adapter != null) {
                         adapter.updatePlaybackPosition(position);
@@ -235,7 +395,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             }
             // Keep the follow frame alive: the list can be static while the current row moved,
             // and a re-attached view may have replaced the observer.
-            scheduleFollowFrame();
+            followController.scheduleFrame();
             highlightHandler.postDelayed(this, highlightUpdateInterval());
         }
     };
@@ -270,10 +430,15 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
         viewBinding = TranscriptPageFragmentBinding.inflate(inflater, container, false);
-        followDensity = getResources().getDisplayMetrics().density;
+        asrCoordinator.attach(viewBinding);
+        layoutController.attach(viewBinding);
+        offsetController.attach(viewBinding);
+        searchController.attach(viewBinding);
+        restoredState = savedInstanceState;
+        followController.attach(viewBinding);
 
         adapter = new TranscriptAdapter(getContext(), this);
-        adapter.setFollowRequester(this::scheduleFollowFrame);
+        adapter.setFollowRequester(followController::scheduleFrame);
         LinearLayoutManager layoutManager = new LinearLayoutManager(getContext());
         viewBinding.recyclerView.setLayoutManager(layoutManager);
         viewBinding.recyclerView.setAdapter(adapter);
@@ -284,7 +449,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                                        @NonNull RecyclerView.State state) {
                 int position = parent.getChildAdapterPosition(view);
                 if (adapter != null && position == adapter.getItemCount() - 1) {
-                    outRect.bottom = followBottomSpace;
+                    outRect.bottom = layoutController.getFollowBottomSpace();
                 }
             }
         });
@@ -303,9 +468,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
                     userScrolling = true;
                     pendingSnapToHighlight = false;
-                    stopFollowFrame();
-                    stopSearchScrollFrame(recyclerView);
-                    updateBackToCurrentVisibility();
+                    followController.stopFrame();
+                    searchController.stopScroll();
+                    followController.updateBackToCurrentVisibility();
                 } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
                     if (userScrolling && adapter != null
                             && viewBinding.recyclerView.getLayoutManager()
@@ -319,19 +484,19 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                             // A page swipe can drag the list a little; keep following while the
                             // highlighted row is still on screen.
                             userScrolling = false;
-                            updateBackToCurrentVisibility();
+                            followController.updateBackToCurrentVisibility();
                         }
                     }
-                    scheduleFollowFrame();
+                    followController.scheduleFrame();
                 }
             }
         });
 
-        setupOffsetButtons();
-        setupSearchControls();
-        viewBinding.txtOffsetValue.setOnClickListener(v -> resetTimeOffset());
-        viewBinding.btnOffsetReset.setOnClickListener(v -> resetTimeOffset());
-        viewBinding.btnOffsetToggle.setOnClickListener(v -> toggleOffsetBar());
+        viewBinding.pickModeBanner.setOnClickListener(
+                v -> offsetController.setSyncPickMode(false));
+        viewBinding.txtOffsetValue.setOnClickListener(v -> offsetController.reset());
+        viewBinding.btnOffsetReset.setOnClickListener(v -> offsetController.reset());
+        viewBinding.btnOffsetToggle.setOnClickListener(v -> offsetController.toggleBar());
         viewBinding.btnOffsetToggle.setContentDescription(
                 getString(R.string.transcript_offset_toggle_description));
         viewBinding.btnTranslationToggle.setOnClickListener(v -> cycleLanguageMode());
@@ -339,28 +504,16 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         viewBinding.btnLineBreakToggle.setOnClickListener(v -> toggleSentencePerLine());
         viewBinding.btnLayout.setOnClickListener(v -> toggleLayoutBar());
         viewBinding.btnLayout.setContentDescription(getString(R.string.transcript_layout_toggle_description));
-        viewBinding.btnFontSizeDown.setOnClickListener(v -> adjustFontSize(-1));
-        viewBinding.btnFontSizeUp.setOnClickListener(v -> adjustFontSize(1));
-        viewBinding.btnFontSizeDown.setContentDescription(getString(R.string.transcript_font_smaller_description));
-        viewBinding.btnFontSizeUp.setContentDescription(getString(R.string.transcript_font_larger_description));
-        bindLayoutStepper(viewBinding.btnLineSpacingDown, viewBinding.btnLineSpacingUp,
-                R.string.transcript_layout_line_spacing);
-        bindLayoutStepper(viewBinding.btnSideMarginsDown, viewBinding.btnSideMarginsUp,
-                R.string.transcript_layout_side_margins);
-        bindLayoutStepper(viewBinding.btnVerticalSpacingDown, viewBinding.btnVerticalSpacingUp,
-                R.string.transcript_layout_vertical_spacing);
-        viewBinding.btnLineSpacingDown.setOnClickListener(v -> adjustLineSpacing(-1));
-        viewBinding.btnLineSpacingUp.setOnClickListener(v -> adjustLineSpacing(1));
-        viewBinding.btnSideMarginsDown.setOnClickListener(v -> adjustSideMargins(-1));
-        viewBinding.btnSideMarginsUp.setOnClickListener(v -> adjustSideMargins(1));
-        viewBinding.btnVerticalSpacingDown.setOnClickListener(v -> adjustVerticalSpacing(-1));
-        viewBinding.btnVerticalSpacingUp.setOnClickListener(v -> adjustVerticalSpacing(1));
-        viewBinding.btnLayoutReset.setOnClickListener(v -> resetTranscriptLayout());
         viewBinding.btnSegmentLoop.setOnClickListener(v -> toggleSegmentLoop());
-        viewBinding.btnBackToCurrent.setOnClickListener(v -> returnToCurrentSentence());
-        viewBinding.btnGenerateTranscript.setOnClickListener(v -> startAsrGeneration());
-        viewBinding.btnContinueTranscript.setOnClickListener(v -> startAsrGeneration());
-        viewBinding.btnCancelTranscript.setOnClickListener(v -> cancelAsrGeneration());
+        viewBinding.btnBackToCurrent.setOnClickListener(v -> followController.returnToCurrentSentence());
+        viewBinding.btnRetryTranscript.setOnClickListener(v -> {
+            viewBinding.progLoading.setVisibility(View.VISIBLE);
+            viewBinding.emptyState.setVisibility(View.GONE);
+            loadTranscript(true);
+        });
+        viewBinding.btnGenerateTranscript.setOnClickListener(v -> asrCoordinator.startGeneration());
+        viewBinding.btnContinueTranscript.setOnClickListener(v -> asrCoordinator.startGeneration());
+        viewBinding.btnCancelTranscript.setOnClickListener(v -> asrCoordinator.cancelGeneration());
         viewBinding.btnLineBreakToggle.setContentDescription(
                 getString(R.string.transcript_line_break_description));
         viewBinding.btnImmersive.setOnClickListener(v -> {
@@ -368,20 +521,20 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 ((AudioPlayerFragment) getParentFragment()).toggleImmersiveMode();
             }
         });
-        updateOffsetLabel();
+        offsetController.updateLabel();
         updateTranslationToggle();
         updateSentenceToggle();
-        updateOffsetToggle();
-        updateLayoutControls();
-        applyTranscriptLayout();
+        offsetController.updateToggle();
+        layoutController.updateControls();
+        layoutController.applyLayout();
         viewBinding.recyclerView.addOnLayoutChangeListener((v, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> {
-            if (bottom - top != oldBottom - oldTop) {
-                applyTranscriptLayout();
+            if (bottom - top != oldBottom - oldTop || right - left != oldRight - oldLeft) {
+                layoutController.applyLayout();
             }
         });
         updateSegmentLoopToggle();
-        updateBackToCurrentVisibility();
+        followController.updateBackToCurrentVisibility();
 
         ViewCompat.setOnApplyWindowInsetsListener(viewBinding.getRoot(), (v, insets) -> {
             immersiveTopInset = Math.max(immersiveTopInset, Math.max(
@@ -405,13 +558,10 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 && adapter.getLanguageMode() != UserPreferences.getTranscriptLanguageMode()) {
             adapter.setLanguageMode(UserPreferences.getTranscriptLanguageMode());
         }
-        updateOffsetLabel();
+        offsetController.updateLabel();
         loadTranscript();
-        if (currentMedia != null) {
-            asrActive = AsrGenerationManager.isRunning(currentMedia.getId());
-            updateGenerateButtonVisibility();
-        }
-        startFollowClock();
+        asrCoordinator.syncRunningState();
+        followController.startClock();
     }
 
     @Override
@@ -419,8 +569,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         super.onResume();
         highlightTickerActive = true;
         highlightHandler.post(highlightTicker);
-        startFollowClock();
-        scheduleFollowFrame();
+        followController.startClock();
+        followController.scheduleFrame();
     }
 
     @Override
@@ -428,15 +578,15 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         highlightTickerActive = false;
         setHighlightTickerDriving(false);
         highlightHandler.removeCallbacks(highlightTicker);
-        searchHandler.removeCallbacks(searchRunnable);
-        stopFollowFrame();
+        searchController.pause();
+        followController.stopFrame();
         super.onPause();
     }
 
     @Override
     public void onStop() {
         super.onStop();
-        stopFollowClock();
+        followController.stopClock();
         if (disposable != null) {
             disposable.dispose();
         }
@@ -489,32 +639,37 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
     @Override
     public void onDestroy() {
-        timeScaleGeneration++;
-        durationExecutor.shutdownNow();
+        positionSource.shutdown();
         super.onDestroy();
     }
 
     @Override
     public void onDestroyView() {
         super.onDestroyView();
-        stopFollowClock();
-        stopFollowFrame();
-        searchHandler.removeCallbacks(searchRunnable);
-        if (modelDownloader != null) {
-            modelDownloader.cancel();
-            modelDownloader = null;
-        }
-        asrSessionToken++;
-        asrActive = false;
-        asrModelDownloading = false;
-        asrHandler.removeCallbacksAndMessages(null);
+        followController.stopClock();
+        followController.stopFrame();
+        asrCoordinator.detach();
+        layoutController.detach();
+        offsetController.detach();
+        followController.detach();
         if (viewBinding != null) {
-            stopSearchScrollFrame(viewBinding.recyclerView);
             viewBinding.recyclerView.setAdapter(null);
         }
-        searchActive = false;
+        searchController.detach();
         viewBinding = null;
         adapter = null;
+    }
+
+    @Override
+    public void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putBoolean(STATE_SEARCH_ACTIVE, searchController.isActive());
+        outState.putString(STATE_SEARCH_QUERY, searchController.getQuery());
+        outState.putInt(STATE_SEARCH_HIT, adapter == null ? 0 : adapter.getCurrentSearchHit());
+        outState.putBoolean(STATE_SEGMENT_LOOPING, segmentLooping);
+        outState.putBoolean(STATE_SYNC_PICK_MODE, offsetController.isSyncPickMode());
+        outState.putBoolean(STATE_IMMERSIVE, immersiveMode);
+        outState.putBoolean(STATE_USER_SCROLLING, userScrolling);
     }
 
     private void loadTranscript() {
@@ -534,12 +689,12 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             viewBinding.emptyState.setVisibility(View.GONE);
             viewBinding.recyclerView.setVisibility(View.VISIBLE);
             if (!userScrolling) {
-                long offset = transcriptOffsetAt(lastPositionMs);
+                long offset = positionSource.offsetAt(lastPositionMs);
                 int pos = currentSegmentIndex(lastPositionMs - offset);
                 adapter.setHighlightPosition(pos, lastPositionMs - offset);
-                scrollToPosition(pos);
+                followController.scrollToPosition(pos);
             }
-            updateOffsetAvailability();
+            offsetController.updateAvailability();
             return;
         }
 
@@ -564,11 +719,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
                         if (forceReload || !feedMedia.hasTranscript()
                                 || feedMedia.getTranscript() == null) {
-                            try {
-                                feedMedia.setTranscript(TranscriptUtils.loadTranscript(feedMedia, false));
-                            } catch (Exception e) {
-                                Log.e(TAG, "TranscriptUtils.loadTranscript FAILED", e);
-                            }
+                            feedMedia.setTranscript(TranscriptUtils.loadTranscript(feedMedia, false));
                         }
 
                         emitter.onSuccess(feedMedia);
@@ -582,7 +733,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                         media -> onMediaLoaded((FeedMedia) media),
                         error -> {
                             Log.e(TAG, "subscribe onError", error);
-                            showEmptyState();
+                            showEmptyState(R.string.transcript_load_failed, true);
                         },
                         this::showEmptyState
                 );
@@ -592,17 +743,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (viewBinding == null) {
             return;
         }
-        if (currentMedia != null && currentMedia.getId() != media.getId()
-                && (AsrGenerationManager.isRunning(currentMedia.getId()) || asrModelDownloading)) {
-            asrSessionToken++;
-            AsrGenerationManager.stopIfRunningFor(currentMedia.getId());
-            if (modelDownloader != null) {
-                modelDownloader.cancel();
-                modelDownloader = null;
-            }
-            asrActive = false;
-            asrModelDownloading = false;
-        }
+        asrCoordinator.onMediaChanged(currentMedia, media);
         if (currentMedia != null && currentMedia.getId() == media.getId()
                 && media.getTranscript() != null && adapter != null
                 && adapter.getItemCount() > 0
@@ -624,23 +765,23 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             }
             loadedSegmentCount = newCount;
             adapter.updatePlaybackPosition(lastPositionMs);
-            asrActive = AsrGenerationManager.isRunning(media.getId());
+            asrCoordinator.syncRunningState();
             updateLoadedTranscriptSource(media);
             viewBinding.progLoading.setVisibility(View.GONE);
-            updateOffsetAvailability();
-            updateGenerateButtonVisibility();
-            scheduleFollowFrame();
+            offsetController.updateAvailability();
+            asrCoordinator.updateVisibility();
+            followController.scheduleFrame();
             return;
         }
-        if (searchActive) {
-            closeSearch();
+        if (searchController.isActive()) {
+            searchController.close();
         }
         currentMedia = media;
-        asrActive = AsrGenerationManager.isRunning(media.getId());
-        loadTranscriptTimeScale(media);
+        asrCoordinator.syncRunningState();
+        positionSource.load(media);
         updateLoadedTranscriptSource(media);
-        updateOffsetAvailability();
-        updateGenerateButtonVisibility();
+        offsetController.updateAvailability();
+        asrCoordinator.updateVisibility();
         viewBinding.progLoading.setVisibility(View.GONE);
 
         if (currentMedia.getTranscript() == null) {
@@ -659,51 +800,92 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         viewBinding.emptyState.setVisibility(View.GONE);
         viewBinding.recyclerView.setVisibility(View.VISIBLE);
         // The continue button is only shown once the list (not the empty state) is visible.
-        updateGenerateButtonVisibility();
+        asrCoordinator.updateVisibility();
 
         adapter.setMedia(currentMedia);
-        setSyncPickMode(false);
+        offsetController.setSyncPickMode(false);
         userScrolling = false;
         lastScrolledPosition = -1;
         segmentLooping = false;
         loopSegmentIndex = -1;
-        lastPositionMs = Math.max(0, toTranscriptTime(currentMedia.getPosition()));
+        lastPositionMs = Math.max(0, positionSource.toTranscriptTime(currentMedia.getPosition()));
         MediaController controller = mediaController;
         if (controller != null && controller.isConnected()) {
             long playerPosition = controller.getCurrentPosition();
             if (playerPosition >= 0) {
-                lastPositionMs = toTranscriptTime(playerPosition);
+                lastPositionMs = positionSource.toTranscriptTime(playerPosition);
                 lastRawPlayerPosition = playerPosition;
             }
         }
-        long offset = transcriptOffsetAt(lastPositionMs);
+        long offset = positionSource.offsetAt(lastPositionMs);
         int initialPosition = currentSegmentIndex(lastPositionMs - offset);
         adapter.setHighlightPosition(initialPosition);
-        scrollToPosition(initialPosition);
+        followController.scrollToPosition(initialPosition);
         pendingSnapToHighlight = true;
-        scheduleFollowFrame();
-        updateBackToCurrentVisibility();
-        updateOffsetLabel();
+        followController.scheduleFrame();
+        followController.updateBackToCurrentVisibility();
+        offsetController.updateLabel();
         updateTranslationToggle();
         updateSegmentLoopToggle();
+        restoreViewState();
+    }
+
+    private void restoreViewState() {
+        Bundle state = restoredState;
+        restoredState = null;
+        if (state == null || viewBinding == null || adapter == null) {
+            return;
+        }
+        searchController.restoreState(state.getString(STATE_SEARCH_QUERY, ""),
+                state.getInt(STATE_SEARCH_HIT, 0));
+        if (state.getBoolean(STATE_SYNC_PICK_MODE, false)) {
+            offsetController.setSyncPickMode(true);
+        }
+        if (state.getBoolean(STATE_SEGMENT_LOOPING, false)) {
+            int position = adapter.getHighlightPosition();
+            if (position >= 0) {
+                segmentLooping = true;
+                loopSegmentIndex = position;
+                updateSegmentLoopToggle();
+            }
+        }
+        userScrolling = state.getBoolean(STATE_USER_SCROLLING, false);
+        followController.updateBackToCurrentVisibility();
+        if (!userScrolling) {
+            pendingSnapToHighlight = true;
+            followController.scheduleFrame();
+        }
+        if (state.getBoolean(STATE_IMMERSIVE, false)
+                && getParentFragment() instanceof AudioPlayerFragment) {
+            AudioPlayerFragment parent = (AudioPlayerFragment) getParentFragment();
+            if (!parent.isImmersiveMode()) {
+                viewBinding.recyclerView.post(parent::toggleImmersiveMode);
+            }
+        }
     }
 
     private void showEmptyState() {
+        showEmptyState(R.string.no_transcript_label, false);
+    }
+
+    private void showEmptyState(int messageRes, boolean retry) {
         if (viewBinding == null) {
             return;
         }
         loadedSegmentCount = 0;
-        if (searchActive) {
-            closeSearch();
+        if (searchController.isActive()) {
+            searchController.close();
         }
         if (adapter != null) {
             adapter.clear();
         }
         viewBinding.progLoading.setVisibility(View.GONE);
         viewBinding.recyclerView.setVisibility(View.GONE);
+        viewBinding.emptyView.setText(messageRes);
+        viewBinding.btnRetryTranscript.setVisibility(retry ? View.VISIBLE : View.GONE);
         viewBinding.emptyState.setVisibility(View.VISIBLE);
-        updateGenerateButtonVisibility();
-        updateOffsetAvailability();
+        asrCoordinator.updateVisibility();
+        offsetController.updateAvailability();
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
@@ -712,7 +894,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (currentMedia == null || currentMedia.getId() != mediaId) {
             loadTranscript();
         } else {
-            updateGenerateButtonVisibility();
+            asrCoordinator.updateVisibility();
         }
     }
 
@@ -765,7 +947,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 highlightHandler.post(highlightTicker);
             }
         }
-        handlePlaybackPosition(toTranscriptTime(event.getPosition()));
+        handlePlaybackPosition(positionSource.toTranscriptTime(event.getPosition()));
     }
 
     private void logSyncState(long position, int pos) {
@@ -779,7 +961,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         Transcript transcript = currentMedia.getTranscript();
-        long offset = transcriptOffsetAt(position);
+        long offset = positionSource.offsetAt(position);
         TranscriptSegment segment = pos >= 0 && pos < transcript.getSegmentCount()
                 ? transcript.getSegmentAt(pos) : null;
         long segmentStart = segment == null ? -1 : segment.getStartTime();
@@ -795,7 +977,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 : transcript.getSegmentAt(transcript.getSegmentCount() - 1).getEndTime();
         Log.d("AsrSync", "raw=" + lastRawPlayerPosition
                 + " tx=" + position
-                + " scale=" + transcriptTimeScale
+                + " scale=" + positionSource.scale()
                 + " off=" + offset
                 + " gen=" + transcript.isGenerated()
                 + " seg=" + pos + "/" + transcript.getSegmentCount()
@@ -823,19 +1005,19 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             applySegmentLoop(position);
         }
 
-        int pos = currentSegmentIndex(lastPositionMs - transcriptOffsetAt(lastPositionMs));
+        int pos = currentSegmentIndex(lastPositionMs - positionSource.offsetAt(lastPositionMs));
         logSyncState(lastPositionMs, pos);
         if (pos < 0) {
             return;
         }
-        refreshOffsetLabelIfVisible();
+        offsetController.refreshLabelIfVisible();
 
         if (userScrolling) {
             return;
         }
 
         if (pos == lastScrolledPosition) {
-            scheduleFollowFrame();
+            followController.scheduleFrame();
             return;
         }
 
@@ -844,330 +1026,11 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             // Do not clear pendingSnapToHighlight here: a load/reload asked for a jump to the
             // current row, and the row may still be far off screen. Dropping the flag made the
             // follow crawl at 10px per frame (and only when a frame happened at all).
-            scheduleFollowFrame();
+            followController.scheduleFrame();
             return;
         }
 
-        scrollToPosition(pos);
-    }
-
-    private boolean canAutoFollow() {
-        boolean visible = viewBinding != null && viewBinding.getRoot().isShown();
-        boolean can = isAdded() && visible && adapter != null && !userScrolling
-                && viewBinding != null && isFollowViewVisible(viewBinding.recyclerView)
-                && viewBinding.recyclerView.getScrollState() == RecyclerView.SCROLL_STATE_IDLE
-                && adapter.getHighlightPosition() >= 0;
-        if (!can) {
-            long now = SystemClock.elapsedRealtime();
-            if (now - lastFollowSkipLogMs > 2000) {
-                lastFollowSkipLogMs = now;
-                Log.d("AsrFollow", "skip added=" + isAdded() + " visible=" + visible
-                        + " life=" + getLifecycle().getCurrentState()
-                        + " binding=" + (viewBinding != null) + " adapter=" + (adapter != null)
-                        + " userScrolling=" + userScrolling
-                        + " state=" + (viewBinding == null ? -1
-                        : viewBinding.recyclerView.getScrollState())
-                        + " pos=" + (adapter == null ? -1 : adapter.getHighlightPosition()));
-            }
-        }
-        return can;
-    }
-
-    private void startFollowClock() {
-        if (followClockActive || viewBinding == null) {
-            return;
-        }
-        followClockActive = true;
-        viewBinding.recyclerView.post(followClock);
-    }
-
-    private void stopFollowClock() {
-        followClockActive = false;
-        if (viewBinding != null) {
-            viewBinding.recyclerView.removeCallbacks(followClock);
-        }
-    }
-
-    /** True only while this pager page is actually on screen, not just attached. */
-    private boolean isFollowViewVisible(RecyclerView recyclerView) {
-        if (!recyclerView.isAttachedToWindow()
-                || recyclerView.getWindowVisibility() != View.VISIBLE
-                || !recyclerView.isShown()) {
-            return false;
-        }
-        if (!recyclerView.getGlobalVisibleRect(followVisibleRect)
-                || followVisibleRect.isEmpty()) {
-            return false;
-        }
-        int height = recyclerView.getHeight();
-        return height <= 0 || followVisibleRect.height() >= height / 2;
-    }
-
-    private void scheduleFollowFrame() {
-        if (viewBinding == null || !canAutoFollow()) {
-            return;
-        }
-        ViewTreeObserver observer = viewBinding.recyclerView.getViewTreeObserver();
-        if (!observer.isAlive()) {
-            return;
-        }
-        if (followListenerRegistered) {
-            // Re-register every time: a re-attached view can hand out a new observer without
-            // the old listener following, and there is no way to query the observer for it.
-            if (followObserver != null && followObserver.isAlive()) {
-                followObserver.removeOnPreDrawListener(followPreDrawListener);
-            }
-            followListenerRegistered = false;
-        }
-        observer.addOnPreDrawListener(followPreDrawListener);
-        followObserver = observer;
-        followListenerRegistered = true;
-        viewBinding.recyclerView.postInvalidateOnAnimation();
-        if (!followClockActive) {
-            // Self-heal: the clock stops itself when the page goes off screen, so restart it
-            // whenever a new follow target needs it.
-            startFollowClock();
-        }
-    }
-
-    private void stopFollowFrame() {
-        followAnimating = false;
-        if (!followListenerRegistered) {
-            return;
-        }
-        followListenerRegistered = false;
-        if (followObserver != null && followObserver.isAlive()) {
-            followObserver.removeOnPreDrawListener(followPreDrawListener);
-        }
-        followObserver = null;
-    }
-
-    private boolean scrollTowardsCurrentSentence() {
-        int position = adapter.getHighlightPosition();
-        RecyclerView recyclerView = viewBinding.recyclerView;
-        int viewportHeight = recyclerView.getHeight();
-        if (viewportHeight <= 0) {
-            return false;
-        }
-        RecyclerView.ViewHolder holder = recyclerView.findViewHolderForAdapterPosition(position);
-        if (!(holder instanceof TranscriptViewholder)) {
-            followAnimating = false;
-            // scrollToPosition() issued from a pre-draw pass only sets a pending position that
-            // waits for the next unrelated layout (an ASR reload), so the view froze for tens of
-            // seconds while the highlight row sat off screen. scrollBy() is applied immediately,
-            // so step a whole viewport per frame until the row is laid out, then snap onto it.
-            // Half the viewport cannot skip past an adjacent row (tallest generated row is
-            // under the viewport height), so this converges without oscillating.
-            int step = Math.max(followStepPx(), viewportHeight / 2);
-            boolean stepped = stepTowardsRow(recyclerView, position, step);
-            if (!stepped) {
-                // The row is reported as visible by the layout manager but has no holder (its
-                // absolute adapter position was invalidated by a pending update that was never
-                // applied). Refresh so the next layout re-binds everything; do not give up.
-                recoverStaleLayout();
-            }
-            return true;
-        }
-        int[] bounds = adapter.getSentenceBounds((TranscriptViewholder) holder);
-        boolean snap = pendingSnapToHighlight;
-        pendingSnapToHighlight = false;
-        if (bounds == null) {
-            if (!snap) {
-                return false;
-            }
-            bounds = new int[]{0, holder.itemView.getHeight()};
-        }
-        int target = holder.itemView.getTop() + (bounds[0] + bounds[1]) / 2;
-        int anchor = readingLinePx(recyclerView);
-        int error = target - anchor;
-        boolean targetChanged = position != followTargetPosition
-                || bounds[0] != followTargetStart
-                || bounds[1] != followTargetEnd;
-        if (targetChanged) {
-            Log.d("AsrFollow", "target change pos=" + position
-                    + " top=" + holder.itemView.getTop() + " h=" + holder.itemView.getHeight()
-                    + " bounds=" + bounds[0] + "-" + bounds[1] + " target=" + target
-                    + " anchor=" + anchor
-                    + " err=" + error + " last=" + lastPositionMs
-                    + " scroll=" + recyclerView.computeVerticalScrollOffset()
-                    + " canDown=" + recyclerView.canScrollVertically(1)
-                    + " n=" + adapter.getItemCount());
-            followTargetPosition = position;
-            followTargetStart = bounds[0];
-            followTargetEnd = bounds[1];
-            followAnimating = false;
-        }
-        if (snap || targetChanged) {
-            // A new line or row is read: jump straight onto the reading line instead of
-            // letting it drift down and catching up afterwards.
-            followAnimating = false;
-            if (!TranscriptFollowMotion.isWithinStopThreshold(error, followDensity)) {
-                snapToError(recyclerView, error);
-            }
-            return false;
-        }
-        if (TranscriptFollowMotion.isWithinStopThreshold(error, followDensity)) {
-            followAnimating = false;
-            return false;
-        }
-        if (TranscriptFollowMotion.shouldSnap(error, viewportHeight)) {
-            followAnimating = false;
-            snapToError(recyclerView, error);
-            return false;
-        }
-        if (!followAnimating && !TranscriptFollowMotion.shouldStart(error, followDensity)) {
-            return false;
-        }
-        if (!areFollowAnimationsEnabled()) {
-            followAnimating = false;
-            snapToError(recyclerView, error);
-            return false;
-        }
-        long now = SystemClock.uptimeMillis();
-        if (!followAnimating) {
-            followAnimating = true;
-            followStartMs = now;
-            followDurationMs = TranscriptFollowMotion.durationFor(error, followDensity);
-            followStartError = error;
-            followScrolled = 0;
-        }
-        int dy = TranscriptFollowMotion.nextScrollDelta(
-                followStartError, now - followStartMs, followDurationMs, followScrolled);
-        if (dy != 0) {
-            if (dy < 0 && !recyclerView.canScrollVertically(-1)) {
-                followAnimating = false;
-                return false;
-            }
-            if (dy > 0 && !recyclerView.canScrollVertically(1)) {
-                followAnimating = false;
-                return false;
-            }
-            recyclerView.scrollBy(0, dy);
-            followScrolled += dy;
-        }
-        if (now - followStartMs >= followDurationMs) {
-            followAnimating = false;
-            return false;
-        }
-        recyclerView.postInvalidateOnAnimation();
-        return true;
-    }
-
-    /** Vertical centre of the window, expressed in RecyclerView coordinates. */
-    private int readingLinePx(RecyclerView recyclerView) {
-        View root = recyclerView.getRootView();
-        int[] rootLocation = new int[2];
-        int[] listLocation = new int[2];
-        root.getLocationOnScreen(rootLocation);
-        recyclerView.getLocationOnScreen(listLocation);
-        return rootLocation[1] + Math.round(
-                root.getHeight() * TranscriptFollowMotion.ANCHOR_RATIO) - listLocation[1];
-    }
-
-    private void snapToError(RecyclerView recyclerView, int error) {
-        if (error < 0 && !recyclerView.canScrollVertically(-1)) {
-            return;
-        }
-        if (error > 0 && !recyclerView.canScrollVertically(1)) {
-            return;
-        }
-        if (error != 0) {
-            Log.d("AsrSync", "snap error=" + error + " scroll="
-                    + recyclerView.computeVerticalScrollOffset());
-            recyclerView.scrollBy(0, error);
-        }
-    }
-
-    private boolean areFollowAnimationsEnabled() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            return ValueAnimator.areAnimatorsEnabled();
-        }
-        return true;
-    }
-
-    private int followStepPx() {
-        return Math.round(FOLLOW_MAX_STEP_DP * followDensity);
-    }
-
-    private void recoverStaleLayout() {
-        long now = SystemClock.elapsedRealtime();
-        if (now - lastLayoutRecoveryMs < 1000) {
-            return;
-        }
-        lastLayoutRecoveryMs = now;
-        if (viewBinding == null || adapter == null) {
-            return;
-        }
-        // notifyDataSetChanged() is not enough here: the RecyclerView keeps the old children
-        // with invalidated adapter positions and never runs the layout that would re-bind them,
-        // so touch scrolling no longer works either. Re-attach the adapter to force a full
-        // detach/re-bind and a real layout pass.
-        Log.d("AsrFollow", "recover stale layout: reattach adapter");
-        viewBinding.recyclerView.setAdapter(null);
-        viewBinding.recyclerView.setAdapter(adapter);
-        pendingSnapToHighlight = true;
-    }
-
-    private boolean stepTowardsRow(RecyclerView recyclerView, int position, int stepPx) {
-        LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
-        if (lm == null) {
-            return false;
-        }
-        int first = lm.findFirstVisibleItemPosition();
-        int last = lm.findLastVisibleItemPosition();
-        if (first == RecyclerView.NO_POSITION) {
-            // The children are still drawn but their adapter positions were invalidated by a
-            // data-set change that never got laid out; scrollBy and scrollToPosition both do
-            // nothing in this state. Refresh the adapter so the next layout re-binds them.
-            recoverStaleLayout();
-            return true;
-        }
-        int direction = position < first ? -1 : position > last ? 1 : 0;
-        if (direction == 0) {
-            return false;
-        }
-        if (direction < 0 && !recyclerView.canScrollVertically(-1)) {
-            return false;
-        }
-        if (direction > 0 && !recyclerView.canScrollVertically(1)) {
-            return false;
-        }
-        recyclerView.scrollBy(0, direction * stepPx);
-        return true;
-    }
-
-    private void scrollToPosition(int pos) {
-        scrollToPosition(pos, false);
-    }
-
-    private void scrollToPosition(int pos, boolean snap) {
-        lastScrolledPosition = pos;
-        if (viewBinding == null) {
-            return;
-        }
-        RecyclerView recyclerView = viewBinding.recyclerView;
-        LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
-        if (lm == null) {
-            return;
-        }
-        int first = lm.findFirstVisibleItemPosition();
-        int last = lm.findLastVisibleItemPosition();
-        Log.d("AsrSync", "scrollTo pos=" + pos + " snap=" + snap + " first=" + first
-                + " last=" + last);
-        if (first != RecyclerView.NO_POSITION && pos >= first && pos <= last) {
-            pendingSnapToHighlight = snap;
-            followAnimating = false;
-            scheduleFollowFrame();
-            return;
-        }
-
-        // The row is not laid out, so an animated seek would crawl over an unknown distance.
-        // Jump there and centre the sentence in one step once the row has been measured.
-        stopFollowFrame();
-        recyclerView.stopScroll();
-        pendingSnapToHighlight = true;
-        recyclerView.scrollToPosition(pos);
-        scheduleFollowFrame();
+        followController.scrollToPosition(pos);
     }
 
     @Override
@@ -1175,17 +1038,17 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                                     long sentenceStartTime, long sentenceEndTime) {
         Log.i("AsrSync", "click pos=" + position + " cue=" + sentenceStartTime + ".."
                 + sentenceEndTime + " raw=" + lastRawPlayerPosition);
-        if (syncPickMode) {
-            syncOffsetToPickedSentence(position, sentenceStartTime, sentenceEndTime);
+        if (offsetController.isSyncPickMode()) {
+            offsetController.onPickedSentence(position, sentenceStartTime, sentenceEndTime);
             return;
         }
         long mediaId = currentMedia == null ? 0 : currentMedia.getId();
-        long offset = transcriptOffsetAtCue(sentenceStartTime);
+        long offset = positionSource.offsetAtCue(sentenceStartTime);
         long startTime = sentenceStartTime + offset;
         long endTime = sentenceEndTime + offset;
 
         PlaybackController.bindToMedia3Service(getContext(), controller -> {
-            long currentPos = toTranscriptTime(controller.getCurrentPosition());
+            long currentPos = positionSource.toTranscriptTime(controller.getCurrentPosition());
             if (currentPos >= startTime && currentPos <= endTime) {
                 if (controller.isPlaying()) {
                     controller.pause();
@@ -1193,282 +1056,14 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                     controller.play();
                 }
             } else {
-                controller.seekTo(Math.max(0, toPlayerTime(startTime)));
+                controller.seekTo(Math.max(0, positionSource.toPlayerTime(startTime)));
             }
         });
 
         userScrolling = false;
-        updateBackToCurrentVisibility();
+        followController.updateBackToCurrentVisibility();
         if (segmentLooping) {
             loopSegmentIndex = position;
-        }
-    }
-
-    private void returnToCurrentSentence() {
-        userScrolling = false;
-        updateBackToCurrentVisibility();
-        if (adapter == null) {
-            return;
-        }
-        int position = adapter.getHighlightPosition();
-        if (position >= 0) {
-            scrollToPosition(position, true);
-        }
-    }
-
-    private void updateBackToCurrentVisibility() {
-        if (viewBinding == null) {
-            return;
-        }
-        viewBinding.btnBackToCurrent.setVisibility(userScrolling ? View.VISIBLE : View.GONE);
-    }
-
-    private void setupSearchControls() {
-        viewBinding.btnSearch.setOnClickListener(v -> toggleSearchBar());
-        viewBinding.btnSearchClose.setOnClickListener(v -> closeSearch());
-        viewBinding.btnSearchPrev.setOnClickListener(v -> moveSearch(false));
-        viewBinding.btnSearchNext.setOnClickListener(v -> moveSearch(true));
-        viewBinding.searchInput.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-            }
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-            }
-
-            @Override
-            public void afterTextChanged(Editable s) {
-                searchHandler.removeCallbacks(searchRunnable);
-                searchHandler.postDelayed(searchRunnable, SEARCH_DEBOUNCE_MS);
-            }
-        });
-        viewBinding.searchInput.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                moveSearch(true);
-                return true;
-            }
-            return false;
-        });
-        viewBinding.btnSearch.setAlpha(0.5f);
-        updateSearchControls();
-    }
-
-    private void toggleSearchBar() {
-        if (viewBinding == null) {
-            return;
-        }
-        if (searchActive) {
-            closeSearch();
-            return;
-        }
-        hideControlPanels();
-        searchActive = true;
-        viewBinding.searchBar.setVisibility(View.VISIBLE);
-        viewBinding.btnSearch.setAlpha(1.0f);
-        viewBinding.searchInput.requestFocus();
-        showSearchKeyboard();
-        if (!getSearchQuery().trim().isEmpty()) {
-            runSearch(getSearchQuery());
-        }
-        updateSearchControls();
-    }
-
-    private void closeSearch() {
-        if (viewBinding == null) {
-            return;
-        }
-        searchHandler.removeCallbacks(searchRunnable);
-        hideSearchKeyboard();
-        viewBinding.searchInput.clearFocus();
-        viewBinding.searchInput.setText("");
-        searchHandler.removeCallbacks(searchRunnable);
-        if (adapter != null) {
-            adapter.clearSearch();
-        }
-        searchActive = false;
-        viewBinding.searchBar.setVisibility(View.GONE);
-        viewBinding.btnSearch.setAlpha(0.5f);
-        updateSearchControls();
-    }
-
-    private void runSearch(String query) {
-        if (viewBinding == null || adapter == null) {
-            return;
-        }
-        if (query.trim().isEmpty()) {
-            adapter.clearSearch();
-            updateSearchControls();
-            return;
-        }
-        int count = adapter.setSearchQuery(query);
-        updateSearchControls();
-        if (count > 0) {
-            jumpToSearchHit(adapter.getCurrentSearchHit());
-        }
-    }
-
-    private void updateSearchControls() {
-        if (viewBinding == null || adapter == null) {
-            return;
-        }
-        int count = adapter.getSearchHitCount();
-        boolean hasQuery = !getSearchQuery().trim().isEmpty();
-        viewBinding.txtSearchCount.setVisibility(hasQuery ? View.VISIBLE : View.GONE);
-        if (hasQuery) {
-            if (count == 0) {
-                viewBinding.txtSearchCount.setText(R.string.transcript_search_no_results);
-            } else {
-                viewBinding.txtSearchCount.setText(getString(R.string.transcript_search_count,
-                        adapter.getCurrentSearchHit() + 1, count));
-            }
-        }
-        boolean enabled = count > 0;
-        viewBinding.btnSearchPrev.setEnabled(enabled);
-        viewBinding.btnSearchNext.setEnabled(enabled);
-        viewBinding.btnSearchPrev.setAlpha(enabled ? 1.0f : 0.5f);
-        viewBinding.btnSearchNext.setAlpha(enabled ? 1.0f : 0.5f);
-    }
-
-    private void moveSearch(boolean forward) {
-        if (adapter == null || adapter.getSearchHitCount() == 0) {
-            return;
-        }
-        int index = adapter.stepSearch(forward);
-        updateSearchControls();
-        jumpToSearchHit(index);
-    }
-
-    private void jumpToSearchHit(int index) {
-        if (viewBinding == null || adapter == null) {
-            return;
-        }
-        int position = adapter.getSearchHitPosition(index);
-        if (position < 0) {
-            return;
-        }
-        userScrolling = true;
-        pendingSnapToHighlight = false;
-        stopFollowFrame();
-        updateBackToCurrentVisibility();
-
-        RecyclerView recyclerView = viewBinding.recyclerView;
-        LinearLayoutManager layoutManager = (LinearLayoutManager) recyclerView.getLayoutManager();
-        if (layoutManager == null) {
-            return;
-        }
-        recyclerView.stopScroll();
-        int first = layoutManager.findFirstVisibleItemPosition();
-        int last = layoutManager.findLastVisibleItemPosition();
-        if (first == RecyclerView.NO_POSITION || position < first || position > last) {
-            layoutManager.scrollToPositionWithOffset(position,
-                    Math.max(0, recyclerView.getHeight() / 2));
-        }
-        scheduleSearchScroll(position, index);
-    }
-
-    private void scheduleSearchScroll(int position, int index) {
-        if (viewBinding == null) {
-            return;
-        }
-        RecyclerView recyclerView = viewBinding.recyclerView;
-        stopSearchScrollFrame(recyclerView);
-        searchScrollPosition = position;
-        searchScrollIndex = index;
-        searchScrollAttempts = 0;
-        ViewTreeObserver observer = recyclerView.getViewTreeObserver();
-        if (!observer.isAlive()) {
-            return;
-        }
-        searchScrollListener = () -> {
-            if (viewBinding == null || adapter == null || searchScrollPosition < 0) {
-                stopSearchScrollFrame(recyclerView);
-                return true;
-            }
-            RecyclerView.ViewHolder holder =
-                    recyclerView.findViewHolderForAdapterPosition(searchScrollPosition);
-            if (!(holder instanceof TranscriptViewholder)) {
-                if (++searchScrollAttempts < SEARCH_SCROLL_MAX_ATTEMPTS) {
-                    recyclerView.postInvalidateOnAnimation();
-                    return true;
-                }
-                stopSearchScrollFrame(recyclerView);
-                return true;
-            }
-            int[] bounds = adapter.getSearchHitBounds(
-                    (TranscriptViewholder) holder, searchScrollIndex);
-            if (bounds == null) {
-                stopSearchScrollFrame(recyclerView);
-                return true;
-            }
-            int viewportHeight = recyclerView.getHeight();
-            if (viewportHeight <= 0) {
-                stopSearchScrollFrame(recyclerView);
-                return true;
-            }
-            int target = holder.itemView.getTop() + (bounds[0] + bounds[1]) / 2;
-            int error = target - readingLinePx(recyclerView);
-            if ((error < 0 && !recyclerView.canScrollVertically(-1))
-                    || (error > 0 && !recyclerView.canScrollVertically(1))) {
-                stopSearchScrollFrame(recyclerView);
-                return true;
-            }
-            if (error != 0) {
-                recyclerView.scrollBy(0, error);
-            }
-            stopSearchScrollFrame(recyclerView);
-            return true;
-        };
-        observer.addOnPreDrawListener(searchScrollListener);
-        recyclerView.postInvalidateOnAnimation();
-    }
-
-    private void stopSearchScrollFrame(RecyclerView recyclerView) {
-        if (searchScrollListener != null) {
-            ViewTreeObserver observer = recyclerView.getViewTreeObserver();
-            if (observer.isAlive()) {
-                observer.removeOnPreDrawListener(searchScrollListener);
-            }
-            searchScrollListener = null;
-        }
-        searchScrollPosition = -1;
-        searchScrollIndex = -1;
-        searchScrollAttempts = 0;
-    }
-
-    private String getSearchQuery() {
-        return viewBinding == null ? "" : viewBinding.searchInput.getText().toString();
-    }
-
-    private void showSearchKeyboard() {
-        Context context = getContext();
-        if (context == null || viewBinding == null) {
-            return;
-        }
-        InputMethodManager imm = (InputMethodManager)
-                context.getSystemService(Context.INPUT_METHOD_SERVICE);
-        if (imm != null) {
-            imm.showSoftInput(viewBinding.searchInput, InputMethodManager.SHOW_IMPLICIT);
-        }
-    }
-
-    private void hideSearchKeyboard() {
-        Context context = getContext();
-        if (context == null || viewBinding == null) {
-            return;
-        }
-        InputMethodManager imm = (InputMethodManager)
-                context.getSystemService(Context.INPUT_METHOD_SERVICE);
-        if (imm != null) {
-            imm.hideSoftInputFromWindow(viewBinding.searchInput.getWindowToken(), 0);
-        }
-    }
-
-    private void refreshSearchAfterDisplayChange() {
-        updateSearchControls();
-        if (adapter != null && adapter.getSearchHitCount() > 0
-                && !getSearchQuery().trim().isEmpty()) {
-            jumpToSearchHit(adapter.getCurrentSearchHit());
         }
     }
 
@@ -1518,7 +1113,14 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         viewBinding.btnSegmentLoop.setAlpha(segmentLooping ? 1.0f : 0.5f);
-        viewBinding.btnSegmentLoop.setSelected(segmentLooping);
+        setToggleState(viewBinding.btnSegmentLoop,
+                R.string.transcript_segment_loop_description, segmentLooping);
+    }
+
+    private void setToggleState(View view, int descriptionRes, boolean on) {
+        view.setSelected(on);
+        view.setContentDescription(getString(descriptionRes) + ", "
+                + getString(on ? R.string.transcript_state_on : R.string.transcript_state_off));
     }
 
     private void applySegmentLoop(long position) {
@@ -1533,7 +1135,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         TranscriptSegment segment = currentMedia.getTranscript().getSegmentAt(loopSegmentIndex);
-        long offset = transcriptOffsetAtCue(segment.getStartTime());
+        long offset = positionSource.offsetAtCue(segment.getStartTime());
         long startTime = Math.max(0, segment.getStartTime() + offset);
         long endTime = segment.getEndTime() + offset;
         if (endTime <= startTime) {
@@ -1542,179 +1144,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         if (position >= endTime) {
             PlaybackController.bindToMedia3Service(getContext(), controller ->
-                    controller.seekTo((int) toPlayerTime(startTime)));
+                    controller.seekTo((int) positionSource.toPlayerTime(startTime)));
         }
-    }
-
-    public void adjustTimeOffset(long deltaMs) {
-        if (currentMedia == null) {
-            return;
-        }
-        long offsetMs = clampTimeOffset(UserPreferences.getTranscriptTimeOffset(
-                currentMedia.getId(), lastPositionMs) + deltaMs);
-        UserPreferences.updateTranscriptTimeOffset(currentMedia.getId(), lastPositionMs, offsetMs);
-        applyOffsetChange(offsetMs, R.string.transcript_offset_message);
-    }
-
-    private void resetTimeOffset() {
-        if (currentMedia == null) {
-            return;
-        }
-        UserPreferences.removeTranscriptTimeOffset(currentMedia.getId());
-        applyOffsetChange(0, R.string.transcript_offset_message);
-    }
-
-    /**
-     * The highlighted line comes from the current offset, so after a large shift (an ad at the
-     * start) it is not the line being heard. The user has to point at that line instead.
-     */
-    private void toggleSyncPickMode() {
-        if (syncPickMode) {
-            setSyncPickMode(false);
-            return;
-        }
-        if (currentMedia == null || currentMedia.getTranscript() == null
-                || currentMedia.getTranscript().getSegmentCount() == 0) {
-            return;
-        }
-        setSyncPickMode(true);
-        if (getContext() != null) {
-            Toast.makeText(getContext(), R.string.transcript_offset_sync_pick_hint,
-                    Toast.LENGTH_LONG).show();
-        }
-    }
-
-    private void setSyncPickMode(boolean picking) {
-        syncPickMode = picking;
-        if (viewBinding == null) {
-            return;
-        }
-        viewBinding.btnOffsetSync.setText(picking
-                ? R.string.transcript_offset_sync_picking : R.string.transcript_offset_sync_current);
-        viewBinding.btnOffsetSync.setContentDescription(getString(picking
-                ? R.string.transcript_offset_sync_picking_description
-                : R.string.transcript_offset_sync_current_description));
-    }
-
-    private void syncOffsetToPickedSentence(int tappedIndex, long sentenceStartTime,
-                                            long sentenceEndTime) {
-        long mediaId = currentMedia == null ? 0 : currentMedia.getId();
-        long position = currentPlaybackPosition();
-        long currentOffset = UserPreferences.getTranscriptTimeOffset(mediaId, position);
-        long shownCueTime = position - currentOffset;
-        long offsetMs = clampTimeOffset(position - sentenceStartTime);
-        // Picking the line that is already highlighted cannot fix a large shift: either it is the
-        // sentence shown right now, or it maps to (almost) the offset that is already in use.
-        boolean alreadyShown = tappedIndex
-                == currentMedia.getTranscript().findSegmentIndexBefore(shownCueTime)
-                && sentenceStartTime <= shownCueTime && shownCueTime < sentenceEndTime;
-        if (alreadyShown || Math.abs(offsetMs - currentOffset) < SAME_OFFSET_TOLERANCE_MS) {
-            Toast.makeText(getContext(), R.string.transcript_offset_sync_already_aligned,
-                    Toast.LENGTH_LONG).show();
-            return;
-        }
-        lastPositionMs = position;
-        setSyncPickMode(false);
-        UserPreferences.setTranscriptTimeOffset(mediaId, position, offsetMs);
-        applyOffsetChange(offsetMs, R.string.transcript_offset_sync_message);
-    }
-
-    /** Long press on the sync button: the first sentence of the transcript starts right now. */
-    private void alignFirstSentenceToNow() {
-        if (currentMedia == null || currentMedia.getTranscript() == null
-                || currentMedia.getTranscript().getSegmentCount() == 0) {
-            return;
-        }
-        long position = currentPlaybackPosition();
-        long offsetMs = clampTimeOffset(
-                position - currentMedia.getTranscript().getSegmentAt(0).getStartTime());
-        lastPositionMs = position;
-        setSyncPickMode(false);
-        UserPreferences.setTranscriptStartOffset(currentMedia.getId(), offsetMs);
-        applyOffsetChange(offsetMs, R.string.transcript_offset_sync_first_message);
-    }
-
-    private long currentPlaybackPosition() {
-        MediaController controller = mediaController;
-        if (controller != null && controller.isConnected()) {
-            long position = controller.getCurrentPosition();
-            if (position >= 0) {
-                return toTranscriptTime(position);
-            }
-        }
-        return lastPositionMs;
-    }
-
-    private void loadTranscriptTimeScale(FeedMedia media) {
-        transcriptTimeScale = 1.0;
-        final long generation = ++timeScaleGeneration;
-        if (media.getTranscript() != null && media.getTranscript().isGenerated()) {
-            return;
-        }
-        final long reportedDuration = media.getDuration();
-        if (reportedDuration <= 0) {
-            return;
-        }
-        long audioDuration = media.getTranscript() == null
-                ? 0 : media.getTranscript().getAudioDurationMs();
-        if (audioDuration > 0) {
-            String cacheKey = media.getId() + ":json:" + audioDuration + ":" + reportedDuration;
-            Double cached = TIME_SCALE_CACHE.get(cacheKey);
-            transcriptTimeScale = cached != null
-                    ? cached : resolveDurationScale(audioDuration, reportedDuration);
-            TIME_SCALE_CACHE.put(cacheKey, transcriptTimeScale);
-            return;
-        }
-        if (media.getMediaType() != MediaType.AUDIO || !media.localFileAvailable()) {
-            return;
-        }
-        String path = media.getLocalFileUrl();
-        if (path == null) {
-            return;
-        }
-        File file = new File(path);
-        if (!file.isFile()) {
-            return;
-        }
-        String cacheKey = media.getId() + ":mp3:" + file.length() + ":" + reportedDuration;
-        Double cached = TIME_SCALE_CACHE.get(cacheKey);
-        if (cached != null) {
-            transcriptTimeScale = cached;
-            return;
-        }
-        final long mediaId = media.getId();
-        durationExecutor.execute(() -> {
-            double scale = 1.0;
-            try {
-                Mp3DurationScanner.Result result = Mp3DurationScanner.scan(file);
-                if (result != null && !result.hasXingHeader()) {
-                    scale = resolveDurationScale(result.getDurationMs(), reportedDuration);
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "Could not scan MP3 duration", e);
-            }
-            TIME_SCALE_CACHE.put(cacheKey, scale);
-            final double resolved = scale;
-            highlightHandler.post(() -> {
-                if (generation != timeScaleGeneration || !isAdded()) {
-                    return;
-                }
-                transcriptTimeScale = resolved;
-                if (resolved != 1.0 && currentMedia != null
-                        && currentMedia.getId() == mediaId) {
-                    refreshPositionForTimeScale();
-                }
-            });
-        });
-    }
-
-    private static double resolveDurationScale(long trueDurationMs, long reportedDurationMs) {
-        if (reportedDurationMs <= 0
-                || Math.abs(trueDurationMs - reportedDurationMs) < MIN_DURATION_DIFF_MS) {
-            return 1.0;
-        }
-        double candidate = (double) trueDurationMs / reportedDurationMs;
-        return Math.abs(candidate - 1.0) >= 0.0002 ? candidate : 1.0;
     }
 
     private void refreshPositionForTimeScale() {
@@ -1724,7 +1155,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         MediaController controller = mediaController;
         long playerPosition = controller != null && controller.isConnected()
                 ? controller.getCurrentPosition() : currentMedia.getPosition();
-        long position = toTranscriptTime(Math.max(0, playerPosition));
+        long position = positionSource.toTranscriptTime(Math.max(0, playerPosition));
         lastPositionMs = position;
         if (adapter != null) {
             adapter.updatePlaybackPosition(position);
@@ -1732,263 +1163,14 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         handlePlaybackPosition(position);
     }
 
-    private long toTranscriptTime(long playerPositionMs) {
-        if (playerPositionMs < 0 || transcriptTimeScale == 1.0) {
-            return playerPositionMs;
-        }
-        return Math.round(playerPositionMs * transcriptTimeScale);
-    }
-
-    private long toPlayerTime(long transcriptPositionMs) {
-        if (transcriptPositionMs < 0 || transcriptTimeScale == 1.0) {
-            return transcriptPositionMs;
-        }
-        return Math.round(transcriptPositionMs / transcriptTimeScale);
-    }
-
-    private long clampTimeOffset(long offsetMs) {
-        int duration = currentMedia.getDuration();
-        if (duration > 0) {
-            offsetMs = Math.max(-duration, Math.min(duration, offsetMs));
-        }
-        return offsetMs;
-    }
-
-    private void applyOffsetChange(long offsetMs, int messageRes) {
-        if (adapter != null && currentMedia.getTranscript() != null
-                && currentMedia.getTranscript().getSegmentCount() > 0) {
-            int pos = currentMedia.getTranscript().findSegmentIndexBefore(lastPositionMs - offsetMs);
-            adapter.setHighlightPosition(pos, lastPositionMs - offsetMs);
-            userScrolling = false;
-            updateBackToCurrentVisibility();
-            lastScrolledPosition = -1;
-            scrollToPosition(pos, true);
-        }
-        updateOffsetLabel();
-        if (getContext() != null) {
-            Toast.makeText(getContext(),
-                    getString(messageRes, formatTimeOffset(offsetMs)),
-                    Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    /** The panel shows the offset of the segment playing now, which changes at every anchor. */
-    private void refreshOffsetLabelIfVisible() {
-        if (viewBinding == null || viewBinding.offsetControls.getVisibility() != View.VISIBLE) {
-            return;
-        }
-        long offsetMs = UserPreferences.getTranscriptTimeOffset(
-                currentMedia.getId(), lastPositionMs);
-        if (offsetMs != lastOffsetLabelMs) {
-            updateOffsetLabel();
-        }
-    }
-
-    private void updateOffsetLabel() {
-        if (viewBinding == null) {
-            return;
-        }
-        long offsetMs = currentMedia == null
-                ? 0 : UserPreferences.getTranscriptTimeOffset(currentMedia.getId(), lastPositionMs);
-        lastOffsetLabelMs = offsetMs;
-        viewBinding.txtOffsetValue.setText(getString(R.string.transcript_offset_label, formatTimeOffset(offsetMs)));
-        viewBinding.txtOffsetValue.setContentDescription(getString(R.string.transcript_offset_reset_description));
-        boolean hasOffset = currentMedia != null
-                && UserPreferences.hasTranscriptTimeOffset(currentMedia.getId());
-        viewBinding.btnOffsetReset.setEnabled(hasOffset);
-        viewBinding.btnOffsetReset.setAlpha(hasOffset ? 1.0f : 0.5f);
-    }
-
-    private void setupOffsetButtons() {
-        viewBinding.btnOffsetSync.setContentDescription(
-                getString(R.string.transcript_offset_sync_current_description));
-        viewBinding.btnOffsetSync.setOnClickListener(v -> toggleSyncPickMode());
-        viewBinding.btnOffsetSync.setOnLongClickListener(v -> {
-            alignFirstSentenceToNow();
-            return true;
-        });
-        bindFineOffsetButton(viewBinding.btnOffsetBack05, -500);
-        bindFineOffsetButton(viewBinding.btnOffsetForward05, 500);
-        bindOffsetButton(viewBinding.btnOffsetBack30, -30000);
-        bindOffsetButton(viewBinding.btnOffsetBack10, -10000);
-        bindOffsetButton(viewBinding.btnOffsetBack5, -5000);
-        bindOffsetButton(viewBinding.btnOffsetForward5, 5000);
-        bindOffsetButton(viewBinding.btnOffsetForward10, 10000);
-        bindOffsetButton(viewBinding.btnOffsetForward30, 30000);
-    }
-
-    private void bindFineOffsetButton(TextView button, long deltaMs) {
-        String seconds = String.format(Locale.getDefault(), "%.1f", Math.abs(deltaMs) / 1000.0);
-        boolean backwards = deltaMs < 0;
-        button.setText(getString(backwards
-                ? R.string.transcript_offset_back_fine_format
-                : R.string.transcript_offset_forward_fine_format, seconds));
-        button.setContentDescription(getString(backwards
-                ? R.string.transcript_offset_back_fine_description
-                : R.string.transcript_offset_forward_fine_description, seconds));
-        button.setOnClickListener(v -> adjustTimeOffset(deltaMs));
-    }
-
-    private void bindOffsetButton(TextView button, long deltaMs) {
-        int seconds = (int) Math.abs(deltaMs / 1000);
-        boolean backwards = deltaMs < 0;
-        button.setText(getString(backwards
-                ? R.string.transcript_offset_back_format
-                : R.string.transcript_offset_forward_format, seconds));
-        button.setContentDescription(getString(backwards
-                ? R.string.transcript_offset_back_description
-                : R.string.transcript_offset_forward_description, seconds));
-        button.setOnClickListener(v -> adjustTimeOffset(deltaMs));
-    }
-
-    public void toggleOffsetBar() {
-        if (viewBinding == null) {
-            return;
-        }
-        boolean visible = viewBinding.offsetControls.getVisibility() == View.VISIBLE;
-        viewBinding.layoutControls.setVisibility(View.GONE);
-        viewBinding.offsetControls.setVisibility(visible ? View.GONE : View.VISIBLE);
-        updateOffsetToggle();
-        updateLayoutControls();
-        updateOffsetLabel();
-    }
-
-    private void updateOffsetToggle() {
-        if (viewBinding == null) {
-            return;
-        }
-        boolean visible = viewBinding.offsetControls.getVisibility() == View.VISIBLE;
-        viewBinding.btnOffsetToggle.setAlpha(visible ? 1.0f : 0.5f);
-    }
-
     private void toggleLayoutBar() {
         if (viewBinding == null) {
             return;
         }
         boolean visible = viewBinding.layoutControls.getVisibility() == View.VISIBLE;
-        viewBinding.offsetControls.setVisibility(View.GONE);
+        offsetController.closePanels();
         viewBinding.layoutControls.setVisibility(visible ? View.GONE : View.VISIBLE);
-        updateOffsetToggle();
-        updateLayoutControls();
-    }
-
-    private void updateLayoutControls() {
-        if (viewBinding == null || adapter == null) {
-            return;
-        }
-        int fontStep = adapter.getFontSizeStep();
-        viewBinding.txtFontSizeValue.setText(getString(
-                R.string.transcript_layout_font_size_value, 16 + fontStep * 2));
-        int lineStep = UserPreferences.getTranscriptLineSpacingStep();
-        viewBinding.txtLineSpacingValue.setText(getString(
-                R.string.transcript_layout_line_spacing_value,
-                new DecimalFormat("0.##").format(
-                        UserPreferences.getTranscriptLineSpacingMultiplier())));
-        int marginStep = UserPreferences.getTranscriptSideMarginsStep();
-        viewBinding.txtSideMarginsValue.setText(getString(
-                R.string.transcript_layout_margin_value,
-                UserPreferences.getTranscriptSideMarginsDp()));
-        int verticalStep = UserPreferences.getTranscriptVerticalSpacingStep();
-        viewBinding.txtVerticalSpacingValue.setText(VERTICAL_SPACING_LABELS[verticalStep]);
-
-        viewBinding.btnFontSizeDown.setAlpha(fontStep > FONT_SIZE_MIN_STEP ? 1.0f : 0.5f);
-        viewBinding.btnFontSizeUp.setAlpha(fontStep < FONT_SIZE_MAX_STEP ? 1.0f : 0.5f);
-        viewBinding.btnLineSpacingDown.setAlpha(
-                lineStep > UserPreferences.TRANSCRIPT_LAYOUT_MIN_STEP ? 1.0f : 0.5f);
-        viewBinding.btnLineSpacingUp.setAlpha(
-                lineStep < UserPreferences.TRANSCRIPT_LAYOUT_MAX_STEP ? 1.0f : 0.5f);
-        viewBinding.btnSideMarginsDown.setAlpha(
-                marginStep > UserPreferences.TRANSCRIPT_LAYOUT_MIN_STEP ? 1.0f : 0.5f);
-        viewBinding.btnSideMarginsUp.setAlpha(
-                marginStep < UserPreferences.TRANSCRIPT_LAYOUT_MAX_STEP ? 1.0f : 0.5f);
-        viewBinding.btnVerticalSpacingDown.setAlpha(
-                verticalStep > UserPreferences.TRANSCRIPT_LAYOUT_MIN_STEP ? 1.0f : 0.5f);
-        viewBinding.btnVerticalSpacingUp.setAlpha(
-                verticalStep < UserPreferences.TRANSCRIPT_LAYOUT_MAX_STEP ? 1.0f : 0.5f);
-        viewBinding.btnLayout.setAlpha(
-                viewBinding.layoutControls.getVisibility() == View.VISIBLE ? 1.0f : 0.5f);
-    }
-
-    private void applyTranscriptLayout() {
-        if (viewBinding == null) {
-            return;
-        }
-        int padding = Math.round(UserPreferences.getTranscriptVerticalSpacingDp()
-                * getResources().getDisplayMetrics().density);
-        // This also runs from the layout-change listener. Keep it idempotent: touching the
-        // padding or calling notifyDataSetChanged on every layout pass kept the page in a
-        // height oscillation (2327/1696), and each pass invalidated every ViewHolder position
-        // (getAdapterPosition() == -1), which silently killed the follow after a new ASR
-        // segment was appended.
-        int signature = UserPreferences.getTranscriptFontSize() * 1000000
-                + UserPreferences.getTranscriptLineSpacingStep() * 10000
-                + UserPreferences.getTranscriptSideMarginsStep() * 100
-                + UserPreferences.getTranscriptVerticalSpacingStep();
-        if (signature != appliedLayoutSignature) {
-            appliedLayoutSignature = signature;
-            viewBinding.recyclerView.setPadding(0, padding, 0, padding);
-            if (adapter != null) {
-                adapter.refreshLayout();
-            }
-        }
-        // A footer gap extends the scrollable content without shrinking the visible viewport,
-        // so the last rows can still reach the 45% reading line (bottom padding cannot).
-        int height = viewBinding.recyclerView.getHeight();
-        int bottomSpace = height > 0
-                ? Math.round(height * (1f - TranscriptFollowMotion.ANCHOR_RATIO)) : 0;
-        if (height != appliedLayoutHeight || bottomSpace != followBottomSpace) {
-            appliedLayoutHeight = height;
-            followBottomSpace = bottomSpace;
-            viewBinding.recyclerView.invalidateItemDecorations();
-        }
-    }
-
-    private void adjustLineSpacing(int delta) {
-        UserPreferences.setTranscriptLineSpacingStep(
-                UserPreferences.getTranscriptLineSpacingStep() + delta);
-        applyTranscriptLayout();
-        updateLayoutControls();
-    }
-
-    private void adjustSideMargins(int delta) {
-        UserPreferences.setTranscriptSideMarginsStep(
-                UserPreferences.getTranscriptSideMarginsStep() + delta);
-        applyTranscriptLayout();
-        updateLayoutControls();
-    }
-
-    private void adjustVerticalSpacing(int delta) {
-        UserPreferences.setTranscriptVerticalSpacingStep(
-                UserPreferences.getTranscriptVerticalSpacingStep() + delta);
-        applyTranscriptLayout();
-        updateLayoutControls();
-    }
-
-    private void resetTranscriptLayout() {
-        if (adapter == null) {
-            return;
-        }
-        adapter.setFontSizeStep(0);
-        UserPreferences.setTranscriptLineSpacingStep(UserPreferences.TRANSCRIPT_LINE_SPACING_DEFAULT_STEP);
-        UserPreferences.setTranscriptSideMarginsStep(UserPreferences.TRANSCRIPT_SIDE_MARGINS_DEFAULT_STEP);
-        UserPreferences.setTranscriptVerticalSpacingStep(
-                UserPreferences.TRANSCRIPT_VERTICAL_SPACING_DEFAULT_STEP);
-        applyTranscriptLayout();
-        updateLayoutControls();
-    }
-
-    private void bindLayoutStepper(TextView decrease, TextView increase, int labelRes) {
-        String label = getString(labelRes);
-        decrease.setContentDescription(getString(R.string.transcript_layout_decrease) + " " + label);
-        increase.setContentDescription(getString(R.string.transcript_layout_increase) + " " + label);
-    }
-
-    private String formatTimeOffset(long offsetMs) {
-        double seconds = offsetMs / 1000.0;
-        String value = seconds == Math.rint(seconds)
-                ? String.valueOf((long) seconds)
-                : String.format(Locale.getDefault(), "%.1f", seconds);
-        return getString(R.string.transcript_offset_value_format, (seconds > 0 ? "+" : "") + value);
+        layoutController.updateControls();
     }
 
     // ===== Public methods called by AudioPlayerFragment =====
@@ -2006,7 +1188,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (adapter != null) {
             adapter.setLanguageMode(mode);
             updateTranslationToggle();
-            refreshSearchAfterDisplayChange();
+            searchController.refreshAfterDisplayChange();
         }
     }
 
@@ -2019,19 +1201,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (adapter != null) {
             adapter.setSentencePerLine(!adapter.isSentencePerLine());
             updateSentenceToggle();
-            refreshSearchAfterDisplayChange();
-        }
-    }
-
-    private void adjustFontSize(int delta) {
-        if (adapter == null) {
-            return;
-        }
-        int step = adapter.getFontSizeStep();
-        int next = Math.max(FONT_SIZE_MIN_STEP, Math.min(FONT_SIZE_MAX_STEP, step + delta));
-        if (next != step) {
-            adapter.setFontSizeStep(next);
-            updateLayoutControls();
+            searchController.refreshAfterDisplayChange();
         }
     }
 
@@ -2039,7 +1209,10 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (viewBinding == null) {
             return;
         }
-        viewBinding.btnLineBreakToggle.setAlpha(adapter != null && adapter.isSentencePerLine() ? 1.0f : 0.5f);
+        boolean enabled = adapter != null && adapter.isSentencePerLine();
+        viewBinding.btnLineBreakToggle.setAlpha(enabled ? 1.0f : 0.5f);
+        setToggleState(viewBinding.btnLineBreakToggle,
+                R.string.transcript_line_break_description, enabled);
     }
 
     public void toggleControlsBar() {
@@ -2049,17 +1222,15 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         boolean visible = viewBinding.controlsBar.getVisibility() == View.VISIBLE;
         if (visible) {
             hideControlPanels();
-            closeSearch();
+            searchController.close();
         }
         viewBinding.controlsBar.setVisibility(visible ? View.GONE : View.VISIBLE);
     }
 
     private void hideControlPanels() {
-        setSyncPickMode(false);
-        viewBinding.offsetControls.setVisibility(View.GONE);
+        offsetController.closePanels();
         viewBinding.layoutControls.setVisibility(View.GONE);
-        updateOffsetToggle();
-        updateLayoutControls();
+        layoutController.updateControls();
     }
 
     public boolean isControlsBarVisible() {
@@ -2073,7 +1244,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         immersiveMode = immersive;
         if (immersive) {
             controlsBarVisibleBeforeImmersive = viewBinding.controlsBar.getVisibility() == View.VISIBLE;
-            closeSearch();
+            searchController.close();
             hideControlPanels();
             viewBinding.controlsBar.setVisibility(View.GONE);
         } else {
@@ -2102,117 +1273,16 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         viewBinding.btnTranslationToggle.setVisibility(isBilingual() ? View.VISIBLE : View.GONE);
-        viewBinding.btnTranslationToggle.setAlpha(getLanguageMode() == TranscriptAdapter.LANGUAGE_MODE_BOTH
-                ? 1.0f : 0.5f);
+        boolean showTranslation = getLanguageMode()
+                != UserPreferences.TRANSCRIPT_LANGUAGE_MODE_PRIMARY_ONLY;
+        viewBinding.btnTranslationToggle.setAlpha(showTranslation ? 1.0f : 0.5f);
+        setToggleState(viewBinding.btnTranslationToggle, R.string.toggle_translation,
+                showTranslation);
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onAsrGenerationEvent(AsrGenerationEvent event) {
-        if (currentMedia == null || event.mediaId != currentMedia.getId()) {
-            return;
-        }
-        switch (event.type) {
-            case STARTED:
-                asrActive = true;
-                updateGenerateButtonVisibility();
-                break;
-            case SEGMENT:
-                asrActive = true;
-                long now = SystemClock.elapsedRealtime();
-                if (now - lastAsrReloadMs >= ASR_RELOAD_INTERVAL_MS) {
-                    lastAsrReloadMs = now;
-                    reloadGeneratedTranscript();
-                }
-                break;
-            case PROGRESS:
-                if (viewBinding != null && asrActive) {
-                    viewBinding.btnGenerateTranscript.setText(getString(
-                            R.string.transcript_generate_progress_format,
-                            DateUtils.formatElapsedTime(event.decodedEndMs / 1000)));
-                }
-                break;
-            case COMPLETED:
-                asrActive = false;
-                lastAsrReloadMs = 0;
-                updateGenerateButtonVisibility();
-                reloadGeneratedTranscript();
-                showToast(R.string.transcript_generate_done);
-                break;
-            case ERROR:
-                asrActive = false;
-                updateGenerateButtonVisibility();
-                showToast(R.string.transcript_generate_failed);
-                if (event.error != null) {
-                    Log.e(TAG, "ASR generation failed", event.error);
-                }
-                break;
-            case STOPPED:
-                asrActive = false;
-                updateGenerateButtonVisibility();
-                if (event.stopReason != 0) {
-                    showToast(event.stopReason);
-                }
-                break;
-            default:
-                break;
-        }
-    }
-
-    private void updateGenerateButtonVisibility() {
-        if (viewBinding == null) {
-            return;
-        }
-        boolean hasSource = currentMedia != null
-                && (currentMedia.getLocalFileUrl() != null
-                || (currentMedia.getStreamUrl() != null
-                && isCurrentPlaybackMedia(currentMedia)));
-        boolean support = hasSource
-                && (currentMedia.getItem() == null
-                || currentMedia.getItem().getTranscriptUrl() == null)
-                && AsrGenerationController.isSupported()
-                && !isCasting();
-        boolean available = viewBinding.emptyState.getVisibility() == View.VISIBLE && support;
-        viewBinding.btnGenerateTranscript.setVisibility(available ? View.VISIBLE : View.GONE);
-        if (available) {
-            viewBinding.btnGenerateTranscript.setEnabled(!asrActive && !asrModelDownloading);
-            if (!asrActive && !asrModelDownloading) {
-                viewBinding.btnGenerateTranscript.setText(R.string.transcript_generate);
-            } else if (!asrModelDownloading) {
-                viewBinding.btnGenerateTranscript.setText(R.string.transcript_generate_running);
-            }
-        }
-
-        boolean continueVisible = false;
-        long lastEnd = -1;
-        long duration = -1;
-        if (support && viewBinding.emptyState.getVisibility() != View.VISIBLE
-                && currentMedia.getTranscript() != null
-                && currentMedia.getTranscript().isGenerated()
-                && !AsrGenerationManager.isRunning(currentMedia.getId())) {
-            int segmentCount = currentMedia.getTranscript().getSegmentCount();
-            lastEnd = segmentCount == 0 ? 0
-                    : currentMedia.getTranscript().getSegmentAt(segmentCount - 1).getEndTime();
-            duration = currentMedia.getTranscript().getAudioDurationMs();
-            continueVisible = duration <= 0 || lastEnd < duration - 5000;
-        }
-        Log.d("AsrSync", "continue support=" + support
-                + " hasSource=" + hasSource
-                + " empty=" + (viewBinding.emptyState.getVisibility() == View.VISIBLE)
-                + " gen=" + (currentMedia != null && currentMedia.getTranscript() != null
-                && currentMedia.getTranscript().isGenerated())
-                + " running=" + (currentMedia != null
-                && AsrGenerationManager.isRunning(currentMedia.getId()))
-                + " lastEnd=" + lastEnd + " duration=" + duration
-                + " visible=" + continueVisible);
-        viewBinding.btnContinueTranscript.setVisibility(continueVisible ? View.VISIBLE : View.GONE);
-        boolean runningHere = currentMedia != null
-                && AsrGenerationManager.isRunning(currentMedia.getId());
-        viewBinding.btnCancelTranscript.setVisibility(runningHere ? View.VISIBLE : View.GONE);
-    }
-
-    private boolean isCurrentPlaybackMedia(FeedMedia media) {
-        return media != null && (PlaybackServiceInterface.currentMediaId == media.getId()
-                || PlaybackPreferences.getCurrentlyPlayingFeedMediaId() == media.getId());
+        asrCoordinator.onEvent(event);
     }
 
     private boolean isCasting() {
@@ -2232,216 +1302,6 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return index + 1;
         }
         return index;
-    }
-
-    private boolean isGeneratedTranscript() {
-        return currentMedia != null && currentMedia.getTranscript() != null
-                && currentMedia.getTranscript().isGenerated();
-    }
-
-    private long transcriptOffsetAt(long positionMs) {
-        if (currentMedia == null || isGeneratedTranscript()) {
-            return 0;
-        }
-        return UserPreferences.getTranscriptTimeOffset(currentMedia.getId(), positionMs);
-    }
-
-    private long transcriptOffsetAtCue(long cueTimeMs) {
-        if (currentMedia == null || isGeneratedTranscript()) {
-            return 0;
-        }
-        return UserPreferences.getTranscriptTimeOffsetAtCueTime(currentMedia.getId(), cueTimeMs);
-    }
-
-    private void updateOffsetAvailability() {
-        if (viewBinding == null) {
-            return;
-        }
-        boolean hide = currentMedia == null || currentMedia.getTranscript() == null
-                || currentMedia.getTranscript().isGenerated();
-        viewBinding.btnOffsetToggle.setVisibility(hide ? View.GONE : View.VISIBLE);
-        if (hide) {
-            viewBinding.offsetControls.setVisibility(View.GONE);
-        }
-    }
-
-    private void startAsrGeneration() {
-        if (asrActive || asrModelDownloading || currentMedia == null || getContext() == null) {
-            return;
-        }
-        if (!AsrGenerationController.isSupported()) {
-            showToast(R.string.transcript_generate_not_supported);
-            return;
-        }
-        if (isCasting()) {
-            showToast(R.string.transcript_generate_casting);
-            return;
-        }
-        Context context = getContext();
-        PowerManager powerManager = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
-        if (powerManager != null && powerManager.isPowerSaveMode()) {
-            showToast(R.string.transcript_generate_power_saver);
-            return;
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && powerManager != null
-                && powerManager.getCurrentThermalStatus() >= PowerManager.THERMAL_STATUS_SEVERE) {
-            showToast(R.string.transcript_generate_thermal);
-            return;
-        }
-        boolean hasLocalFile = currentMedia.getLocalFileUrl() != null;
-        boolean streamingHere = currentMedia.getStreamUrl() != null
-                && isCurrentPlaybackMedia(currentMedia);
-        if (currentMedia.getGeneratedTranscriptFileUrl() == null
-                || (!hasLocalFile && !streamingHere)) {
-            showToast(R.string.transcript_generate_needs_download);
-            return;
-        }
-        if (currentMedia.getItem() != null && currentMedia.getItem().getTranscriptUrl() != null) {
-            return;
-        }
-        AsrModelStore store = AsrGenerationController.modelStore(requireContext());
-        if (store.isInstalled()) {
-            startAsrSession();
-        } else {
-            promptModelDownload(store);
-        }
-    }
-
-    private void promptModelDownload(AsrModelStore store) {
-        Context context = getContext();
-        if (context == null) {
-            return;
-        }
-        new AlertDialog.Builder(context)
-                .setTitle(R.string.transcript_model_download_title)
-                .setMessage(getString(R.string.transcript_model_download_message,
-                        modelSizeLabel(store)))
-                .setPositiveButton(android.R.string.ok,
-                        (dialog, which) -> confirmMobileDownload(store))
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
-    }
-
-    private void confirmMobileDownload(AsrModelStore store) {
-        Context context = getContext();
-        if (context == null) {
-            return;
-        }
-        ConnectivityManager manager =
-                (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        NetworkCapabilities capabilities = manager == null ? null
-                : manager.getNetworkCapabilities(manager.getActiveNetwork());
-        boolean metered = capabilities != null
-                && !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
-        if (!metered) {
-            downloadModel(store);
-            return;
-        }
-        new AlertDialog.Builder(context)
-                .setTitle(R.string.transcript_model_download_title)
-                .setMessage(getString(R.string.transcript_model_download_mobile_message,
-                        modelSizeLabel(store)))
-                .setPositiveButton(android.R.string.ok,
-                        (dialog, which) -> downloadModel(store))
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
-    }
-
-    private String modelSizeLabel(AsrModelStore store) {
-        long bytes = store.descriptor().getDownloadSizeBytes();
-        return getString(R.string.transcript_model_size_mb,
-                Math.max(1, Math.round(bytes / 1_000_000.0)));
-    }
-
-    private void downloadModel(AsrModelStore store) {
-        if (asrActive || asrModelDownloading || viewBinding == null) {
-            return;
-        }
-        asrActive = true;
-        asrModelDownloading = true;
-        lastModelPercent = -1;
-        final int downloadToken = asrSessionToken;
-        modelDownloader = new ModelDownloader(store);
-        final ModelDownloader downloader = modelDownloader;
-        viewBinding.btnGenerateTranscript.setEnabled(false);
-        viewBinding.btnGenerateTranscript.setText(R.string.transcript_generate_running);
-        new Thread(() -> {
-            try {
-                downloader.download((read, total) -> {
-                    if (total <= 0) {
-                        return;
-                    }
-                    int percent = (int) (read * 100 / total);
-                    if (percent != lastModelPercent) {
-                        lastModelPercent = percent;
-                        asrHandler.post(() -> updateModelDownloadProgress(percent));
-                    }
-                });
-                asrHandler.post(() -> {
-                    if (downloadToken != asrSessionToken) {
-                        return;
-                    }
-                    modelDownloader = null;
-                    asrModelDownloading = false;
-                    asrActive = false;
-                    if (getContext() != null) {
-                        startAsrSession();
-                    }
-                });
-            } catch (IOException e) {
-                asrHandler.post(() -> {
-                    if (downloadToken != asrSessionToken) {
-                        return;
-                    }
-                    modelDownloader = null;
-                    asrModelDownloading = false;
-                    asrActive = false;
-                    if (viewBinding != null) {
-                        updateGenerateButtonVisibility();
-                    }
-                    showToast(R.string.transcript_model_download_failed);
-                    Log.e(TAG, "Model download failed", e);
-                });
-            }
-        }, "AsrModelDownload").start();
-    }
-
-    private void updateModelDownloadProgress(int percent) {
-        if (viewBinding != null && asrModelDownloading) {
-            if (percent >= 100) {
-                // Extraction and SHA-256 verification of the 155 MB encoder run after the
-                // transfer finished and used to look like a frozen 100 %.
-                viewBinding.btnGenerateTranscript.setText(R.string.transcript_model_installing);
-            } else {
-                viewBinding.btnGenerateTranscript.setText(
-                        getString(R.string.transcript_model_downloading_format, percent));
-            }
-        }
-    }
-
-    private void cancelAsrGeneration() {
-        if (currentMedia == null) {
-            return;
-        }
-        AsrGenerationManager.stopIfRunningFor(currentMedia.getId());
-        asrActive = false;
-        updateGenerateButtonVisibility();
-    }
-
-    private void startAsrSession() {
-        if (asrActive || currentMedia == null || getContext() == null || viewBinding == null) {
-            return;
-        }
-        asrActive = true;
-        viewBinding.btnGenerateTranscript.setEnabled(false);
-        viewBinding.btnGenerateTranscript.setText(R.string.transcript_generate_running);
-        AsrGenerationManager.start(requireContext().getApplicationContext(), currentMedia);
-    }
-
-    private void reloadGeneratedTranscript() {
-        if (viewBinding != null && currentMedia != null) {
-            loadTranscript(true);
-        }
     }
 
     private void showToast(int resId) {

@@ -558,6 +558,10 @@ public class FeedMedia implements Playable {
         if (tempFile.exists()) {
             tempFile.delete();
         }
+        File journalFile = new File(transcriptFileUrl + ".journal");
+        if (journalFile.exists()) {
+            journalFile.delete();
+        }
     }
 
     public void setTranscript(Transcript t) {

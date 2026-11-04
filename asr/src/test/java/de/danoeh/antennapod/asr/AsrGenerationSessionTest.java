@@ -62,6 +62,24 @@ public class AsrGenerationSessionTest {
     }
 
     @Test
+    public void retryableDecoderFailureIsRetriedInsteadOfStopping() throws IOException {
+        FakeDecoder decoder = new FakeDecoder(3000);
+        decoder.retryableFailures = 2;
+        PreReadPcmPipeline pipeline = new PreReadPcmPipeline(decoder, 1000, 200);
+        pipeline.open(source);
+        FakeRecognizer recognizer = new FakeRecognizer(false);
+        AtomicInteger calls = new AtomicInteger();
+        LongSupplier playhead = () -> calls.getAndIncrement() < 12 ? 0 : 5000;
+        RecordingListener listener = new RecordingListener();
+
+        new AsrGenerationSession(pipeline, recognizer, playhead, listener, 1).run();
+
+        assertEquals(30, listener.segments.size());
+        assertTrue(listener.completed);
+        assertNull(listener.error);
+    }
+
+    @Test
     public void stopFlushesThePartialSegment() throws Exception {
         FakeDecoder decoder = new FakeDecoder(60000);
         PreReadPcmPipeline pipeline = new PreReadPcmPipeline(decoder, 1000, 200);
@@ -92,6 +110,7 @@ public class AsrGenerationSessionTest {
         private long position;
         private int reads;
         private int failAtRead = -1;
+        private int retryableFailures;
         private boolean closed;
 
         FakeDecoder(long durationMs) {
@@ -113,6 +132,10 @@ public class AsrGenerationSessionTest {
             reads++;
             if (reads == failAtRead) {
                 throw new IOException("decoder failed");
+            }
+            if (retryableFailures > 0) {
+                retryableFailures--;
+                throw new AsrRetryableException("cache still filling");
             }
             if (position >= durationMs) {
                 return null;

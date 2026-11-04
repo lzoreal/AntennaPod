@@ -68,15 +68,18 @@ public class FeedMediaTest {
         File transcriptFile = new File(media.getTranscriptFileUrl());
         File metadataFile = new File(media.getTranscriptMetadataFileUrl());
         File tempFile = new File(media.getTranscriptFileUrl() + ".tmp");
+        File journalFile = new File(media.getTranscriptFileUrl() + ".journal");
         Files.write(transcriptFile.toPath(), "transcript".getBytes(StandardCharsets.UTF_8));
         Files.write(metadataFile.toPath(), "source".getBytes(StandardCharsets.UTF_8));
         Files.write(tempFile.toPath(), "temp".getBytes(StandardCharsets.UTF_8));
+        Files.write(journalFile.toPath(), "journal".getBytes(StandardCharsets.UTF_8));
 
         media.deleteTranscriptFiles();
 
         assertFalse(transcriptFile.exists());
         assertFalse(metadataFile.exists());
         assertFalse(tempFile.exists());
+        assertFalse(journalFile.exists());
     }
 
     /**

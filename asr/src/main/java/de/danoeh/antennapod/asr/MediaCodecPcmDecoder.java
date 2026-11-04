@@ -123,7 +123,7 @@ public final class MediaCodecPcmDecoder implements PcmDecoder {
                 if (progressed) {
                     deadline = SystemClock.elapsedRealtime() + STALL_TIMEOUT_MS;
                 } else if (SystemClock.elapsedRealtime() > deadline) {
-                    throw new IOException("audio decoder stalled");
+                    throw new AsrRetryableException("audio decoder stalled");
                 }
             }
         } catch (RuntimeException e) {

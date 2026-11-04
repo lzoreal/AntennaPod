@@ -45,6 +45,32 @@ public class GeneratedTranscriptCheckpointTest {
     }
 
     @Test
+    public void audioIdentityRoundTripsAndDetectsReplacedAudio() {
+        GeneratedTranscriptCheckpoint checkpoint = new GeneratedTranscriptCheckpoint(
+                "zh-14m", 12500, Collections.emptyList(), 987654, "abc123");
+
+        GeneratedTranscriptCheckpoint restored =
+                GeneratedTranscriptCheckpoint.fromJson(checkpoint.toJson());
+
+        assertEquals(987654, restored.getAudioBytes());
+        assertEquals("abc123", restored.getFingerprint());
+        assertTrue(restored.matchesAudio(12500, 987654, "abc123"));
+        assertTrue(restored.matchesAudio(13300, 987654, "abc123"));
+        assertEquals(false, restored.matchesAudio(20000, 987654, "abc123"));
+        assertEquals(false, restored.matchesAudio(12500, 987655, "abc123"));
+        assertEquals(false, restored.matchesAudio(12500, 987654, "def456"));
+    }
+
+    @Test
+    public void legacyCheckpointWithoutIdentityStillMatches() {
+        GeneratedTranscriptCheckpoint checkpoint = new GeneratedTranscriptCheckpoint(
+                "zh-14m", 12500, Collections.emptyList());
+
+        assertTrue(checkpoint.matchesAudio(12500, 987654, "abc123"));
+        assertEquals(false, checkpoint.matchesAudio(20000, 987654, "abc123"));
+    }
+
+    @Test
     public void unsupportedVersionIsRejected() {
         assertThrows(IllegalArgumentException.class, () -> GeneratedTranscriptCheckpoint.fromJson(
                 "{\"version\":2,\"model\":\"m\",\"coverage\":[]}"));

@@ -17,6 +17,12 @@ public final class AsrTranscriptWriter {
 
     public static String write(List<AsrSegment> segments, long audioDurationMs,
                                String modelId, List<MediaRange> coverage) {
+        return write(segments, audioDurationMs, modelId, coverage, 0, null);
+    }
+
+    public static String write(List<AsrSegment> segments, long audioDurationMs,
+                               String modelId, List<MediaRange> coverage,
+                               long audioBytes, String fingerprint) {
         try {
             JSONObject root = new JSONObject();
             JSONArray segmentArray = new JSONArray();
@@ -26,6 +32,12 @@ public final class AsrTranscriptWriter {
             root.put("segments", segmentArray);
             if (audioDurationMs > 0) {
                 root.put("audio_seconds", audioDurationMs / 1000.0);
+            }
+            if (audioBytes > 0) {
+                root.put("audio_bytes", audioBytes);
+            }
+            if (fingerprint != null) {
+                root.put("fingerprint", fingerprint);
             }
             if (modelId != null) {
                 root.put("version", GeneratedTranscriptCheckpoint.VERSION);

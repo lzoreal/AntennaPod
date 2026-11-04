@@ -13,11 +13,15 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import org.greenrobot.eventbus.EventBus;
+import org.greenrobot.eventbus.Subscribe;
+import org.greenrobot.eventbus.ThreadMode;
 
 import java.io.IOException;
 
 import de.danoeh.antennapod.R;
+import de.danoeh.antennapod.asr.AsrRetryableException;
 import de.danoeh.antennapod.asr.AsrSegment;
+import de.danoeh.antennapod.event.PlaybackServiceShutdownEvent;
 import de.danoeh.antennapod.model.feed.FeedMedia;
 import de.danoeh.antennapod.playback.service.PlaybackServiceInterface;
 
@@ -26,6 +30,8 @@ public final class AsrGenerationManager {
     private static final String TAG = "AsrManager";
     private static final long MEDIA_WAIT_MS = 2000;
     private static final long MEDIA_CHECK_INTERVAL_MS = 1000;
+    private static final long START_RETRY_WINDOW_MS = 40_000;
+    private static final long START_RETRY_MS = 250;
 
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
@@ -34,6 +40,14 @@ public final class AsrGenerationManager {
     private static boolean running;
     private static long lastPosition;
     private static Context appContext;
+    private static boolean shutdownListenerRegistered;
+
+    private static final Object SHUTDOWN_LISTENER = new Object() {
+        @Subscribe(threadMode = ThreadMode.MAIN)
+        public void onPlaybackServiceShutdown(PlaybackServiceShutdownEvent event) {
+            stop();
+        }
+    };
 
     private static final Runnable mediaCheck = new Runnable() {
         @Override
@@ -71,6 +85,10 @@ public final class AsrGenerationManager {
         }
         mediaId = targetId;
         appContext = context.getApplicationContext();
+        if (!shutdownListenerRegistered) {
+            EventBus.getDefault().register(SHUTDOWN_LISTENER);
+            shutdownListenerRegistered = true;
+        }
         AsrFinalizeScheduler.schedule(appContext, targetId);
         running = true;
         lastPosition = Math.max(0, media.getPosition());
@@ -110,7 +128,7 @@ public final class AsrGenerationManager {
                             @Override
                             public void onSegment(@NonNull AsrSegment segment) {
                                 post(new AsrGenerationEvent(AsrGenerationEvent.Type.SEGMENT,
-                                        targetId, lastPosition, null));
+                                        targetId, lastPosition, null, 0, segment));
                             }
 
                             @Override
@@ -136,7 +154,27 @@ public final class AsrGenerationManager {
                     }
                     controller = newController;
                 }
-                newController.start();
+                long retryDeadline = SystemClock.elapsedRealtime() + START_RETRY_WINDOW_MS;
+                while (true) {
+                    try {
+                        newController.start();
+                        break;
+                    } catch (AsrGenerationController.SessionBusyException
+                             | AsrRetryableException e) {
+                        if (SystemClock.elapsedRealtime() >= retryDeadline) {
+                            throw e;
+                        }
+                        // A finalize worker holds the lease, or the stream cache is still
+                        // filling; both usually resolve within a few seconds.
+                        Thread.sleep(START_RETRY_MS);
+                        synchronized (AsrGenerationManager.class) {
+                            if (!running || mediaId != targetId) {
+                                newController.stop();
+                                return;
+                            }
+                        }
+                    }
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 finish(AsrGenerationEvent.Type.ERROR, new IOException("interrupted", e), targetId);

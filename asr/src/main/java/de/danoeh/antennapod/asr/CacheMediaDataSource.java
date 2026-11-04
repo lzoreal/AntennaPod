@@ -57,7 +57,8 @@ public final class CacheMediaDataSource extends MediaDataSource {
                 }
             }
             if (System.nanoTime() > deadline) {
-                throw new IOException("cache did not provide " + position + " of " + key);
+                throw new AsrRetryableException(
+                        "cache did not provide " + position + " of " + key);
             }
             try {
                 Thread.sleep(RETRY_SLEEP_MS);

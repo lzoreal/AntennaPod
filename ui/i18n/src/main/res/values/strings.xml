@@ -300,7 +300,7 @@
     <string name="show_transcript">Show transcript</string>
     <string name="transcript">Transcript</string>
     <string name="transcript_follow_audio_label">Follow audio</string>
-    <string name="transcript_back_to_current">Back to current sentence</string>
+    <string name="transcript_back_to_current">Follow paused · Back to current line</string>
     <string name="no_transcript_label">No transcript</string>
     <string name="transcript_generate">Generate transcript</string>
     <string name="transcript_continue">Continue generating</string>
@@ -329,8 +329,14 @@
     <string name="pref_asr_lookahead_summary">Seconds generated ahead of playback (10–120)</string>
     <string name="transcript_offset_back_format">-%1$d s</string>
     <string name="transcript_offset_forward_format">+%1$d s</string>
-    <string name="transcript_offset_back_description">Shift transcript %1$d seconds earlier</string>
-    <string name="transcript_offset_forward_description">Shift transcript %1$d seconds later</string>
+    <plurals name="transcript_offset_back_description">
+        <item quantity="one">Shift transcript %1$d second earlier</item>
+        <item quantity="other">Shift transcript %1$d seconds earlier</item>
+    </plurals>
+    <plurals name="transcript_offset_forward_description">
+        <item quantity="one">Shift transcript %1$d second later</item>
+        <item quantity="other">Shift transcript %1$d seconds later</item>
+    </plurals>
     <string name="transcript_offset_back_fine_format">-%1$s s</string>
     <string name="transcript_offset_forward_fine_format">+%1$s s</string>
     <string name="transcript_offset_back_fine_description">Shift transcript %1$s seconds earlier</string>
@@ -348,8 +354,15 @@
     <string name="transcript_offset_sync_already_aligned">That is the line already shown. Scroll up to the line you are hearing</string>
     <string name="transcript_offset_sync_first_message">Aligned from the first line: %1$s</string>
     <string name="transcript_offset_sync_message">Aligned from this line: %1$s</string>
+    <string name="transcript_offset_pick_mode_banner">Tap the line that is playing now · Exit</string>
+    <string name="transcript_offset_align_first_confirm_title">Align the whole episode?</string>
+    <string name="transcript_offset_align_first_confirm_message">This replaces all existing offset anchors (%1$d) with a single anchor at the first line.</string>
+    <string name="transcript_offset_align_first_confirm">Align</string>
+    <string name="transcript_offset_restored">Offset anchors restored</string>
+    <string name="transcript_load_failed">Could not load the transcript</string>
+    <string name="transcript_state_on">on</string>
+    <string name="transcript_state_off">off</string>
     <string name="transcript_offset_toggle_description">Transcript offset controls</string>
-    <string name="transcript_line_break_toggle">¶</string>
     <string name="transcript_line_break_description">Split sentences into separate lines</string>
     <string name="transcript_font_smaller_description">Decrease transcript font size</string>
     <string name="transcript_font_larger_description">Increase transcript font size</string>
@@ -360,9 +373,13 @@
     <string name="transcript_layout_line_spacing">Line spacing</string>
     <string name="transcript_layout_side_margins">Side margins</string>
     <string name="transcript_layout_vertical_spacing">Vertical spacing</string>
-    <string name="transcript_layout_font_size_value">%1$d sp</string>
-    <string name="transcript_layout_line_spacing_value">%1$s×</string>
-    <string name="transcript_layout_margin_value">%1$d dp</string>
+    <string name="transcript_layout_font_tiny">Tiny</string>
+    <string name="transcript_layout_font_small">Small</string>
+    <string name="transcript_layout_font_large">Large</string>
+    <string name="transcript_layout_font_larger">Larger</string>
+    <string name="transcript_layout_font_largest">Largest</string>
+    <string name="transcript_layout_narrow">Narrow</string>
+    <string name="transcript_layout_wide">Wide</string>
     <string name="transcript_layout_compact">Compact</string>
     <string name="transcript_layout_standard">Standard</string>
     <string name="transcript_layout_loose">Loose</string>
@@ -372,7 +389,6 @@
     <string name="transcript_layout_increase_symbol">+</string>
     <string name="transcript_font_size_decrease_symbol">A−</string>
     <string name="transcript_font_size_increase_symbol">A+</string>
-    <string name="transcript_segment_loop_toggle">⟲</string>
     <string name="transcript_segment_loop_description">Loop current segment</string>
     <string name="transcript_segment_loop_message">Looping current segment</string>
     <string name="transcript_segment_loop_disabled_message">Stopped looping</string>

@@ -9,7 +9,7 @@ tt_scenario_search() {
   sleep 1
   dump_ui "$WORK/search_02_controls.xml" || { record_fail "搜索：控制条 UI dump 为空"; return; }
   tap_node "$WORK/search_02_controls.xml" \
-    'content-desc="(搜索转录|Search transcript)"' "打开搜索条" || return
+    'content-desc="(搜索声音文字|Search transcript)"' "打开搜索条" || return
   sleep 1
   dump_ui "$WORK/search_03_open.xml" || { record_fail "搜索：搜索条 UI dump 为空"; return; }
   assert_dump_has "$WORK/search_03_open.xml" 'resource-id="[^"]*:id/searchInput"' "搜索输入框已显示"

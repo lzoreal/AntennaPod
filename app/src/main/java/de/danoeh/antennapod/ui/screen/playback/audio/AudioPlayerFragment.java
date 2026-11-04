@@ -325,6 +325,10 @@ public class AudioPlayerFragment extends Fragment implements
         }
     }
 
+    public boolean isImmersiveMode() {
+        return isImmersiveMode;
+    }
+
     private void enterImmersiveMode() {
         if (getActivity() == null || getView() == null) {
             return;

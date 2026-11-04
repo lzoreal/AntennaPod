@@ -3,7 +3,6 @@ package de.danoeh.antennapod.ui.transcript;
 import android.util.Log;
 import org.apache.commons.io.FileUtils;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.nio.charset.Charset;
@@ -15,12 +14,12 @@ import de.danoeh.antennapod.model.feed.FeedMedia;
 import de.danoeh.antennapod.net.common.AntennapodHttpClient;
 import de.danoeh.antennapod.model.feed.Transcript;
 import de.danoeh.antennapod.model.feed.TranscriptType;
+import de.danoeh.antennapod.parser.transcript.TranscriptJournal;
 import de.danoeh.antennapod.parser.transcript.TranscriptParser;
 import okhttp3.CacheControl;
 import okhttp3.Request;
 import okhttp3.Response;
 import okio.BufferedSource;
-import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 
 public class TranscriptUtils {
@@ -29,6 +28,14 @@ public class TranscriptUtils {
     private static final long MAX_TRANSCRIPT_BYTES = 5L * 1024 * 1024;
     private static final Map<String, Transcript> TRANSCRIPT_CACHE =
             new LinkedHashMap<>(16, 0.75f, true);
+    private static final Object[] LOAD_LOCKS = new Object[8];
+    static final String GENERATED_SOURCE = "generated";
+
+    static {
+        for (int i = 0; i < LOAD_LOCKS.length; i++) {
+            LOAD_LOCKS[i] = new Object();
+        }
+    }
 
     public static String loadTranscriptFromUrl(String url, boolean forceRefresh) throws InterruptedIOException {
         if (forceRefresh) {
@@ -43,7 +50,6 @@ public class TranscriptUtils {
     }
 
     private static String loadTranscriptFromUrl(String url, CacheControl cacheControl) throws InterruptedIOException {
-        StringBuilder str = new StringBuilder();
         Response response = null;
 
         try {
@@ -64,7 +70,7 @@ public class TranscriptUtils {
                         ? response.body().contentType().charset(StandardCharsets.UTF_8)
                         : StandardCharsets.UTF_8;
                 Log.d(TAG, "Done Downloading transcript URL " + url);
-                str.append(source.readString(charset));
+                return source.readString(charset);
             } else {
                 Log.d(TAG, "Error Downloading transcript URL " + url + ": " + response.message());
             }
@@ -79,15 +85,29 @@ public class TranscriptUtils {
                 response.close();
             }
         }
-        return str.toString();
+        return null;
     }
 
     public static Transcript loadTranscript(FeedMedia media, Boolean forceRefresh) throws InterruptedIOException {
         if (media == null || media.getItem() == null) {
             return null;
         }
+        synchronized (loadLock(media)) {
+            // Recompute inside the lock: another thread may have just written the file, which
+            // changes the mtime part of the cache key.
+            return loadTranscriptLocked(media, forceRefresh, cacheKey(media));
+        }
+    }
+
+    private static Object loadLock(FeedMedia media) {
+        String key = media.getId() + "|" + media.getItem().getTranscriptType() + "|"
+                + media.getItem().getTranscriptUrl();
+        return LOAD_LOCKS[(key.hashCode() & 0x7fffffff) % LOAD_LOCKS.length];
+    }
+
+    private static Transcript loadTranscriptLocked(FeedMedia media, Boolean forceRefresh,
+                                                  String cacheKey) throws InterruptedIOException {
         String transcriptType = media.getItem().getTranscriptType();
-        String cacheKey = cacheKey(media);
 
         if (!forceRefresh) {
             Transcript cached = getCachedTranscript(cacheKey);
@@ -100,15 +120,13 @@ public class TranscriptUtils {
             }
         }
 
-        boolean staleLocalTranscript = false;
         if (!forceRefresh && media.getGeneratedTranscriptFileUrl() != null) {
             File transcriptFile = new File(media.getGeneratedTranscriptFileUrl());
-            if (transcriptFile.exists()) {
+            if (transcriptFile.exists() || journalExists(transcriptFile)) {
                 Transcript localTranscript = loadLocalTranscript(media, cacheKey);
                 if (localTranscript != null) {
                     return localTranscript;
                 }
-                staleLocalTranscript = true;
             }
         }
 
@@ -120,8 +138,7 @@ public class TranscriptUtils {
         if (StringUtils.isNotEmpty(t)) {
             Transcript transcript = parseTranscript(t, transcriptType);
             if (transcript != null) {
-                boolean storeLocal = staleLocalTranscript
-                        || (forceRefresh && media.getTranscriptFileUrl() != null);
+                boolean storeLocal = media.getTranscriptFileUrl() != null;
                 if (storeLocal) {
                     storeTranscript(media, t);
                     cacheTranscript(cacheKey(media), transcript);
@@ -139,19 +156,27 @@ public class TranscriptUtils {
             return null;
         }
         File transcriptFile = new File(media.getGeneratedTranscriptFileUrl());
-        if (!transcriptFile.exists() || transcriptFile.length() > MAX_TRANSCRIPT_BYTES
+        boolean hasBase = transcriptFile.exists();
+        if ((!hasBase && !journalExists(transcriptFile))
+                || (hasBase && transcriptFile.length() > MAX_TRANSCRIPT_BYTES)
                 || !isTranscriptFileCurrent(media)) {
             return null;
         }
         try {
-            String t = FileUtils.readFileToString(transcriptFile, StandardCharsets.UTF_8);
-            if (StringUtils.isEmpty(t)) {
-                return null;
+            Transcript transcript;
+            if (hasBase) {
+                String t = FileUtils.readFileToString(transcriptFile, StandardCharsets.UTF_8);
+                if (StringUtils.isEmpty(t)) {
+                    return null;
+                }
+                transcript = parseTranscript(t, media.getItem().getTranscriptType());
+                if (transcript == null) {
+                    return null;
+                }
+            } else {
+                transcript = new Transcript();
             }
-            Transcript transcript = parseTranscript(t, media.getItem().getTranscriptType());
-            if (transcript == null) {
-                return null;
-            }
+            TranscriptJournal.applyTo(transcript, transcriptFile);
             cacheLocalTranscript(media, cacheKey, transcript);
             media.setTranscript(transcript);
             return transcript;
@@ -183,12 +208,18 @@ public class TranscriptUtils {
             return true;
         }
         File metadataFile = new File(metadataFileUrl);
+        String officialUrl = media.getItem().getTranscriptUrl();
         if (!metadataFile.exists()) {
-            return true;
+            // Legacy sidecars have no marker. They are only trusted while no published
+            // transcript exists; otherwise the published one must win.
+            return StringUtils.isEmpty(officialUrl);
         }
         try {
-            return transcriptSource(media).equals(
-                    FileUtils.readFileToString(metadataFile, StandardCharsets.UTF_8));
+            String source = FileUtils.readFileToString(metadataFile, StandardCharsets.UTF_8).trim();
+            if (GENERATED_SOURCE.equals(source)) {
+                return StringUtils.isEmpty(officialUrl);
+            }
+            return transcriptSource(media).trim().equals(source);
         } catch (IOException e) {
             Log.e(TAG, "Unable to read transcript metadata", e);
             return false;
@@ -207,10 +238,32 @@ public class TranscriptUtils {
             return;
         }
         try {
-            FileUtils.writeStringToFile(new File(metadataFileUrl),
-                    transcriptSource(media), StandardCharsets.UTF_8);
+            writeAtomically(new File(metadataFileUrl), transcriptSource(media));
         } catch (IOException e) {
             Log.e(TAG, "Unable to store transcript metadata", e);
+        }
+    }
+
+    private static void writeAtomically(File target, String content) throws IOException {
+        File parent = target.getAbsoluteFile().getParentFile();
+        if (parent != null && !parent.isDirectory() && !parent.mkdirs() && !parent.isDirectory()) {
+            throw new IOException("cannot create " + parent);
+        }
+        File temp = File.createTempFile("transcript-meta-", ".tmp", parent);
+        try {
+            FileUtils.writeStringToFile(temp, content, StandardCharsets.UTF_8);
+            if (!temp.renameTo(target)) {
+                if (target.exists() && !target.delete()) {
+                    throw new IOException("cannot replace " + target);
+                }
+                if (!temp.renameTo(target)) {
+                    throw new IOException("cannot install " + target);
+                }
+            }
+        } finally {
+            if (temp.exists() && !temp.delete()) {
+                temp.deleteOnExit();
+            }
         }
     }
 
@@ -227,17 +280,32 @@ public class TranscriptUtils {
         return loadLocalTranscript(media, cacheKey);
     }
 
+    private static boolean journalExists(File transcriptFile) {
+        File journal = TranscriptJournal.fileFor(transcriptFile);
+        return journal.isFile() && journal.length() > 0;
+    }
+
     private static String cacheKey(FeedMedia media) {
         String fileUrl = media.getGeneratedTranscriptFileUrl();
         long lastModified = 0;
+        long length = 0;
+        long journalLastModified = 0;
+        long journalLength = 0;
         if (fileUrl != null) {
             File file = new File(fileUrl);
             if (file.exists()) {
                 lastModified = file.lastModified();
+                length = file.length();
+            }
+            File journal = TranscriptJournal.fileFor(file);
+            if (journal.exists()) {
+                journalLastModified = journal.lastModified();
+                journalLength = journal.length();
             }
         }
         return media.getId() + "|" + media.getItem().getTranscriptType() + "|"
-                + media.getItem().getTranscriptUrl() + "|" + lastModified;
+                + media.getItem().getTranscriptUrl() + "|" + lastModified + "|" + length
+                + "|" + journalLastModified + "|" + journalLength;
     }
 
     private static synchronized Transcript getCachedTranscript(String key) {
@@ -289,30 +357,44 @@ public class TranscriptUtils {
             return;
         }
         File transcriptFile = new File(media.getTranscriptFileUrl());
-        File tempFile = new File(transcriptFile.getPath() + ".tmp");
-        FileOutputStream ostream = null;
+        File parent = transcriptFile.getAbsoluteFile().getParentFile();
+        File tempFile = null;
         try {
-            ostream = new FileOutputStream(tempFile);
-            ostream.write(transcript.getBytes(StandardCharsets.UTF_8));
-            ostream.close();
-            ostream = null;
-            if (!tempFile.renameTo(transcriptFile)) {
-                if (transcriptFile.exists() && !transcriptFile.delete()) {
-                    Log.e(TAG, "Failed to delete existing transcript file "
-                            + transcriptFile.getAbsolutePath());
-                    return;
-                }
-                if (!tempFile.renameTo(transcriptFile)) {
-                    FileUtils.copyFile(tempFile, transcriptFile);
-                }
+            if (parent != null && !parent.isDirectory() && !parent.mkdirs() && !parent.isDirectory()) {
+                throw new IOException("cannot create " + parent);
             }
+            tempFile = File.createTempFile("transcript-", ".tmp", parent);
+            FileUtils.writeStringToFile(tempFile, transcript, StandardCharsets.UTF_8);
+            installFile(tempFile, transcriptFile);
             writeTranscriptMetadata(media);
         } catch (IOException e) {
             Log.e(TAG, "Unable to store transcript file", e);
         } finally {
-            IOUtils.closeQuietly(ostream);
-            if (tempFile.exists() && !tempFile.delete()) {
+            if (tempFile != null && tempFile.exists() && !tempFile.delete()) {
                 Log.e(TAG, "Unable to delete temporary transcript file " + tempFile);
+            }
+        }
+    }
+
+    private static void installFile(File temp, File target) throws IOException {
+        if (temp.renameTo(target)) {
+            return;
+        }
+        if (target.exists() && !target.delete()) {
+            throw new IOException("cannot replace " + target);
+        }
+        if (temp.renameTo(target)) {
+            return;
+        }
+        File copy = File.createTempFile("transcript-copy-", ".tmp", target.getParentFile());
+        try {
+            FileUtils.copyFile(temp, copy);
+            if (!copy.renameTo(target)) {
+                throw new IOException("cannot install " + target);
+            }
+        } finally {
+            if (copy.exists() && !copy.delete()) {
+                copy.deleteOnExit();
             }
         }
     }

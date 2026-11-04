@@ -29,6 +29,7 @@ The branch history was squashed on 2026-11-05 into the six thematic commits belo
 | Commit | What it established |
 | --- | --- |
 | `6785193db` | A "cancel generation" chip in the top-right corner of the transcript list stops the current session; generated segments stay and no completion toast is shown. |
+| `759031f71` | Follow stays centred across ASR segment writes: idempotent transcript layout, half-viewport `scrollBy` catch-up, stale-position adapter re-attach, ticker-independent 250 ms follow clock, adapter follow requester, stale-ticker watchdog; reading line moved to 40% of the window. |
 
 ## Where to look next
 
