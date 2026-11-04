@@ -1,8 +1,8 @@
 # AntennaPod 转录（Transcript）功能交接文档
 
 > 面向对象：接手这个 fork 转录功能的下一个 agent / 开发者。
-> 基线：换句高亮 250ms 刷新基于 `ffcc05320`（2026-10-25）；转录功能历史基线提交 `7e2b4e5b9`（2026-10-24）；交接文档与真机脚本自 `35cf3c35e`（2026-10-24）起，后续修订以 `git log -- docs/transcript-handover.md` 为准；上游基线提交 `bbe756414`（Merge develop，2026-10-13）。
-> 全量单测在代码基线 `7e2b4e5b9` 上已跑通：`./gradlew --console=plain test` → `BUILD SUCCESSFUL`，3666 个任务，0 失败。
+> 基线：`develop` = 上游 `e10f5f6f3` + 本地主题提交（2026-11-05 重写，见 §2）；当前代码状态对应 `874c4ab02`。
+> 全量单测曾在 2026-10-24 的转录基线上跑通（`./gradlew --console=plain test` → `BUILD SUCCESSFUL`，3666 个任务，0 失败）；2026-11-05 重构后按模块跑过 §5.1 的测试并做了真机回归，结果见 §5.2。
 
 ## 0. 30 秒上手
 
@@ -124,17 +124,31 @@ UI 侧的 `TranscriptTextUtils` 是兼容层：分句/语言边界/句子时间�
 
 ## 2. 提交历史
 
-完整列表：`git log --author=wenhao --oneline`。下表只保留影响当前实现的关键节点。生成转录（ASR）分支 `transcript-asr-word-timestamps` 的逐条提交索引见 [generated-transcripts-commits.md](generated-transcripts-commits.md)。
+2026-11-05 重写了 fork 的本地历史：上游提交与 5 次上游同步合并保持原样，本地 60 余条转录 / 生成转录 / 广告检测提交按功能压缩成下列主题提交，`develop` 就是完整功能线。每个主题提交都是一个真实构建过的快照。提交格式统一为 `<范围>: <祈使句>`，范围取 `Transcript`、`Generated transcripts`、`Ad detection`、`Docs`。
 
-| 日期 | 节点 | 影响 |
+完整列表：`git log --first-parent --oneline develop`。生成转录（ASR）的逐条索引见 [generated-transcripts-commits.md](generated-transcripts-commits.md)。
+
+| 日期 | 提交 | 影响 |
 |---|---|---|
-| 2026-08-18 ~ 08-19 | `fdddd12ef`/`f70eeacf6`/`92e6fb82f` | 转录页、Adapter/滚动、`:ui:transcript` 模块与悬浮窗；播放器 ViewPager2 由上下滑动改为水平滑动（`audioplayer_fragment.xml`） |
-| 2026-08-21 | `3069aa9df`/`0792497f4`/`2b24e787a`/`867088d88` | 双语 VTT、沉浸模式、固定高亮色、幂等加载 |
-| 2026-09-11 ~ 10-13 | `3164027b6`/`7f4eaa113`/`bbe756414` | 上游 develop 合并 |
-| 2026-10-22 ~ 10-23 | `a77c90ce7`/`8d8f5616f`/`9df9271a4`/`2ff80e94d`/`fa8e29b85` | 共享分句工具、偏移、分级高亮、图标、正确性修复与单测起步 |
-| 2026-10-24 | `3128fe4a9` ~ `7e2b4e5b9` | 当前句悬浮窗、双语配对、细粒度偏移、解析/缓存/刷新加固 |
-| 2026-10-24 | `35cf3c35e` | 交接文档与真机脚本 |
-| 2026-11-04 | `d39bf0f69` + 本次提交 | 广告检测：分块指纹落库、两段式片头扫描与预热、激进跳过、扫描状态 UI；自动跳过后的字幕重对齐与通知栏撤销 |
+| 2026-08-18 ~ 08-19 | `ab1b3783e` | 转录页、`:ui:transcript` 模块、行 Adapter 与悬浮窗 |
+| 2026-08-21 | `b62fe329e` | 双语 VTT 解析、沉浸模式、动态取色下非高亮脚本可见、暂停/恢复不重载 |
+| 2026-10-22 ~ 10-24 | `0eb730851` | 分级高亮、只显示当前句的悬浮窗、图标化控制条、双语悬浮窗、点句微调偏移 |
+| 2026-10-24 | `b34fff61a` | 单一文字体系分句边界、双语逐句配对、位置/解析/悬浮窗加固 |
+| 2026-10-25 | `54c0fc705` | 交接文档与真机脚本（备份/恢复、adb reverse、防假 PASS） |
+| 2026-10-25 | `c1ad8aad7` | 清理、偏移刷新与 i18n 审查修复 |
+| 2026-10-25 | `bfbfadf35` | Agent 规则：允许代码注释与直接在 develop 修复 |
+| 2026-10-25 | `d60bdd55a` | 阅读排版面板、跟随节奏、一条 cue 一行、三档句色与双语交替 |
+| 2026-10-25 | `f0feb498d` | 当前句居中、逐帧跟随、设备脚本按功能拆分 |
+| 2026-10-25 | `c110605cc` | 审计修复、滚动/解析热路径减负、偏移与排版面板换肤 |
+| 2026-10-26 | `d06dae113` | 文内搜索与 45% 阅读线 |
+| 2026-10-28 | `6c9bdbbd1` | 词级高亮与可读颜色 token |
+| 2026-10-29 | `ebb7366d1` | 分段偏移、点选对齐与整集对齐 |
+| 2026-11-02 | `2d8377435` | MP3 时长漂移校正、悬浮窗跟随词时间轴 |
+| 2026-11-02 | `fde8895e6` | 上游 develop 3.13.0-beta1 同步合并 |
+| 2026-11-02 | `a5eff60df` | 广告检测：分块指纹落库、片头扫描与跳过控件 |
+| 2026-11-04 | `42a33e775` | 广告检测：扫描预热、激进跳过、跳过后字幕重对齐与撤销 |
+| 2026-11-05 | `7fc8f4556` ~ `0bacc031b` | 生成转录（ASR）七条主题提交，见 [generated-transcripts-commits.md](generated-transcripts-commits.md) |
+| 2026-11-05 | `874c4ab02` | 转录页拆成控制器、共享 `TranscriptSession`、ASR 会话租约、审查单测与 ADR 0003 |
 
 ## 3. 代码地图
 
@@ -304,69 +318,69 @@ bash scripts/transcript-tests/scenarios/30_layout_panel.sh   # 单场景脚本�
 
 其他用法：`--restore-only --work <目录>`（只恢复）、`--keep`（保留现场）、`--serial <序列号>`（多设备）。
 
-2026-10-25 在代码基线 `7e2b4e5b9`（脚本提交 `d66169281`）上、Redmi 2407FRK8EC（`4LSGLZEYOFCQBIQC`）的完整跑通结果（含 `:app:installPlayDebug`）：14/14 PASS，`restored integrity: ok`、`test urls left: 0`、偏好与数据库与备份逐字节一致、`adb reverse` 已清空。截图里可见 `1._Greatness.vtt` 第 1 个 cue（00:00:00–00:00:49）拆出的逐句双语行、当前句蓝色高亮，以及悬浮窗对同一句的滚动显示；另有 `--skip-install` 一轮 13/13 PASS。
+2026-10-25 在代码与脚本基线 `d60bdd55a` 上、Redmi 2407FRK8EC（`4LSGLZEYOFCQBIQC`）的完整跑通结果（含 `:app:installPlayDebug`）：14/14 PASS，`restored integrity: ok`、`test urls left: 0`、偏好与数据库与备份逐字节一致、`adb reverse` 已清空。截图里可见 `1._Greatness.vtt` 第 1 个 cue（00:00:00–00:00:49）拆出的逐句双语行、当前句蓝色高亮，以及悬浮窗对同一句的滚动显示；另有 `--skip-install` 一轮 13/13 PASS。
 
-> 注意：上述结果使用的是脚本提交 `d66169281`。其后 `ffcc05320` 又修改了 `transcript_device_test.sh`（修复假 PASS），因此该结果不能直接用 HEAD 的脚本复现。
+> 注意：上述结果使用的是重写前的脚本；其后修复假 PASS 的改动已并入 `d60bdd55a`，因此该结果不能直接用当前脚本复现。
 
-2026-10-25 在“换句高亮 250ms 刷新”的未提交改动（基于 `ffcc05320`，脚本提交 `d66169281`，含临时时延日志）上完整跑通 32/32 PASS，偏好与数据库按字节还原。临时日志测得 250ms 轮询实际约 4.1 次/秒，句边界→高亮时延 73/65/148/153/162/170/−15 ms，均 ≤250ms。**测试注意**：设备偏好若给该 media 存了时间偏移（`prefTranscriptTimeOffsets`，例如 `{"1":103500}`），高亮会长时间停在第一段，需先清零或换 media id。
+2026-10-25 在“换句高亮 250ms 刷新”的未提交改动（基于 `d60bdd55a`，含临时时延日志）上完整跑通 32/32 PASS，偏好与数据库按字节还原。临时日志测得 250ms 轮询实际约 4.1 次/秒，句边界→高亮时延 73/65/148/153/162/170/−15 ms，均 ≤250ms。**测试注意**：设备偏好若给该 media 存了时间偏移（`prefTranscriptTimeOffsets`，例如 `{"1":103500}`），高亮会长时间停在第一段，需先清零或换 media id。
 
 2026-10-25 在“一条 cue 一行 + 整段高亮”的未提交改动上完整跑通 32/32 PASS（可见行数 1：整条 cue 即一个高亮块），偏好与数据库按字节还原。截图确认第一条 cue（00:00:00–00:00:49）整块 19sp 高亮，块内当前句全色、其余句统一半透明。
 
-2026-10-25 排版面板在父基线 `ba981d1ff` 的未提交工作树上完成真机验证：`transcript_device_test.sh` 14/14 PASS；手动验证 `Aa` 面板四项调节、恢复默认、强制停止并重启后 1.15×/32dp 保留；验证后设备已按备份恢复（`restored integrity: ok`）。
+2026-10-25 排版面板在父基线 `d60bdd55a` 的未提交工作树上完成真机验证：`transcript_device_test.sh` 14/14 PASS；手动验证 `Aa` 面板四项调节、恢复默认、强制停止并重启后 1.15×/32dp 保留；验证后设备已按备份恢复（`restored integrity: ok`）。
 
-2026-10-25 合并 `transcript-highlight-cadence` 后的工作树（父基线 `ae6334d19`）真机跑通 13/14：唯一失败是脚本在 UI dump 里找不到溢出菜单的悬浮窗项（弹窗 dump 抖动，见 §6），手动点击该项后悬浮窗服务正常启动；截图确认第一条 cue 整块高亮、块内当前句全色、其余统一半透明。
+2026-10-25 合并高亮节奏分支后的工作树（父基线 `d60bdd55a`）真机跑通 13/14：唯一失败是脚本在 UI dump 里找不到溢出菜单的悬浮窗项（弹窗 dump 抖动，见 §6），手动点击该项后悬浮窗服务正常启动；截图确认第一条 cue 整块高亮、块内当前句全色、其余统一半透明。
 
 2026-10-25 显示层逐句交替 + 段内三档句色在同一工作树上手动真机验证：同一条 cue 内可见已播（`0xA6`）、当前（全色加粗）、未播（`0x8C`）三档，主/译按句交替；脚本仍因上述弹窗 dump 抖动停在 13/14。
 
 2026-10-25 逐帧跟随在同一工作树上真机验证（临时日志，验证后已移除）：句切换后误差 229px，按 33→29→24→20→…→1px 约 400ms 收敛后停表，无反复起滚；设备偏好上残留的 `{"1":103500}` 偏移会把高亮钉在第一段，测试前需先归零。
 
-2026-10-25 “单驱动跟随 + 离屏瞬跳”在提交 `203879022`（父基线 `7037be9ae`，脚本提交 `7037be9ae`）上真机验证（Redmi 2407FRK8EC，本地 VTT + 本地静音音频驱动真实播放）：`run.sh --skip-install --media-id 7286 --position 5000 smoke highlight` 14/14 PASS，数据库与偏好按字节还原。专项时序（临时日志，验证后已移除）：冷启动落在长 cue 内 40s 处定位 **79ms** 完成（旧实现同场景 1885px/2161ms 缓动）；后台 45s 后回前台、进度跨 2 个 cue 时 **24ms** 瞬跳完成（旧实现 1379px/12647ms，之后再补 845px 跟随）；cue 边界（50→51）由同一条逐帧跟随在 **183ms** 内收敛 411px（旧实现 605px/5549ms 缓动后仍需跟随修正）。
+2026-10-25 “单驱动跟随 + 离屏瞬跳”在提交 `f0feb498d` 上真机验证（Redmi 2407FRK8EC，本地 VTT + 本地静音音频驱动真实播放）：`run.sh --skip-install --media-id 7286 --position 5000 smoke highlight` 14/14 PASS，数据库与偏好按字节还原。专项时序（临时日志，验证后已移除）：冷启动落在长 cue 内 40s 处定位 **79ms** 完成（旧实现同场景 1885px/2161ms 缓动）；后台 45s 后回前台、进度跨 2 个 cue 时 **24ms** 瞬跳完成（旧实现 1379px/12647ms，之后再补 845px 跟随）；cue 边界（50→51）由同一条逐帧跟随在 **183ms** 内收敛 411px（旧实现 605px/5549ms 缓动后仍需跟随修正）。
 
 2026-10-25 用户录制 715 真实英语长 cue 语料（`715._King_Arthur_The_Mysteries_of_Merlin_Part_3.vtt`）的整段交界抖动定位与修复：临时日志确认根因是换段时高亮字号 19sp↔16sp 的重排（旧段行高 1365→约 955px、新段 478→634px），RecyclerView 的重测晚于文本重绑，跟随器在旧布局上先下 33px、再反向 198px，录屏出现空白/重影。最终修复：**全列表统一字号**（去掉高亮 19sp）+ 跟随改到 `OnPreDraw`（每帧布局完成后读取最终行高/句子位置）+ 时间戳随 Aa 档位同步（`14 + step*2`）。同语料复录：跨段 `itemH` 保持 478 不变，误差 193→2 单向收敛，帧内无空白/重影、无反向。按 AGENTS「只跑改动覆盖的场景」本次只复跑该 715 交界专项，未重跑其他场景；时间戳字号缩放未单独截图。
 
-2026-10-25 三项交互调整（提交 `203879022`）：① 收起一级控制条或进入沉浸时同步收起偏移/排版二级面板（`hideControlPanels()`）；② 跟随加迟滞与时间基速度：偏离 ≥64dp 才起步、≤2dp 停（用户实测后手调为 64dp），时间常数 140ms、上限 500dp/s（每帧按 `1-exp(-dt/τ)` 衰减并按 dt 限速），短距离先积累不动；③ 取消手动拖动后“高亮句仍在屏幕内就自动跟回”的设定（移除 `resumeFollowingIfHighlightVisible`），改由“回到当前句”/点击句子/调偏移显式恢复。已编译并安装；本轮未跑设备脚本（速度手感主观，待人工确认）。
+2026-10-25 三项交互调整（提交 `f0feb498d`）：① 收起一级控制条或进入沉浸时同步收起偏移/排版二级面板（`hideControlPanels()`）；② 跟随加迟滞与时间基速度：偏离 ≥64dp 才起步、≤2dp 停（用户实测后手调为 64dp），时间常数 140ms、上限 500dp/s（每帧按 `1-exp(-dt/τ)` 衰减并按 dt 限速），短距离先积累不动；③ 取消手动拖动后“高亮句仍在屏幕内就自动跟回”的设定（移除 `resumeFollowingIfHighlightVisible`），改由“回到当前句”/点击句子/调偏移显式恢复。已编译并安装；本轮未跑设备脚本（速度手感主观，待人工确认）。
 
-2026-10-25 代码审计修复（代码基线 `203879022` + 未提交工作树；脚本提交 `203879022` + 未提交断言/文档）在 Redmi 2407FRK8EC 上全量跑通：`run.sh smoke highlight layout offset floating --media-id 7286 --position 5000` **100 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`，捕获日志无 `FATAL EXCEPTION`；截图确认逐句双语行（EN/ZH 交替）与悬浮窗。修复内容：删除下载不再清偏移、页面/弹窗销毁时 `setAdapter(null)` 解除 EventBus 注册、点句坐标扣除 padding、悬浮窗刷新失败保留旧内容、SRT/JSON 坏 cue 不再污染段尾、VTT 交替双语容忍纯符号/连续同语种 cue、SRT 一次性冒号标签不再当发言人。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261025-183932/`。
+2026-10-25 代码审计修复（代码基线 `f0feb498d` + 未提交工作树；脚本同轮未提交）在 Redmi 2407FRK8EC 上全量跑通：`run.sh smoke highlight layout offset floating --media-id 7286 --position 5000` **100 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`，捕获日志无 `FATAL EXCEPTION`；截图确认逐句双语行（EN/ZH 交替）与悬浮窗。修复内容：删除下载不再清偏移、页面/弹窗销毁时 `setAdapter(null)` 解除 EventBus 注册、点句坐标扣除 padding、悬浮窗刷新失败保留旧内容、SRT/JSON 坏 cue 不再污染段尾、VTT 交替双语容忍纯符号/连续同语种 cue、SRT 一次性冒号标签不再当发言人。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261025-183932/`。
 
 注意：`run.sh` 省略 `--media-id` 时按“播放进度最大”推断媒体（本次为 1），而播放器实际恢复 `lastPlayedFeedMediaId`（7286），页面显示 7286 的旧转录，双语断言会误报 FAIL；测播放中的剧集必须显式传 `--media-id`。
 
-2026-10-25 性能优化（工作树，基于 `81cb1171a`）真机回归：`run.sh smoke highlight layout offset floating --media-id 7286 --position 5000` **100 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`，无 `FATAL EXCEPTION`；截图确认字号、时间戳与双语行渲染不变。优化内容：偏移读取按偏好串缓存（不再每 tick 解析 JSON）、Adapter bind 仅在值变化时 requestLayout、悬浮窗缓存 `languageSplitIndex`、VTT 每个 cue 只计算一次文字体系、应用在内存紧张时清空转录内存缓存。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261025-185758/`。
+2026-10-25 性能优化（工作树，基于 `c110605cc`）真机回归：`run.sh smoke highlight layout offset floating --media-id 7286 --position 5000` **100 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`，无 `FATAL EXCEPTION`；截图确认字号、时间戳与双语行渲染不变。优化内容：偏移读取按偏好串缓存（不再每 tick 解析 JSON）、Adapter bind 仅在值变化时 requestLayout、悬浮窗缓存 `languageSplitIndex`、VTT 每个 cue 只计算一次文字体系、应用在内存紧张时清空转录内存缓存。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261025-185758/`。
 
-2026-10-25 方案 A MVP（固定 45% 阅读线 + 离散缓动 + 距离 snap；首尾暂不居中）在父基线 `d85105ca2` 的未提交工作树上真机验证（脚本未改，基线 `d85105ca2`；Redmi 2407FRK8EC `4LSGLZEYOFCQBIQC`，本地 VTT + 真实播放）：`run.sh smoke highlight layout offset --media-id 1 --position 5000` **47 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`、`adb reverse` 已清空。`--keep` 现场人工确认：换句/跨 cue 时视口单向趋近 45% 阅读线，无反向修正；手动拖动后高亮句仍在屏幕内也不自动跳回，“回到当前句”可 snap 回位；暂停 2s 播放位置不变，恢复后继续；无 `FATAL EXCEPTION`。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261025-223514`（自动场景，`results.txt`）与 `run-20261025-223741`（`--keep` 手动截图/录屏，已用 `--restore-only` 恢复）。**MVP 限制**：未做首尾 padding，首/末段不能居中，见 §5.4 与 §7。
+2026-10-25 方案 A MVP（固定 45% 阅读线 + 离散缓动 + 距离 snap；首尾暂不居中）在父基线 `c110605cc` 的未提交工作树上真机验证（脚本未改；Redmi 2407FRK8EC `4LSGLZEYOFCQBIQC`，本地 VTT + 真实播放）：`run.sh smoke highlight layout offset --media-id 1 --position 5000` **47 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`、`adb reverse` 已清空。`--keep` 现场人工确认：换句/跨 cue 时视口单向趋近 45% 阅读线，无反向修正；手动拖动后高亮句仍在屏幕内也不自动跳回，“回到当前句”可 snap 回位；暂停 2s 播放位置不变，恢复后继续；无 `FATAL EXCEPTION`。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261025-223514`（自动场景，`results.txt`）与 `run-20261025-223741`（`--keep` 手动截图/录屏，已用 `--restore-only` 恢复）。**MVP 限制**：未做首尾 padding，首/末段不能居中，见 §5.4 与 §7。
 
 2026-10-25 用户反馈当前句移动过快；将 `TranscriptFollowMotion` 的补间时长从 220–300ms 调整为 **320–520ms**（`260 + 2.5 × dp`，最短 320、最长 520），锚点、阈值、三次缓出均未改。属主观手感调整，未重跑设备脚本；`TranscriptFollowMotionTest` 已同步更新并通过，编译通过，已安装到设备待人工确认。
 
-2026-10-26 文内搜索（代码父基线 `d85105ca2` + 未提交工作树；脚本未提交）在 Redmi 2407FRK8EC 上跑通：`run.sh search --media-id 1 --position 5000` **20 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`、偏好与数据库按字节还原。场景断言：打开搜索条、输入 `the` 显示 `1/560`、下一条变 `2/560`、追加 `zzzz` 显示“无匹配”、关闭后输入框隐藏。截图确认：搜索条（输入 + 计数 + ↑/↓ + 关闭）、`the` 的黄色背景命中高亮、命中行滚动到 45% 附近、跟随暂停后显示“回到当前句”、音频高亮与搜索高亮共存。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261026-003045/`（`results.txt`、`search_05_results.png`、`search_07_next.png`）。
+2026-10-26 文内搜索（代码父基线 `c110605cc` + 未提交工作树；脚本未提交）在 Redmi 2407FRK8EC 上跑通：`run.sh search --media-id 1 --position 5000` **20 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`、偏好与数据库按字节还原。场景断言：打开搜索条、输入 `the` 显示 `1/560`、下一条变 `2/560`、追加 `zzzz` 显示“无匹配”、关闭后输入框隐藏。截图确认：搜索条（输入 + 计数 + ↑/↓ + 关闭）、`the` 的黄色背景命中高亮、命中行滚动到 45% 附近、跟随暂停后显示“回到当前句”、音频高亮与搜索高亮共存。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261026-003045/`（`results.txt`、`search_05_results.png`、`search_07_next.png`）。
 注意：该设备 media 1 有旧的本地 `.transcript` 缓存（无 `.source` 时会被收编），注入了 `1._Greatness.vtt` 但页面仍显示旧转录，所以场景用通用词 `the`，避免依赖注入语料的具体内容；见 §6。
 
-2026-10-28 词级高亮（代码父基线 `1253fdefd` + 未提交工作树；脚本同工作树未提交）：单测 `:model:test`、`:parser:transcript:test`、`TranscriptWordMapperTest` 全部通过；`./gradlew :app:assembleDebug` 通过。用真实 `844.json` 做了临时整文件解析（测试后已删除，未入库）：得到 **317 段、8831 个词时间轴**，与 sidecar 完全一致；全部 39 集模拟对齐 357964 词仅丢 5 个重复词。
+2026-10-28 词级高亮（代码父基线 `6c9bdbbd1` + 未提交工作树；脚本同工作树未提交）：单测 `:model:test`、`:parser:transcript:test`、`TranscriptWordMapperTest` 全部通过；`./gradlew :app:assembleDebug` 通过。用真实 `844.json` 做了临时整文件解析（测试后已删除，未入库）：得到 **317 段、8831 个词时间轴**，与 sidecar 完全一致；全部 39 集模拟对齐 357964 词仅丢 5 个重复词。
 
 2026-10-28 真机（Redmi 2407FRK8EC `4LSGLZEYOFCQBIQC`，844 音频已下载为 FeedMedia.id=8878）：`bash scripts/transcript-tests/run.sh word --skip-install --media-id 8878 --position 5000` **18 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`，8878 的转录 URL/type/position 与本地 VTT 缓存侧车均还原，日志无 `FATAL EXCEPTION`。截图 `~/.qoder-cn/tmp/transcript-ondevice/run-20261028-082151/word_01.png`（40s，当前词 “and” 高亮；当时为胶囊底色方案）与 `word_02.png`（42s，当前词 “biased,” 高亮）确认高亮随真实播放移动；自动断言用 `dumpsys media_session` 读到 38s → 41s（播放中持续前进）。**注意**：`uiautomator dump` 在持续播放/滚动时会返回旧帧，不能用来判断位置；本场景已改读 MediaSession。
 本轮测试底座新增：播放偏好注入（`currentlyPlayingMedia`/`lastPlayedFeedMediaId`/`lastPlayedFeedId`，否则 `-1` 会锁住底栏导致 `--ez open_player` 无效）、本地转录缓存三件套备份/恢复、`--local-audio`（生成并推送 3 分钟静音 MP3，供无本地音频时驱动播放）。
 
-2026-10-28 词级高亮按 `apple_podcast_transcript_demo.html` 重做（同一工作树，代码父基线 `1253fdefd`；脚本未提交）：当前词**不再加背景**，改为全色 + 假粗体；已读词全不透明、未读词 `0x94`；词级转录完全不叠加句级三档/句粗，VTT/SRT/无词段仍走原句级路径。真机 `run.sh word --skip-install --media-id 8878 --position 5000` **18 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`、本地 VTT 缓存按 sha256 还原；产物 `~/.qoder-cn/tmp/transcript-ondevice/run-20261028-090820/`，截图 55s 当前词 “few”、59s “end,”，可看到已读黑、未读灰、当前词加粗且无背景。
+2026-10-28 词级高亮按 `apple_podcast_transcript_demo.html` 重做（同一工作树，代码父基线 `6c9bdbbd1`；脚本未提交）：当前词**不再加背景**，改为全色 + 假粗体；已读词全不透明、未读词 `0x94`；词级转录完全不叠加句级三档/句粗，VTT/SRT/无词段仍走原句级路径。真机 `run.sh word --skip-install --media-id 8878 --position 5000` **18 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`、本地 VTT 缓存按 sha256 还原；产物 `~/.qoder-cn/tmp/transcript-ondevice/run-20261028-090820/`，截图 55s 当前词 “few”、59s “end,”，可看到已读黑、未读灰、当前词加粗且无背景。
 
 2026-10-28 配色 token（`ui-ux-pro-max` 指导，同一工作树）：新增主题属性 `transcript_text_strong` / `transcript_text_muted`（Light `#101418`/`#5A6675`，Dark `#F2F4F7`/`#9AA6B8`，真黑继承 Dark）。词级当前/已读 strong、未读 muted；句级当前句 accent、已播 strong、未播 muted，非当前段不再 45% 半透明。对浅/深背景对比度分别为 **17.97/5.68** 与 **13.71/6.13:1**，句级已播/未播从 2.2–2.7:1 提升到 ≥4.5:1。真机词级 **19 PASS / 0 FAIL**（`run-20261028-093027`），VTT 句级 **19 PASS / 0 FAIL**（`run-20261028-094051`），设备均还原。顺带修复：“仅译文”偏好下英文单语 JSON 被误判为译文而跳过词映射；测试现在固定“双语 + 逐句成行”，避免设备残留偏好干扰。
 
-2026-11-01 MP3 时长估算兼容（代码父基线 `4be375c42`；本次改动未提交）：844 JSON 带 `audio_seconds=3432.05`，844.mp3 无 Xing/Info；Media3 报 **3424.1774s**，差 **7.868s = 0.2298%**。优先用 JSON 时长（流媒体也可用），没有该字段才本地扫描 MP3 帧。`word --position 3000000` 真机 **18 PASS / 0 FAIL**（`run-20261101-080045`；早前同项 20/0 见 `run-20261101-074611`）：播放器显示 50:00 时当前词已到真实约 3007s 的 “Abraham”，50:50 时到 “Here”，证明比例校正生效；`--position 5000` 词级 18/0、VTT 18/0 回归通过，设备已还原。扫描器与 `audio_seconds` 单测见 §5.1。
+2026-11-01 MP3 时长估算兼容（代码父基线 `6c9bdbbd1`；本次改动未提交）：844 JSON 带 `audio_seconds=3432.05`，844.mp3 无 Xing/Info；Media3 报 **3424.1774s**，差 **7.868s = 0.2298%**。优先用 JSON 时长（流媒体也可用），没有该字段才本地扫描 MP3 帧。`word --position 3000000` 真机 **18 PASS / 0 FAIL**（`run-20261101-080045`；早前同项 20/0 见 `run-20261101-074611`）：播放器显示 50:00 时当前词已到真实约 3007s 的 “Abraham”，50:50 时到 “Here”，证明比例校正生效；`--position 5000` 词级 18/0、VTT 18/0 回归通过，设备已还原。扫描器与 `audio_seconds` 单测见 §5.1。
 
 2026-10-28 VTT 回归（词级/句级分流后，同一工作树）：`run.sh smoke highlight --skip-install --media-id 8878 --position 5000` **18 PASS / 0 FAIL**，双语逐句行、一条 cue 一行、句级三档高亮截图均通过，产物 `~/.qoder-cn/tmp/transcript-ondevice/run-20261028-091115/`（分流前的同项结果见 `run-20261028-085437`）。测试底座顺手修正三处跨轮串帧：`dump_ui` 每次先删 `/sdcard/window_dump.xml` 并重试；VTT 场景先暂停再取稳定 dump；备份后把本地转录缓存移走，强制本次从注入 URL 重新下载，teardown 再按 sha256 原样写回。
 
-2026-10-29 分段偏移 + 「对齐到本句」（代码基线 `4be375c42` + 未提交工作树；脚本同工作树）：单测 `./gradlew --console=plain :storage:preferences:test` **15/15**（新增：锚点从位置起生效、cue 时间查表可跳过片头广告、微调只改当前段、同位置替换保留更早起点、首句锚定覆盖整集开头、编辑夹紧不越过相邻段、重置清空、旧值迁移），`:app:test` 与 `./gradlew :app:assembleDebug` 通过。真机 Redmi 2407FRK8EC（`4LSGLZEYOFCQBIQC`）`bash scripts/transcript-tests/run.sh offset --media-id 1 --position 5000`：**20 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`。断言链：重置 0 → +30 显示 +30 → 「对齐到本句」胶囊 +5 且 `prefTranscriptTimeOffsets` 写成锚点数组 → 段内 +30 变 +35（只改当前段）→ 重置后锚点清空。截图 `offset_07.png` 确认标题栏「对齐到本句」+「重置」与胶囊排版正常。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261029-060434/`。
+2026-10-29 分段偏移 + 「对齐到本句」（代码基线 `6c9bdbbd1` + 未提交工作树；脚本同工作树）：单测 `./gradlew --console=plain :storage:preferences:test` **15/15**（新增：锚点从位置起生效、cue 时间查表可跳过片头广告、微调只改当前段、同位置替换保留更早起点、首句锚定覆盖整集开头、编辑夹紧不越过相邻段、重置清空、旧值迁移），`:app:test` 与 `./gradlew :app:assembleDebug` 通过。真机 Redmi 2407FRK8EC（`4LSGLZEYOFCQBIQC`）`bash scripts/transcript-tests/run.sh offset --media-id 1 --position 5000`：**20 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`。断言链：重置 0 → +30 显示 +30 → 「对齐到本句」胶囊 +5 且 `prefTranscriptTimeOffsets` 写成锚点数组 → 段内 +30 变 +35（只改当前段）→ 重置后锚点清空。截图 `offset_07.png` 确认标题栏「对齐到本句」+「重置」与胶囊排版正常。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261029-060434/`。
 本轮首跑失败过一次：测试运行期间编辑了 `run.sh`，bash 按字节偏移续读脚本，重复执行初始化并把 `BACKUP_OK` 重置，导致 teardown 跳过恢复、设备被留脏（媒体 1 的转录 URL 指向 `127.0.0.1:8765`）。已把该 URL 按 10-28 干净备份改回 `https://lzoreal.github.io/TMLT/transcripts/zh/899.vtt`，并核对 `integrity_check=ok`、测试 URL 0 条、偏好与备份逐字节一致；`adb reverse tcp:8765` 为运行前既有，未改动。见 §6 最后一行。
 
-2026-10-29 两步式点选对齐 + 长按整集对齐 + 实时播放位置（代码基线 `1da04a427` + 未提交工作树；脚本同工作树）：单测 `:storage:preferences:test` **16/16**（新增 `testStartOffsetReplacesEveryAnchor`），`./gradlew :app:assembleDebug` 通过。真机 Redmi 2407FRK8EC `run.sh offset --media-id 1 --position 5000`：**21 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`。断言链：重置 → +30 → 进点选模式 → 点“已显示的那句”被拦下（偏移不变、仍在点选模式）→ 段内 +30 只改当前段（+30 → +60）→ 长按按第一句对齐整集（胶囊 +70.1、只剩 0 处锚点）→ 重置清空。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261029-065626/`。此前设备上的 `{p:2959,o:1919},{p:17797,o:6037},{p:114307,o:-23}` 是旧单点版留下的实验锚点，长按一次即可覆盖。
+2026-10-29 两步式点选对齐 + 长按整集对齐 + 实时播放位置（代码基线 `ebb7366d1` + 未提交工作树；脚本同工作树）：单测 `:storage:preferences:test` **16/16**（新增 `testStartOffsetReplacesEveryAnchor`），`./gradlew :app:assembleDebug` 通过。真机 Redmi 2407FRK8EC `run.sh offset --media-id 1 --position 5000`：**21 PASS / 0 FAIL**，`restored integrity: ok`、`test urls left: 0`。断言链：重置 → +30 → 进点选模式 → 点“已显示的那句”被拦下（偏移不变、仍在点选模式）→ 段内 +30 只改当前段（+30 → +60）→ 长按按第一句对齐整集（胶囊 +70.1、只剩 0 处锚点）→ 重置清空。产物：`~/.qoder-cn/tmp/transcript-ondevice/run-20261029-065626/`。此前设备上的 `{p:2959,o:1919},{p:17797,o:6037},{p:114307,o:-23}` 是旧单点版留下的实验锚点，长按一次即可覆盖。
 
-2026-11-04 广告跳过与字幕联动（父基线 `a62649fd6` + 本次工作树；脚本未改）在 Redmi 2407FRK8EC（`4LSGLZEYOFCQBIQC`）上验证：单测 `:storage:preferences:testDebugUnitTest` **17/17**、`:playback:service:testFreeDebugUnitTest` **8/8**，`:app:assembleDebug` 通过。真机日志（`M3PlaybackService`）确认自动段跳过（`Skipped ad to 99914/111050`）与前台 Snackbar；通知最初不出现，`dumpsys package` 显示 `POST_NOTIFICATIONS: granted=false`、`dumpsys notification` 里应用 `importance=NONE`，授予后恢复 `DEFAULT`（代码已加权限判断，并在开启检测时请求）。首版重对齐在片头已有手动锚点时会把同一段广告算两遍（11128 的 `p=0,o=99600`），已改为按实际跳过位置计算并允许同 cue 时间的锚点；单测覆盖重叠段与首尾相接。**撤销通知与中段广告偏移的最终真机复测在提交后进行**。
+2026-11-04 广告跳过与字幕联动（父基线 `fde8895e6` + 本次工作树；脚本未改）在 Redmi 2407FRK8EC（`4LSGLZEYOFCQBIQC`）上验证：单测 `:storage:preferences:testDebugUnitTest` **17/17**、`:playback:service:testFreeDebugUnitTest` **8/8**，`:app:assembleDebug` 通过。真机日志（`M3PlaybackService`）确认自动段跳过（`Skipped ad to 99914/111050`）与前台 Snackbar；通知最初不出现，`dumpsys package` 显示 `POST_NOTIFICATIONS: granted=false`、`dumpsys notification` 里应用 `importance=NONE`，授予后恢复 `DEFAULT`（代码已加权限判断，并在开启检测时请求）。首版重对齐在片头已有手动锚点时会把同一段广告算两遍（11128 的 `p=0,o=99600`），已改为按实际跳过位置计算并允许同 cue 时间的锚点；单测覆盖重叠段与首尾相接。**撤销通知与中段广告偏移的最终真机复测在提交后进行**。
 
-2026-11-05 审查修复后的真机回归（代码基线 `82c210810`）：Redmi 2407FRK8EC 上重新安装并全量抓 logcat，media 8057 自动跳过 `409 -> 31754`（`tier=0 seg=128-31504`）、`skip undo shift=true`、`AdSkipController 1/1 skippable aggressive=true`，跳过后无异常/崩溃/生成失败；此前报告的“跳过广告时出现错误”在本构建未复现。同轮代码审查修复（`:asr:test` 111/111、`:app:assembleDebug` 通过）：停止会话不再回调 `COMPLETED`（避免误报完成并把事件记到切换后的新 mediaId）；后台收尾在窗口已覆盖时跳到首个缺口而不是空转；checkpoint 只覆盖识别器已定稿的音频；转录保存改为唯一临时文件 + rename 覆盖（消除缺文件窗口）；词时间夹在流区间内（不再回卷到上一段）；收尾 worker 每 5 秒让位于实时会话；守卫停止保留兜底排期；模型下载线程改用局部引用避免页面销毁后 NPE。
+2026-11-05 审查修复后的真机回归（代码基线 `8f335fd49`）：Redmi 2407FRK8EC 上重新安装并全量抓 logcat，media 8057 自动跳过 `409 -> 31754`（`tier=0 seg=128-31504`）、`skip undo shift=true`、`AdSkipController 1/1 skippable aggressive=true`，跳过后无异常/崩溃/生成失败；此前报告的“跳过广告时出现错误”在本构建未复现。同轮代码审查修复（`:asr:test` 111/111、`:app:assembleDebug` 通过）：停止会话不再回调 `COMPLETED`（避免误报完成并把事件记到切换后的新 mediaId）；后台收尾在窗口已覆盖时跳到首个缺口而不是空转；checkpoint 只覆盖识别器已定稿的音频；转录保存改为唯一临时文件 + rename 覆盖（消除缺文件窗口）；词时间夹在流区间内（不再回卷到上一段）；收尾 worker 每 5 秒让位于实时会话；守卫停止保留兜底排期；模型下载线程改用局部引用避免页面销毁后 NPE。
 
-2026-11-05 中文生成与居中真机迭代（代码基线 `c2e2c7d5f` + 未提交工作树）：① 中文高亮：分词把标点并回前一个中文字，`JsonTranscriptParser.locateToken` 容忍词间中文标点（旧转录也能恢复），`TranscriptWordMapper` 以汉字/中文标点为边界逐字映射；真机确认逐字高亮正常。② 居中：临时把当前词染红做判别，确认「当前词不在中线」根因是列表静止时 `OnPreDraw` 不再触发、跟随帧被吞；修复为 ticker 每周期重新确保跟随帧、首次载入即跟随、目标行变化直接吸附到**窗口垂直中点**。连续 30 秒截帧验证：跨行/跨段时红字落在中线 ±30px（y≈1338/1384，中线 1356）。③ 期间还修了：MIUI 省电守卫（`POWER_SAVE_MODE_OPEN`）、进程重启后 `currentMediaId=-1` 导致「继续生成」按钮缺失（持久化 id 兜底 + 服务侧同步）、模型下载 100% 后显示「正在解压并校验模型…」。**仍未验证**：WorkManager 后台收尾、in-app 模型下载端到端、投屏/温控守卫。
-2026-11-05 生成转录「新段填充后居中失效」修复（代码基线 `a1b3039e3` + 本轮工作树；真机 Redmi 2407FRK8EC `4LSGLZEYOFCQBIQC`）：根因是转录页高度回落时 `onLayoutChange` 反复调用 `applyTranscriptLayout()`，后者无条件 `setPadding` + `adapter.refreshLayout()`（`notifyDataSetChanged`），导致 RecyclerView 子 View 的 `getAdapterPosition()` 恒为 -1、follow 找不到高亮行；同时 pre-draw 里的 `scrollToPosition` 只是 pending，要等下一次外部布局，且 `handlePlaybackPosition` 在相邻段分支清掉了 `pendingSnapToHighlight`，跟随退化成每帧 10px 慢爬。修复：① `applyTranscriptLayout` 幂等（签名不变不 setPadding/notifyDataSetChanged，高度变化只更新末段占位）；② 目标行未布局时按半屏 `scrollBy` 步进，position 失效时节流重挂 adapter；③ 独立 250ms 跟随帧时钟（页面可见即跑，不依赖 Fragment RESUMED）+ Adapter 高亮变化请求帧 + ticker 1.5s 看门狗；④ 相邻段不再清 `pendingSnapToHighlight`。验证：`./gradlew --console=plain :app:testPlayDebugUnitTest --tests "de.danoeh.antennapod.ui.screen.playback.Transcript*"` 通过；45 秒屏幕录制跨越 2 次 ASR 新段写入（n=67→68、pos 66→67），逐帧亮/暗分界落在 y=1320–1400（当时为 50% 线 1356，行高 69px），`AsrFollow` 吸附前目标误差 ±69px、吸附后 0，`recover stale layout` 0 次；随后按需求把阅读线改为 **40%**（`ANCHOR_RATIO=0.40`），复测 `AsrFollow` 的 anchor=739（列表坐标，屏幕 1085=窗口 40%），目标行吸附后 err=0，截图当前词行落在 40% 线附近。**仍未处理**：当前词 accent 染色缺失（视频中文本区无 #3D8FF 近似色像素，词 span 映射有缺口），不在本次范围。
+2026-11-05 中文生成与居中真机迭代（代码基线 `8f335fd49` + 未提交工作树）：① 中文高亮：分词把标点并回前一个中文字，`JsonTranscriptParser.locateToken` 容忍词间中文标点（旧转录也能恢复），`TranscriptWordMapper` 以汉字/中文标点为边界逐字映射；真机确认逐字高亮正常。② 居中：临时把当前词染红做判别，确认「当前词不在中线」根因是列表静止时 `OnPreDraw` 不再触发、跟随帧被吞；修复为 ticker 每周期重新确保跟随帧、首次载入即跟随、目标行变化直接吸附到**窗口垂直中点**。连续 30 秒截帧验证：跨行/跨段时红字落在中线 ±30px（y≈1338/1384，中线 1356）。③ 期间还修了：MIUI 省电守卫（`POWER_SAVE_MODE_OPEN`）、进程重启后 `currentMediaId=-1` 导致「继续生成」按钮缺失（持久化 id 兜底 + 服务侧同步）、模型下载 100% 后显示「正在解压并校验模型…」。**仍未验证**：WorkManager 后台收尾、in-app 模型下载端到端、投屏/温控守卫。
+2026-11-05 生成转录「新段填充后居中失效」修复（代码基线 `0bacc031b` + 本轮工作树；真机 Redmi 2407FRK8EC `4LSGLZEYOFCQBIQC`）：根因是转录页高度回落时 `onLayoutChange` 反复调用 `applyTranscriptLayout()`，后者无条件 `setPadding` + `adapter.refreshLayout()`（`notifyDataSetChanged`），导致 RecyclerView 子 View 的 `getAdapterPosition()` 恒为 -1、follow 找不到高亮行；同时 pre-draw 里的 `scrollToPosition` 只是 pending，要等下一次外部布局，且 `handlePlaybackPosition` 在相邻段分支清掉了 `pendingSnapToHighlight`，跟随退化成每帧 10px 慢爬。修复：① `applyTranscriptLayout` 幂等（签名不变不 setPadding/notifyDataSetChanged，高度变化只更新末段占位）；② 目标行未布局时按半屏 `scrollBy` 步进，position 失效时节流重挂 adapter；③ 独立 250ms 跟随帧时钟（页面可见即跑，不依赖 Fragment RESUMED）+ Adapter 高亮变化请求帧 + ticker 1.5s 看门狗；④ 相邻段不再清 `pendingSnapToHighlight`。验证：`./gradlew --console=plain :app:testPlayDebugUnitTest --tests "de.danoeh.antennapod.ui.screen.playback.Transcript*"` 通过；45 秒屏幕录制跨越 2 次 ASR 新段写入（n=67→68、pos 66→67），逐帧亮/暗分界落在 y=1320–1400（当时为 50% 线 1356，行高 69px），`AsrFollow` 吸附前目标误差 ±69px、吸附后 0，`recover stale layout` 0 次；随后按需求把阅读线改为 **40%**（`ANCHOR_RATIO=0.40`），复测 `AsrFollow` 的 anchor=739（列表坐标，屏幕 1085=窗口 40%），目标行吸附后 err=0，截图当前词行落在 40% 线附近。**仍未处理**：当前词 accent 染色缺失（视频中文本区无 #3D8FF 近似色像素，词 span 映射有缺口），不在本次范围。
 
-2026-11-05 模型下载与后台收尾真机（代码基线 `bf9175347`）：① in-app 下载端到端通过——把已装模型目录改名后，转录页提示 134 MB、下载到临时目录、逐文件 SHA-256 校验、解压安装（encoder 155,278,641 / decoder 11,309,084 / joiner 2,581,422 / tokens 58,806 字节），随后自动开始生成；旧的中断临时目录已清理。② 后台收尾：`am force-stop` 会把应用置于 stopped 状态，JobScheduler 任务被暂缓，15 分钟后不会自行拉起；`am kill` 对带前台播放服务的进程无效，需先暂停播放再用 `run-as … kill -9`。进程死亡后到点的任务在**下次打开 App** 时立即执行（`AsrFinalizeWorker run media=8056 attempt=1`）。首次执行暴露并修复了续跑卡死：起点落在已覆盖区间内导致窗口全被覆盖、`decodedEnd` 不变、`onCaughtUp` 被去重，现改为从最大覆盖末尾（277.96s）开始（`AsrGenerationController` + `PreReadPcmPipeline.coverageEndMs()`，新增单测）。本机 MIUI 会暂缓后台 Job，因此“完全无人值守自动收尾”无法在本设备验证；“打开应用后补全”路径可用。
+2026-11-05 模型下载与后台收尾真机（代码基线 `8f335fd49`）：① in-app 下载端到端通过——把已装模型目录改名后，转录页提示 134 MB、下载到临时目录、逐文件 SHA-256 校验、解压安装（encoder 155,278,641 / decoder 11,309,084 / joiner 2,581,422 / tokens 58,806 字节），随后自动开始生成；旧的中断临时目录已清理。② 后台收尾：`am force-stop` 会把应用置于 stopped 状态，JobScheduler 任务被暂缓，15 分钟后不会自行拉起；`am kill` 对带前台播放服务的进程无效，需先暂停播放再用 `run-as … kill -9`。进程死亡后到点的任务在**下次打开 App** 时立即执行（`AsrFinalizeWorker run media=8056 attempt=1`）。首次执行暴露并修复了续跑卡死：起点落在已覆盖区间内导致窗口全被覆盖、`decodedEnd` 不变、`onCaughtUp` 被去重，现改为从最大覆盖末尾（277.96s）开始（`AsrGenerationController` + `PreReadPcmPipeline.coverageEndMs()`，新增单测）。本机 MIUI 会暂缓后台 Job，因此“完全无人值守自动收尾”无法在本设备验证；“打开应用后补全”路径可用。
 
-2026-11-02 悬浮窗词级滚动（工作树，父基线 `4be375c42` + 未提交工作树；脚本未改）：新增 `TranscriptScrollTimeline`，词级转录（JSON 带 `words`）时悬浮窗主行按当前词的时间/字符位置推进，替代「整句剩余时长匀速」；句级转录与译文行不变。真机反馈“不够平滑、要居中”后同轮修正：①字符位置改单调三次 Hermite（词边界速度连续）②位移按逐字前缀宽度做亚字符插值（不再整字跳）③`scrollX = clamp(当前字前缀宽 - contentWidth/2, 0, textWidth-contentWidth)`，当前词居中、首尾夹边。`./gradlew --console=plain :ui:transcript:testPlayDebugUnitTest` 全绿（`TranscriptScrollTimelineTest` 6 例，含“单调且无速度突变”），`:app:installPlayDebug` 通过。真机（2407FRK8EC，844 词级 JSON）：句首靠左、句中两端同时被裁切、切句回句首，未见崩溃；逐帧平滑度未做录屏量化。
+2026-11-02 悬浮窗词级滚动（工作树，父基线 `6c9bdbbd1` + 未提交工作树；脚本未改）：新增 `TranscriptScrollTimeline`，词级转录（JSON 带 `words`）时悬浮窗主行按当前词的时间/字符位置推进，替代「整句剩余时长匀速」；句级转录与译文行不变。真机反馈“不够平滑、要居中”后同轮修正：①字符位置改单调三次 Hermite（词边界速度连续）②位移按逐字前缀宽度做亚字符插值（不再整字跳）③`scrollX = clamp(当前字前缀宽 - contentWidth/2, 0, textWidth-contentWidth)`，当前词居中、首尾夹边。`./gradlew --console=plain :ui:transcript:testPlayDebugUnitTest` 全绿（`TranscriptScrollTimelineTest` 6 例，含“单调且无速度突变”），`:app:installPlayDebug` 通过。真机（2407FRK8EC，844 词级 JSON）：句首靠左、句中两端同时被裁切、切句回句首，未见崩溃；逐帧平滑度未做录屏量化。
 
 2026-11-04 在 Redmi 2407FRK8EC（`4LSGLZEYOFCQBIQC`）手工验证 x-asr 480ms 中英标点模型（未跑脚本套件，代码基线为当轮未提交工作树）：词级分词/标点/标点空格、段首游离 `▁.`、独立 `▁`、词级高亮、45% 居中（当前词行）、批量刷出后继续跟随、暂停/恢复均通过；`rule3=30s`、预读窗口 40s、400ms 回拨（用户体感刚好）。同时发现：开启“跳过广告”时会出现错误（未复现定位，列为下一优先项）。
 
