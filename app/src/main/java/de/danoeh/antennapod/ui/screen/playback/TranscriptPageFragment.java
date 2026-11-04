@@ -56,6 +56,7 @@ import de.danoeh.antennapod.model.playback.Playable;
 import de.danoeh.antennapod.parser.media.Mp3DurationScanner;
 import de.danoeh.antennapod.playback.service.PlaybackController;
 import de.danoeh.antennapod.storage.database.DBReader;
+import de.danoeh.antennapod.playback.service.PlaybackServiceInterface;
 import de.danoeh.antennapod.storage.preferences.PlaybackPreferences;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.ui.screen.playback.audio.AudioPlayerFragment;
@@ -1977,6 +1978,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             case STOPPED:
                 asrActive = false;
                 updateGenerateButtonVisibility();
+                if (event.stopReason != 0) {
+                    showToast(event.stopReason);
+                }
                 break;
             default:
                 break;
@@ -1987,8 +1991,11 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (viewBinding == null) {
             return;
         }
-        boolean support = currentMedia != null
-                && currentMedia.getLocalFileUrl() != null
+        boolean hasSource = currentMedia != null
+                && (currentMedia.getLocalFileUrl() != null
+                || (currentMedia.getStreamUrl() != null
+                && PlaybackServiceInterface.currentMediaId == currentMedia.getId()));
+        boolean support = hasSource
                 && (currentMedia.getItem() == null
                 || currentMedia.getItem().getTranscriptUrl() == null)
                 && AsrGenerationController.isSupported()
@@ -2091,8 +2098,11 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             showToast(R.string.transcript_generate_thermal);
             return;
         }
-        if (currentMedia.getLocalFileUrl() == null
-                || currentMedia.getTranscriptFileUrl() == null) {
+        boolean hasLocalFile = currentMedia.getLocalFileUrl() != null;
+        boolean streamingHere = currentMedia.getStreamUrl() != null
+                && PlaybackServiceInterface.currentMediaId == currentMedia.getId();
+        if (currentMedia.getGeneratedTranscriptFileUrl() == null
+                || (!hasLocalFile && !streamingHere)) {
             showToast(R.string.transcript_generate_needs_download);
             return;
         }

@@ -24,6 +24,7 @@ public class NotificationUtils {
     public static final String CHANNEL_ID_EPISODE_NOTIFICATIONS = "episode_notifications";
     public static final String CHANNEL_ID_AD_SCAN = "ad_scan";
     public static final String CHANNEL_ID_AD_SKIP = "ad_skip";
+    public static final String CHANNEL_ID_ASR_FINALIZE = "asr_finalize";
     private static final int NOTIFICATION_ID_AD_SCAN_RESULT = 0xAD01;
     private static final int NOTIFICATION_ID_AD_SKIP = 0xAD02;
 
@@ -47,8 +48,16 @@ public class NotificationUtils {
                 createChannelSyncError(context),
                 createChannelEpisodeNotification(context),
                 createChannelAdScan(context),
-                createChannelAdSkip(context));
+                createChannelAdSkip(context),
+                createChannelAsrFinalize(context));
         mNotificationManager.createNotificationChannelsCompat(channels);
+    }
+
+    private static NotificationChannelCompat createChannelAsrFinalize(final Context c) {
+        return new NotificationChannelCompat.Builder(
+                        CHANNEL_ID_ASR_FINALIZE, NotificationManagerCompat.IMPORTANCE_LOW)
+                .setName(c.getString(R.string.transcript_finalize_channel_name))
+                .build();
     }
 
     private static NotificationChannelCompat createChannelUserAction(final Context c) {
@@ -172,6 +181,16 @@ public class NotificationUtils {
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(context.getString(R.string.ad_scan_notification_title))
                 .setContentText(text)
+                .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build();
+    }
+
+    public static Notification createAsrFinalizeNotification(Context context) {
+        return new NotificationCompat.Builder(context, CHANNEL_ID_ASR_FINALIZE)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(context.getString(R.string.transcript_finalize_notification_title))
+                .setContentText(context.getString(R.string.transcript_finalize_notification_text))
                 .setOngoing(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build();

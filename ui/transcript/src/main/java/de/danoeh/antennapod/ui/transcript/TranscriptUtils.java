@@ -101,8 +101,8 @@ public class TranscriptUtils {
         }
 
         boolean staleLocalTranscript = false;
-        if (!forceRefresh && media.getTranscriptFileUrl() != null) {
-            File transcriptFile = new File(media.getTranscriptFileUrl());
+        if (!forceRefresh && media.getGeneratedTranscriptFileUrl() != null) {
+            File transcriptFile = new File(media.getGeneratedTranscriptFileUrl());
             if (transcriptFile.exists()) {
                 Transcript localTranscript = loadLocalTranscript(media, cacheKey);
                 if (localTranscript != null) {
@@ -135,10 +135,10 @@ public class TranscriptUtils {
     }
 
     private static Transcript loadLocalTranscript(FeedMedia media, String cacheKey) {
-        if (media.getTranscriptFileUrl() == null) {
+        if (media.getGeneratedTranscriptFileUrl() == null) {
             return null;
         }
-        File transcriptFile = new File(media.getTranscriptFileUrl());
+        File transcriptFile = new File(media.getGeneratedTranscriptFileUrl());
         if (!transcriptFile.exists() || transcriptFile.length() > MAX_TRANSCRIPT_BYTES
                 || !isTranscriptFileCurrent(media)) {
             return null;
@@ -228,7 +228,7 @@ public class TranscriptUtils {
     }
 
     private static String cacheKey(FeedMedia media) {
-        String fileUrl = media.getTranscriptFileUrl();
+        String fileUrl = media.getGeneratedTranscriptFileUrl();
         long lastModified = 0;
         if (fileUrl != null) {
             File file = new File(fileUrl);

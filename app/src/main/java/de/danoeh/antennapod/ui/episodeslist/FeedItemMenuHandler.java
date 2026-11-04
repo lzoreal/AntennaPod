@@ -313,7 +313,7 @@ public class FeedItemMenuHandler {
         if (media == null) {
             return false;
         }
-        String transcriptFile = media.getTranscriptFileUrl();
+        String transcriptFile = media.getGeneratedTranscriptFileUrl();
         if (transcriptFile == null) {
             return false;
         }

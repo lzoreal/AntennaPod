@@ -3,6 +3,7 @@ package de.danoeh.antennapod;
 import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import de.danoeh.antennapod.model.feed.FeedMedia;
 import de.danoeh.antennapod.net.download.service.episode.autodownload.AutoDownloadManagerImpl;
 import de.danoeh.antennapod.net.download.service.feed.FeedUpdateManagerImpl;
 import de.danoeh.antennapod.net.download.serviceinterface.AutoDownloadManager;
@@ -40,6 +41,7 @@ public class ClientConfigurator {
         } catch (PackageManager.NameNotFoundException e) {
             e.printStackTrace();
         }
+        FeedMedia.setGeneratedTranscriptDir(new File(context.getFilesDir(), "asr-transcripts"));
         PodDBAdapter.init(context);
         UserPreferences.init(context);
         SynchronizationCredentials.init(context);

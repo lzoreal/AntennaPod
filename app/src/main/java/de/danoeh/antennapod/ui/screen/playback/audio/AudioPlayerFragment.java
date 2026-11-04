@@ -243,7 +243,7 @@ public class AudioPlayerFragment extends Fragment implements
         if (media.hasTranscript()) {
             return true;
         }
-        String transcriptFile = media.getTranscriptFileUrl();
+        String transcriptFile = media.getGeneratedTranscriptFileUrl();
         if (transcriptFile == null) {
             return false;
         }

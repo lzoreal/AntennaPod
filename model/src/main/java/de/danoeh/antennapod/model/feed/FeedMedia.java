@@ -498,6 +498,29 @@ public class FeedMedia implements Playable {
         return id == feedMedia.id;
     }
 
+    private static volatile File generatedTranscriptDir;
+
+    /** Sets where generated transcripts of streaming episodes are kept. */
+    public static void setGeneratedTranscriptDir(@Nullable File dir) {
+        generatedTranscriptDir = dir;
+    }
+
+    /**
+     * Local sidecar for a generated transcript. Downloaded episodes keep it next to the audio file;
+     * streaming episodes use the app-owned directory and only when no official transcript exists.
+     */
+    @Nullable
+    public String getGeneratedTranscriptFileUrl() {
+        if (getTranscriptFileUrl() != null) {
+            return getTranscriptFileUrl();
+        }
+        File dir = generatedTranscriptDir;
+        if (dir == null || getItem() == null || getItem().getTranscriptUrl() != null) {
+            return null;
+        }
+        return new File(dir, getId() + ".transcript").getAbsolutePath();
+    }
+
     public String getTranscriptFileUrl() {
         if (getLocalFileUrl() == null) {
             return null;
@@ -512,6 +535,14 @@ public class FeedMedia implements Playable {
 
     public void deleteTranscriptFiles() {
         String transcriptFileUrl = getTranscriptFileUrl();
+        String generatedFileUrl = getGeneratedTranscriptFileUrl();
+        deleteTranscriptFile(transcriptFileUrl);
+        if (generatedFileUrl != null && !generatedFileUrl.equals(transcriptFileUrl)) {
+            deleteTranscriptFile(generatedFileUrl);
+        }
+    }
+
+    private static void deleteTranscriptFile(@Nullable String transcriptFileUrl) {
         if (transcriptFileUrl == null) {
             return;
         }
@@ -519,7 +550,7 @@ public class FeedMedia implements Playable {
         if (transcriptFile.exists()) {
             transcriptFile.delete();
         }
-        File metadataFile = new File(getTranscriptMetadataFileUrl());
+        File metadataFile = new File(transcriptFileUrl + ".source");
         if (metadataFile.exists()) {
             metadataFile.delete();
         }

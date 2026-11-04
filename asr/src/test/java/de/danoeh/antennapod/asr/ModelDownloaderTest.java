@@ -80,7 +80,8 @@ public class ModelDownloaderTest {
     public void downloadsAndInstallsAllFiles() throws IOException {
         File root = folder.newFolder("models");
         AsrModelStore store = new AsrModelStore(root);
-        AsrModelDescriptor descriptor = AsrModelCatalog.forLanguage(AsrModelLanguage.ZH);
+        AsrModelDescriptor descriptor = withoutChecksums(
+                AsrModelCatalog.forLanguage(AsrModelLanguage.ZH));
         byte[] body = archive(descriptor, Collections.emptySet());
         AtomicLong lastRead = new AtomicLong();
         AtomicLong reportedTotal = new AtomicLong();
@@ -211,5 +212,13 @@ public class ModelDownloaderTest {
         try (FileOutputStream output = new FileOutputStream(file)) {
             output.write(content.getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    /** The success path installs fake bytes, so the real pinned hashes cannot apply. */
+    private static AsrModelDescriptor withoutChecksums(AsrModelDescriptor catalog) {
+        return new AsrModelDescriptor(catalog.getLanguage(), catalog.getId(),
+                catalog.getDownloadUrl(), catalog.getDownloadSizeBytes(),
+                catalog.getEncoderFile(), catalog.getDecoderFile(), catalog.getJoinerFile(),
+                catalog.getTokensFile(), Collections.emptyMap());
     }
 }

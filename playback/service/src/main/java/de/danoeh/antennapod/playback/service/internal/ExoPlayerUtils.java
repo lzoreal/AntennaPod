@@ -71,6 +71,11 @@ public class ExoPlayerUtils {
                 .build();
     }
 
+    /** Cache instance used for streaming playback; null until a player has been built. */
+    public static SimpleCache getSimpleCache() {
+        return simpleCache;
+    }
+
     public static void releaseCache() {
         if (simpleCache != null) {
             simpleCache.release();

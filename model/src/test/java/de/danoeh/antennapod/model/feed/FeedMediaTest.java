@@ -1,5 +1,6 @@
 package de.danoeh.antennapod.model.feed;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -10,7 +11,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 
 import static de.danoeh.antennapod.model.feed.FeedMediaMother.anyFeedMedia;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -25,6 +28,38 @@ public class FeedMediaTest {
     @Before
     public void setUp() {
         media = anyFeedMedia();
+    }
+
+    @After
+    public void tearDown() {
+        FeedMedia.setGeneratedTranscriptDir(null);
+    }
+
+    @Test
+    public void generatedTranscriptUsesLocalSidecarWhenDownloaded() {
+        media.setLocalFileUrl(new File(temporaryFolder.getRoot(), "episode.mp3").getAbsolutePath());
+
+        assertEquals(media.getTranscriptFileUrl(), media.getGeneratedTranscriptFileUrl());
+    }
+
+    @Test
+    public void generatedTranscriptForStreamingUsesAppDirectory() throws Exception {
+        File dir = temporaryFolder.newFolder("asr");
+        FeedMedia.setGeneratedTranscriptDir(dir);
+        media.setItem(new FeedItem());
+
+        assertEquals(new File(dir, media.getId() + ".transcript").getAbsolutePath(),
+                media.getGeneratedTranscriptFileUrl());
+    }
+
+    @Test
+    public void generatedTranscriptIsHiddenWhenAnOfficialOneExists() throws Exception {
+        FeedMedia.setGeneratedTranscriptDir(temporaryFolder.newFolder("asr"));
+        FeedItem item = new FeedItem();
+        item.setTranscriptUrl("application/json", "http://example.com/episode.json");
+        media.setItem(item);
+
+        assertNull(media.getGeneratedTranscriptFileUrl());
     }
 
     @Test

@@ -318,6 +318,9 @@
     <string name="transcript_model_download_mobile_message">You are on mobile data. Continue downloading the speech model (%1$s)?</string>
     <string name="transcript_model_downloading_format">Downloading model… %1$d%%</string>
     <string name="transcript_model_size_mb">%1$d MB</string>
+    <string name="transcript_finalize_channel_name">Transcript generation</string>
+    <string name="transcript_finalize_notification_title">Generating transcript</string>
+    <string name="transcript_finalize_notification_text">Finishing the generated transcript in the background</string>
     <string name="transcript_model_download_failed">Speech model download failed</string>
     <string name="pref_asr_category">Transcript generation</string>
     <string name="pref_asr_lookahead_title">Look-ahead window</string>

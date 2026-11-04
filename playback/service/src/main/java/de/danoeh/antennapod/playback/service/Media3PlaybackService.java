@@ -396,7 +396,7 @@ public class Media3PlaybackService extends MediaLibraryService {
         if (media.hasTranscript()) {
             return true;
         }
-        String transcriptFile = media.getTranscriptFileUrl();
+        String transcriptFile = media.getGeneratedTranscriptFileUrl();
         if (transcriptFile == null) {
             return false;
         }
@@ -569,6 +569,8 @@ public class Media3PlaybackService extends MediaLibraryService {
 
         @Override
         public void onDeviceInfoChanged(@NonNull DeviceInfo deviceInfo) {
+            PlaybackServiceInterface.isCasting =
+                    deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE;
             if (deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) {
                 keepServiceRunningWhileCasting();
                 loadCurrentMediaWhileCasting();
@@ -617,6 +619,7 @@ public class Media3PlaybackService extends MediaLibraryService {
     @Override
     public void onDestroy() {
         PlaybackServiceInterface.isPlaying = false;
+        PlaybackServiceInterface.isCasting = false;
         cancelPositionObserver();
         if (sleepTimer != null) {
             sleepTimer.stop();

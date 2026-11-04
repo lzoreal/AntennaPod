@@ -1,8 +1,10 @@
 package de.danoeh.antennapod.ui.screen.playback;
 
 import android.content.Context;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -13,6 +15,7 @@ import org.greenrobot.eventbus.EventBus;
 
 import java.io.IOException;
 
+import de.danoeh.antennapod.R;
 import de.danoeh.antennapod.asr.AsrModelLanguage;
 import de.danoeh.antennapod.asr.AsrSegment;
 import de.danoeh.antennapod.model.feed.FeedMedia;
@@ -30,11 +33,17 @@ public final class AsrGenerationManager {
     private static long mediaId = -1;
     private static boolean running;
     private static long lastPosition;
+    private static Context appContext;
 
     private static final Runnable mediaCheck = new Runnable() {
         @Override
         public void run() {
             if (!running) {
+                return;
+            }
+            int guardStop = guardStopReason();
+            if (guardStop != 0) {
+                stopLocked(guardStop);
                 return;
             }
             long currentId = PlaybackServiceInterface.currentMediaId;
@@ -62,6 +71,8 @@ public final class AsrGenerationManager {
             stopLocked();
         }
         mediaId = targetId;
+        appContext = context.getApplicationContext();
+        AsrFinalizeScheduler.schedule(appContext, targetId);
         running = true;
         lastPosition = Math.max(0, media.getPosition());
         Log.i(TAG, "start media=" + targetId + " language=" + language
@@ -152,19 +163,27 @@ public final class AsrGenerationManager {
     }
 
     private static void stopLocked() {
+        stopLocked(0);
+    }
+
+    private static void stopLocked(int reasonRes) {
         if (!running && controller == null) {
             return;
         }
         final long stoppedId = mediaId;
         running = false;
         MAIN.removeCallbacks(mediaCheck);
-        AsrGenerationController current = controller;
+        final AsrGenerationController current = controller;
         controller = null;
         Log.i(TAG, "stop media=" + stoppedId);
+        if (appContext != null) {
+            AsrFinalizeScheduler.cancel(appContext, stoppedId);
+        }
         if (current != null) {
             current.stop();
         }
-        post(new AsrGenerationEvent(AsrGenerationEvent.Type.STOPPED, stoppedId, 0, null));
+        post(new AsrGenerationEvent(AsrGenerationEvent.Type.STOPPED, stoppedId, 0, null,
+                reasonRes));
     }
 
     private static synchronized void finish(AsrGenerationEvent.Type type,
@@ -174,7 +193,33 @@ public final class AsrGenerationManager {
         MAIN.removeCallbacks(mediaCheck);
         controller = null;
         Log.i(TAG, "finish media=" + finishedId + " type=" + type);
+        if (appContext != null) {
+            AsrFinalizeScheduler.cancel(appContext, finishedId);
+        }
         post(new AsrGenerationEvent(type, finishedId, 0, error));
+    }
+
+    /** Stops an active session when casting, battery saver or severe thermal throttling starts. */
+    private static int guardStopReason() {
+        if (PlaybackServiceInterface.isCasting) {
+            return R.string.transcript_generate_casting;
+        }
+        if (appContext == null) {
+            return 0;
+        }
+        PowerManager powerManager =
+                (PowerManager) appContext.getSystemService(Context.POWER_SERVICE);
+        if (powerManager == null) {
+            return 0;
+        }
+        if (powerManager.isPowerSaveMode()) {
+            return R.string.transcript_generate_power_saver;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                && powerManager.getCurrentThermalStatus() >= PowerManager.THERMAL_STATUS_SEVERE) {
+            return R.string.transcript_generate_thermal;
+        }
+        return 0;
     }
 
     private static void post(@NonNull AsrGenerationEvent event) {

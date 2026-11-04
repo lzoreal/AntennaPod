@@ -5,15 +5,19 @@ import android.os.Build;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.OptIn;
+import androidx.media3.common.util.UnstableApi;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
 import de.danoeh.antennapod.asr.AsrGenerationSession;
+import de.danoeh.antennapod.asr.CacheAudioSource;
 import de.danoeh.antennapod.asr.AsrModelCatalog;
 import de.danoeh.antennapod.asr.AsrModelLanguage;
 import de.danoeh.antennapod.asr.AsrModelStore;
@@ -28,10 +32,12 @@ import de.danoeh.antennapod.asr.SherpaRecognizerFactory;
 import de.danoeh.antennapod.asr.SherpaStreamingRecognizer;
 import de.danoeh.antennapod.asr.TranscriptCoverage;
 import de.danoeh.antennapod.model.feed.FeedMedia;
+import de.danoeh.antennapod.playback.service.internal.ExoPlayerUtils;
 import de.danoeh.antennapod.parser.media.Mp3DurationScanner;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
 
-/** Runs one generated-transcript session for a downloaded episode. */
+/** Runs one generated-transcript session for a downloaded or streaming episode. */
+@OptIn(markerClass = UnstableApi.class)
 public final class AsrGenerationController {
     private static final String TAG = "AsrGeneration";
     private static final long CUSHION_MS = 5000;
@@ -53,6 +59,8 @@ public final class AsrGenerationController {
     private final AsrModelLanguage language;
     private final LongSupplier playheadMs;
     private final Listener listener;
+    private final boolean finalizeToEnd;
+    private final AtomicLong finalizePlayhead = new AtomicLong(0);
     private final AsrModelStore modelStore;
     private final String modelId;
     private long durationMs;
@@ -68,11 +76,23 @@ public final class AsrGenerationController {
                                    @NonNull AsrModelLanguage language,
                                    @NonNull LongSupplier playheadMs,
                                    @NonNull Listener listener) {
+        this(context, media, language, playheadMs, listener, false);
+    }
+
+    /**
+     * @param finalizeToEnd decode every remaining gap as fast as possible instead of following
+     *                      the playback position (used by the background finalize worker)
+     */
+    public AsrGenerationController(@NonNull Context context, @NonNull FeedMedia media,
+                                   @NonNull AsrModelLanguage language,
+                                   @NonNull LongSupplier playheadMs,
+                                   @NonNull Listener listener, boolean finalizeToEnd) {
         this.context = context.getApplicationContext();
         this.media = media;
         this.language = language;
         this.playheadMs = playheadMs;
         this.listener = listener;
+        this.finalizeToEnd = finalizeToEnd;
         this.modelStore = modelStore(context);
         this.modelId = AsrModelCatalog.forLanguage(language).getId();
         this.durationMs = Math.max(0, media.getDuration());
@@ -109,14 +129,23 @@ public final class AsrGenerationController {
         if (running) {
             throw new IllegalStateException("generation is already running");
         }
-        if (media.getLocalFileUrl() == null || media.getTranscriptFileUrl() == null) {
-            throw new IOException("episode has no local audio file");
+        File localFile = media.getLocalFileUrl() == null ? null : new File(media.getLocalFileUrl());
+        String transcriptPath = media.getGeneratedTranscriptFileUrl();
+        if (transcriptPath == null) {
+            throw new IOException("episode has no transcript location");
         }
-        File localFile = new File(media.getLocalFileUrl());
-        durationMs = resolveDuration(localFile);
+        androidx.media3.datasource.cache.SimpleCache streamCache = null;
+        if (localFile == null) {
+            streamCache = ExoPlayerUtils.getSimpleCache();
+            if (streamCache == null || media.getStreamUrl() == null) {
+                throw new IOException("stream cache is not available");
+            }
+        }
+        durationMs = localFile != null ? resolveDuration(localFile) : Math.max(0, media.getDuration());
         Log.i(TAG, "start media=" + media.getId() + " language=" + language
-                + " duration=" + durationMs + " playhead=" + playheadMs.getAsLong());
-        transcriptStore = new AsrTranscriptStore(new File(media.getTranscriptFileUrl()));
+                + " duration=" + durationMs + " playhead=" + playheadMs.getAsLong()
+                + " streaming=" + (localFile == null));
+        transcriptStore = new AsrTranscriptStore(new File(transcriptPath));
         TranscriptCoverage coverage = new TranscriptCoverage();
         synchronized (segments) {
             segments.clear();
@@ -134,7 +163,11 @@ public final class AsrGenerationController {
         pipeline = new PreReadPcmPipeline(new MediaCodecPcmDecoder(),
                 new LookaheadPlanner(UserPreferences.getAsrLookaheadSeconds() * 1000L, CUSHION_MS),
                 SEEK_THRESHOLD_MS, coverage);
-        pipeline.open(new FileAudioSource(localFile));
+        if (localFile != null) {
+            pipeline.open(new FileAudioSource(localFile));
+        } else {
+            pipeline.open(new CacheAudioSource(streamCache, media.getStreamUrl()));
+        }
         if (stopRequested) {
             pipeline.close();
             return;
@@ -153,7 +186,8 @@ public final class AsrGenerationController {
             return;
         }
 
-        session = new AsrGenerationSession(pipeline, recognizer, playheadMs,
+        final LongSupplier sessionPlayhead = finalizeToEnd ? finalizePlayhead::get : playheadMs;
+        session = new AsrGenerationSession(pipeline, recognizer, sessionPlayhead,
                 new SessionListener(), IDLE_SLEEP_MS);
         running = true;
         Log.i(TAG, "Generation started for " + language);
@@ -189,6 +223,9 @@ public final class AsrGenerationController {
 
         @Override
         public void onCaughtUp(long decodedEndMs) {
+            if (finalizeToEnd) {
+                finalizePlayhead.set(decodedEndMs);
+            }
             Log.d(TAG, "caughtUp playhead=" + playheadMs.getAsLong()
                     + " decoded=" + decodedEndMs
                     + " coverage=" + pipeline.coverageRanges());

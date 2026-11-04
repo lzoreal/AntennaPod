@@ -206,6 +206,9 @@
     <string name="transcript_model_download_mobile_message">当前为移动网络，是否继续下载语音模型（%1$s）？</string>
     <string name="transcript_model_downloading_format">正在下载模型… %1$d%%</string>
     <string name="transcript_model_size_mb">%1$d MB</string>
+    <string name="transcript_finalize_channel_name">声音文字生成</string>
+    <string name="transcript_finalize_notification_title">正在生成声音文字</string>
+    <string name="transcript_finalize_notification_text">后台补全生成的声音文字</string>
     <string name="transcript_model_download_failed">语音模型下载失败</string>
     <string name="pref_asr_category">声音文字生成</string>
     <string name="pref_asr_lookahead_title">预读窗口</string>

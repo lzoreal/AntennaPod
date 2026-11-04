@@ -118,6 +118,7 @@ dependencies {
     implementation libs.google.material
     implementation libs.androidx.drawerlayout
     implementation libs.androidx.media3.common
+    implementation libs.androidx.media3.datasource
     implementation libs.androidx.media3.session
     implementation libs.androidx.media3.ui
     playImplementation libs.google.play.services.wearable
