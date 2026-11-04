@@ -20,15 +20,15 @@ public class AsrModelStoreTest {
     public void installedModelResolvesToItsFiles() throws IOException {
         File root = folder.newFolder("models");
         AsrModelStore store = new AsrModelStore(root);
-        File modelDir = store.modelDir(AsrModelLanguage.ZH);
+        File modelDir = store.modelDir();
         assertTrue(modelDir.mkdirs());
-        AsrModelDescriptor descriptor = store.descriptor(AsrModelLanguage.ZH);
+        AsrModelDescriptor descriptor = store.descriptor();
         for (String name : descriptor.getExpectedFiles()) {
             writeByte(new File(modelDir, name));
         }
 
-        assertTrue(store.isInstalled(AsrModelLanguage.ZH));
-        SherpaModelSpec spec = store.spec(AsrModelLanguage.ZH);
+        assertTrue(store.isInstalled());
+        SherpaModelSpec spec = store.spec();
         assertEquals(2, spec.getNumThreads());
         assertEquals(new File(modelDir, descriptor.getEncoderFile()).getAbsolutePath(),
                 spec.getEncoder());
@@ -40,29 +40,17 @@ public class AsrModelStoreTest {
     public void missingFilesMeanNotInstalled() throws IOException {
         File root = folder.newFolder("models");
         AsrModelStore store = new AsrModelStore(root);
-        File modelDir = store.modelDir(AsrModelLanguage.ZH);
+        File modelDir = store.modelDir();
         assertTrue(modelDir.mkdirs());
-        writeByte(new File(modelDir, store.descriptor(AsrModelLanguage.ZH).getEncoderFile()));
+        writeByte(new File(modelDir, store.descriptor().getEncoderFile()));
 
-        assertFalse(store.isInstalled(AsrModelLanguage.ZH));
+        assertFalse(store.isInstalled());
     }
 
     @Test(expected = IllegalStateException.class)
-    public void specForMissingLanguageFails() throws IOException {
+    public void specForMissingModelFails() throws IOException {
         AsrModelStore store = new AsrModelStore(folder.newFolder("models"));
-        store.spec(AsrModelLanguage.EN);
-    }
-
-    @Test
-    public void feedLanguageSelectsTheModel() {
-        AsrModelStore store = new AsrModelStore(folder.getRoot());
-
-        assertEquals(AsrModelLanguage.ZH,
-                store.languageForFeed("zh-CN", AsrModelLanguage.EN));
-        assertEquals(AsrModelLanguage.EN,
-                store.languageForFeed("en-GB", AsrModelLanguage.ZH));
-        assertEquals(AsrModelLanguage.ZH,
-                store.languageForFeed(null, AsrModelLanguage.ZH));
+        store.spec();
     }
 
     private static void writeByte(File file) throws IOException {

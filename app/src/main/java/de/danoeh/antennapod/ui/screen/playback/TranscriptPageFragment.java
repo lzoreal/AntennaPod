@@ -39,7 +39,6 @@ import androidx.recyclerview.widget.SimpleItemAnimator;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import de.danoeh.antennapod.R;
-import de.danoeh.antennapod.asr.AsrModelLanguage;
 import de.danoeh.antennapod.asr.AsrModelStore;
 import de.danoeh.antennapod.asr.ModelDownloader;
 import de.danoeh.antennapod.databinding.TranscriptPageFragmentBinding;
@@ -2109,16 +2108,15 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (currentMedia.getItem() != null && currentMedia.getItem().getTranscriptUrl() != null) {
             return;
         }
-        AsrModelLanguage language = AsrGenerationController.languageFor(currentMedia);
         AsrModelStore store = AsrGenerationController.modelStore(requireContext());
-        if (store.isInstalled(language)) {
-            startAsrSession(language);
+        if (store.isInstalled()) {
+            startAsrSession();
         } else {
-            promptModelDownload(store, language);
+            promptModelDownload(store);
         }
     }
 
-    private void promptModelDownload(AsrModelStore store, AsrModelLanguage language) {
+    private void promptModelDownload(AsrModelStore store) {
         Context context = getContext();
         if (context == null) {
             return;
@@ -2126,14 +2124,14 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         new AlertDialog.Builder(context)
                 .setTitle(R.string.transcript_model_download_title)
                 .setMessage(getString(R.string.transcript_model_download_message,
-                        modelSizeLabel(store, language)))
+                        modelSizeLabel(store)))
                 .setPositiveButton(android.R.string.ok,
-                        (dialog, which) -> confirmMobileDownload(store, language))
+                        (dialog, which) -> confirmMobileDownload(store))
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
     }
 
-    private void confirmMobileDownload(AsrModelStore store, AsrModelLanguage language) {
+    private void confirmMobileDownload(AsrModelStore store) {
         Context context = getContext();
         if (context == null) {
             return;
@@ -2145,26 +2143,26 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         boolean metered = capabilities != null
                 && !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
         if (!metered) {
-            downloadModel(store, language);
+            downloadModel(store);
             return;
         }
         new AlertDialog.Builder(context)
                 .setTitle(R.string.transcript_model_download_title)
                 .setMessage(getString(R.string.transcript_model_download_mobile_message,
-                        modelSizeLabel(store, language)))
+                        modelSizeLabel(store)))
                 .setPositiveButton(android.R.string.ok,
-                        (dialog, which) -> downloadModel(store, language))
+                        (dialog, which) -> downloadModel(store))
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
     }
 
-    private String modelSizeLabel(AsrModelStore store, AsrModelLanguage language) {
-        long bytes = store.descriptor(language).getDownloadSizeBytes();
+    private String modelSizeLabel(AsrModelStore store) {
+        long bytes = store.descriptor().getDownloadSizeBytes();
         return getString(R.string.transcript_model_size_mb,
                 Math.max(1, Math.round(bytes / 1_000_000.0)));
     }
 
-    private void downloadModel(AsrModelStore store, AsrModelLanguage language) {
+    private void downloadModel(AsrModelStore store) {
         if (asrActive || asrModelDownloading || viewBinding == null) {
             return;
         }
@@ -2177,7 +2175,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         viewBinding.btnGenerateTranscript.setText(R.string.transcript_generate_running);
         new Thread(() -> {
             try {
-                modelDownloader.download(language, (read, total) -> {
+                modelDownloader.download((read, total) -> {
                     if (total <= 0) {
                         return;
                     }
@@ -2195,7 +2193,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                     asrModelDownloading = false;
                     asrActive = false;
                     if (getContext() != null) {
-                        startAsrSession(language);
+                        startAsrSession();
                     }
                 });
             } catch (IOException e) {
@@ -2223,14 +2221,14 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
     }
 
-    private void startAsrSession(AsrModelLanguage language) {
+    private void startAsrSession() {
         if (asrActive || currentMedia == null || getContext() == null || viewBinding == null) {
             return;
         }
         asrActive = true;
         viewBinding.btnGenerateTranscript.setEnabled(false);
         viewBinding.btnGenerateTranscript.setText(R.string.transcript_generate_running);
-        AsrGenerationManager.start(requireContext().getApplicationContext(), currentMedia, language);
+        AsrGenerationManager.start(requireContext().getApplicationContext(), currentMedia);
     }
 
     private void reloadGeneratedTranscript() {

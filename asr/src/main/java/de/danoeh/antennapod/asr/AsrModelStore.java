@@ -27,18 +27,18 @@ public final class AsrModelStore {
     }
 
     @NonNull
-    public AsrModelDescriptor descriptor(@NonNull AsrModelLanguage language) {
-        return AsrModelCatalog.forLanguage(language);
+    public AsrModelDescriptor descriptor() {
+        return AsrModelCatalog.model();
     }
 
     @NonNull
-    public File modelDir(@NonNull AsrModelLanguage language) {
-        return new File(rootDir, descriptor(language).getId());
+    public File modelDir() {
+        return new File(rootDir, descriptor().getId());
     }
 
-    public boolean isInstalled(@NonNull AsrModelLanguage language) {
-        File dir = modelDir(language);
-        for (String fileName : descriptor(language).getExpectedFiles()) {
+    public boolean isInstalled() {
+        File dir = modelDir();
+        for (String fileName : descriptor().getExpectedFiles()) {
             File file = new File(dir, fileName);
             if (!file.isFile() || file.length() == 0) {
                 return false;
@@ -48,12 +48,12 @@ public final class AsrModelStore {
     }
 
     @NonNull
-    public SherpaModelSpec spec(@NonNull AsrModelLanguage language) {
-        if (!isInstalled(language)) {
-            throw new IllegalStateException("model is not installed: " + language);
+    public SherpaModelSpec spec() {
+        if (!isInstalled()) {
+            throw new IllegalStateException("model is not installed");
         }
-        AsrModelDescriptor descriptor = descriptor(language);
-        File dir = modelDir(language);
+        AsrModelDescriptor descriptor = descriptor();
+        File dir = modelDir();
         return new SherpaModelSpec(
                 new File(dir, descriptor.getEncoderFile()).getAbsolutePath(),
                 new File(dir, descriptor.getDecoderFile()).getAbsolutePath(),
@@ -61,10 +61,5 @@ public final class AsrModelStore {
                 new File(dir, descriptor.getTokensFile()).getAbsolutePath(),
                 "",
                 numThreads);
-    }
-
-    @NonNull
-    public AsrModelLanguage languageForFeed(String feedLanguage, @NonNull AsrModelLanguage fallback) {
-        return AsrModelLanguage.fromFeedLanguage(feedLanguage, fallback);
     }
 }

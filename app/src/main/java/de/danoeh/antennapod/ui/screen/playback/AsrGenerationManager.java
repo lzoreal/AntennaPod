@@ -16,7 +16,6 @@ import org.greenrobot.eventbus.EventBus;
 import java.io.IOException;
 
 import de.danoeh.antennapod.R;
-import de.danoeh.antennapod.asr.AsrModelLanguage;
 import de.danoeh.antennapod.asr.AsrSegment;
 import de.danoeh.antennapod.model.feed.FeedMedia;
 import de.danoeh.antennapod.playback.service.PlaybackServiceInterface;
@@ -41,7 +40,7 @@ public final class AsrGenerationManager {
             if (!running) {
                 return;
             }
-            int guardStop = guardStopReason();
+            int guardStop = guardStopReason(appContext);
             if (guardStop != 0) {
                 stopLocked(guardStop);
                 return;
@@ -61,8 +60,7 @@ public final class AsrGenerationManager {
     private AsrGenerationManager() {
     }
 
-    public static synchronized void start(@NonNull Context context, @NonNull FeedMedia media,
-                                          @NonNull AsrModelLanguage language) {
+    public static synchronized void start(@NonNull Context context, @NonNull FeedMedia media) {
         final long targetId = media.getId();
         if (running) {
             if (mediaId == targetId) {
@@ -75,8 +73,7 @@ public final class AsrGenerationManager {
         AsrFinalizeScheduler.schedule(appContext, targetId);
         running = true;
         lastPosition = Math.max(0, media.getPosition());
-        Log.i(TAG, "start media=" + targetId + " language=" + language
-                + " initial=" + lastPosition);
+        Log.i(TAG, "start media=" + targetId + " initial=" + lastPosition);
         post(new AsrGenerationEvent(AsrGenerationEvent.Type.STARTED, targetId, 0, null));
         MAIN.removeCallbacks(mediaCheck);
         MAIN.postDelayed(mediaCheck, MEDIA_CHECK_INTERVAL_MS);
@@ -100,7 +97,7 @@ public final class AsrGenerationManager {
                 }
                 Log.i(TAG, "controller start media=" + targetId + " pos=" + lastPosition);
                 AsrGenerationController newController = new AsrGenerationController(
-                        appContext, media, language,
+                        appContext, media,
                         () -> {
                             if (PlaybackServiceInterface.currentMediaId == targetId
                                     && PlaybackServiceInterface.currentPositionMs >= 0) {
@@ -200,15 +197,15 @@ public final class AsrGenerationManager {
     }
 
     /** Stops an active session when casting, battery saver or severe thermal throttling starts. */
-    private static int guardStopReason() {
+    static int guardStopReason(Context context) {
         if (PlaybackServiceInterface.isCasting) {
             return R.string.transcript_generate_casting;
         }
-        if (appContext == null) {
+        if (context == null) {
             return 0;
         }
         PowerManager powerManager =
-                (PowerManager) appContext.getSystemService(Context.POWER_SERVICE);
+                (PowerManager) context.getSystemService(Context.POWER_SERVICE);
         if (powerManager == null) {
             return 0;
         }

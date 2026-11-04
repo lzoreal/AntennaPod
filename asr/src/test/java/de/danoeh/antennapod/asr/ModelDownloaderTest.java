@@ -81,7 +81,7 @@ public class ModelDownloaderTest {
         File root = folder.newFolder("models");
         AsrModelStore store = new AsrModelStore(root);
         AsrModelDescriptor descriptor = withoutChecksums(
-                AsrModelCatalog.forLanguage(AsrModelLanguage.ZH));
+                AsrModelCatalog.model());
         byte[] body = archive(descriptor, Collections.emptySet());
         AtomicLong lastRead = new AtomicLong();
         AtomicLong reportedTotal = new AtomicLong();
@@ -92,12 +92,12 @@ public class ModelDownloaderTest {
                     reportedTotal.set(total);
                 });
 
-        assertTrue(store.isInstalled(AsrModelLanguage.ZH));
+        assertTrue(store.isInstalled());
         assertTrue(lastRead.get() > 0);
         assertEquals(body.length, reportedTotal.get());
         for (String name : descriptor.getExpectedFiles()) {
             assertEquals("content-" + name,
-                    read(new File(store.modelDir(AsrModelLanguage.ZH), name)));
+                    read(new File(store.modelDir(), name)));
         }
     }
 
@@ -105,13 +105,13 @@ public class ModelDownloaderTest {
     public void missingFileIsRejected() throws IOException {
         File root = folder.newFolder("models");
         AsrModelStore store = new AsrModelStore(root);
-        AsrModelDescriptor descriptor = AsrModelCatalog.forLanguage(AsrModelLanguage.ZH);
+        AsrModelDescriptor descriptor = AsrModelCatalog.model();
         byte[] body = archive(descriptor, Collections.singleton(descriptor.getJoinerFile()));
 
         assertThrows(IOException.class,
                 () -> new ModelDownloader(store, 2000, 5000).download(descriptor, serve(body), null));
 
-        assertFalse(store.isInstalled(AsrModelLanguage.ZH));
+        assertFalse(store.isInstalled());
         assertFalse(new File(root, descriptor.getId()).exists());
     }
 
@@ -119,9 +119,9 @@ public class ModelDownloaderTest {
     public void checksumMismatchIsRejected() throws IOException {
         File root = folder.newFolder("models");
         AsrModelStore store = new AsrModelStore(root);
-        AsrModelDescriptor catalog = AsrModelCatalog.forLanguage(AsrModelLanguage.ZH);
+        AsrModelDescriptor catalog = AsrModelCatalog.model();
         AsrModelDescriptor descriptor = new AsrModelDescriptor(
-                catalog.getLanguage(), catalog.getId(), catalog.getDownloadUrl(),
+                catalog.getId(), catalog.getDownloadUrl(),
                 catalog.getDownloadSizeBytes(),
                 catalog.getEncoderFile(), catalog.getDecoderFile(), catalog.getJoinerFile(),
                 catalog.getTokensFile(),
@@ -131,28 +131,28 @@ public class ModelDownloaderTest {
         assertThrows(IOException.class,
                 () -> new ModelDownloader(store, 2000, 5000).download(descriptor, serve(body), null));
 
-        assertFalse(store.isInstalled(AsrModelLanguage.ZH));
+        assertFalse(store.isInstalled());
     }
 
     @Test
     public void corruptArchiveIsRejected() throws IOException {
         File root = folder.newFolder("models");
         AsrModelStore store = new AsrModelStore(root);
-        AsrModelDescriptor descriptor = AsrModelCatalog.forLanguage(AsrModelLanguage.ZH);
+        AsrModelDescriptor descriptor = AsrModelCatalog.model();
         byte[] body = "not a tar.bz2 archive".getBytes(StandardCharsets.UTF_8);
 
         assertThrows(IOException.class,
                 () -> new ModelDownloader(store, 2000, 5000).download(descriptor, serve(body), null));
 
-        assertFalse(store.isInstalled(AsrModelLanguage.ZH));
+        assertFalse(store.isInstalled());
     }
 
     @Test
     public void installedModelSkipsTheNetwork() throws IOException {
         File root = folder.newFolder("models");
         AsrModelStore store = new AsrModelStore(root);
-        AsrModelDescriptor descriptor = AsrModelCatalog.forLanguage(AsrModelLanguage.ZH);
-        File modelDir = store.modelDir(AsrModelLanguage.ZH);
+        AsrModelDescriptor descriptor = AsrModelCatalog.model();
+        File modelDir = store.modelDir();
         assertTrue(modelDir.mkdirs());
         for (String name : descriptor.getExpectedFiles()) {
             write(new File(modelDir, name), "installed");
@@ -162,7 +162,7 @@ public class ModelDownloaderTest {
         new ModelDownloader(store, 2000, 5000)
                 .download(descriptor, "http://127.0.0.1:1/never", (read, total) -> progress.set(true));
 
-        assertTrue(store.isInstalled(AsrModelLanguage.ZH));
+        assertTrue(store.isInstalled());
         assertFalse(progress.get());
     }
 
@@ -216,7 +216,7 @@ public class ModelDownloaderTest {
 
     /** The success path installs fake bytes, so the real pinned hashes cannot apply. */
     private static AsrModelDescriptor withoutChecksums(AsrModelDescriptor catalog) {
-        return new AsrModelDescriptor(catalog.getLanguage(), catalog.getId(),
+        return new AsrModelDescriptor(catalog.getId(),
                 catalog.getDownloadUrl(), catalog.getDownloadSizeBytes(),
                 catalog.getEncoderFile(), catalog.getDecoderFile(), catalog.getJoinerFile(),
                 catalog.getTokensFile(), Collections.emptyMap());

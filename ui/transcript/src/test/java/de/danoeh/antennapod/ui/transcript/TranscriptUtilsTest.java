@@ -17,6 +17,7 @@ import org.robolectric.RobolectricTestRunner;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 
 import fi.iki.elonen.NanoHTTPD;
 import de.danoeh.antennapod.model.feed.FeedItem;
@@ -169,6 +170,29 @@ public class TranscriptUtilsTest {
         assertNotNull(transcript);
         assertEquals("hello", transcript.getSegmentAt(0).getWords());
         assertTrue(transcript.hasWordTimings());
+    }
+
+    @Test
+    public void generatedStreamingTranscriptIsLoadedFromAppDirectory() throws Exception {
+        File dir = temporaryFolder.newFolder("asr-transcripts");
+        FeedMedia.setGeneratedTranscriptDir(dir);
+        try {
+            FeedMedia media = media(99, null, null);
+            media.setLocalFileUrl(null);
+            String json = "{\"segments\":[{\"start\":1000,\"end\":2000,"
+                    + "\"text\":\"Hello\",\"words\":[[\"Hello\",1000,1000]]}]}";
+            Files.write(new File(dir, "99.transcript").toPath(),
+                    json.getBytes(StandardCharsets.UTF_8));
+            TranscriptUtils.clearCache();
+
+            Transcript transcript = TranscriptUtils.loadTranscript(media, false);
+
+            assertNotNull(transcript);
+            assertEquals(1, transcript.getSegmentCount());
+            assertEquals("Hello", transcript.getSegmentAt(0).getWords());
+        } finally {
+            FeedMedia.setGeneratedTranscriptDir(null);
+        }
     }
 
     private FeedMedia media(long id, String type, String url) throws Exception {

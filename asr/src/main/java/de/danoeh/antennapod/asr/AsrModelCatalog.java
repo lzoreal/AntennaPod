@@ -9,7 +9,6 @@ import java.util.Map;
 /** Pinned model packs. Upstream does not publish per-file SHA-256 values. */
 public final class AsrModelCatalog {
     private static final AsrModelDescriptor X_ASR = new AsrModelDescriptor(
-            AsrModelLanguage.EN,
             "sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8-2026-06-05",
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
                     + "sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8"
@@ -38,7 +37,7 @@ public final class AsrModelCatalog {
     }
 
     @NonNull
-    public static AsrModelDescriptor forLanguage(@NonNull AsrModelLanguage language) {
+    public static AsrModelDescriptor model() {
         return X_ASR;
     }
 }

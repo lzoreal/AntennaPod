@@ -11,7 +11,6 @@ import java.util.Map;
 
 /** Download location, archive layout and expected files of one model pack. */
 public final class AsrModelDescriptor {
-    private final AsrModelLanguage language;
     private final String id;
     private final String downloadUrl;
     private final long downloadSizeBytes;
@@ -21,12 +20,11 @@ public final class AsrModelDescriptor {
     private final String tokensFile;
     private final Map<String, String> sha256ByFile;
 
-    public AsrModelDescriptor(@NonNull AsrModelLanguage language, @NonNull String id,
+    public AsrModelDescriptor(@NonNull String id,
                               @NonNull String downloadUrl, long downloadSizeBytes,
                               @NonNull String encoderFile,
                               @NonNull String decoderFile, @NonNull String joinerFile,
                               @NonNull String tokensFile, @NonNull Map<String, String> sha256ByFile) {
-        this.language = language;
         this.id = requireText(id, "id");
         this.downloadUrl = requireText(downloadUrl, "downloadUrl");
         this.downloadSizeBytes = Math.max(0, downloadSizeBytes);
@@ -35,10 +33,6 @@ public final class AsrModelDescriptor {
         this.joinerFile = requireText(joinerFile, "joinerFile");
         this.tokensFile = requireText(tokensFile, "tokensFile");
         this.sha256ByFile = Collections.unmodifiableMap(new LinkedHashMap<>(sha256ByFile));
-    }
-
-    public AsrModelLanguage getLanguage() {
-        return language;
     }
 
     public String getId() {

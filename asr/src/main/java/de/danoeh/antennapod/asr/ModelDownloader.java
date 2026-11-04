@@ -58,9 +58,8 @@ public final class ModelDownloader {
         cancelled = true;
     }
 
-    public void download(@NonNull AsrModelLanguage language,
-                         @Nullable ProgressListener listener) throws IOException {
-        AsrModelDescriptor descriptor = store.descriptor(language);
+    public void download(@Nullable ProgressListener listener) throws IOException {
+        AsrModelDescriptor descriptor = store.descriptor();
         download(descriptor, descriptor.getDownloadUrl(), listener);
     }
 

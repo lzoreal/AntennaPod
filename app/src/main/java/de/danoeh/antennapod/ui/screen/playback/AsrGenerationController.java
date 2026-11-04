@@ -19,7 +19,6 @@ import java.util.function.LongSupplier;
 import de.danoeh.antennapod.asr.AsrGenerationSession;
 import de.danoeh.antennapod.asr.CacheAudioSource;
 import de.danoeh.antennapod.asr.AsrModelCatalog;
-import de.danoeh.antennapod.asr.AsrModelLanguage;
 import de.danoeh.antennapod.asr.AsrModelStore;
 import de.danoeh.antennapod.asr.AsrSegment;
 import de.danoeh.antennapod.asr.AsrTranscriptStore;
@@ -56,7 +55,6 @@ public final class AsrGenerationController {
 
     private final Context context;
     private final FeedMedia media;
-    private final AsrModelLanguage language;
     private final LongSupplier playheadMs;
     private final Listener listener;
     private final boolean finalizeToEnd;
@@ -73,10 +71,9 @@ public final class AsrGenerationController {
     private AsrGenerationSession session;
 
     public AsrGenerationController(@NonNull Context context, @NonNull FeedMedia media,
-                                   @NonNull AsrModelLanguage language,
                                    @NonNull LongSupplier playheadMs,
                                    @NonNull Listener listener) {
-        this(context, media, language, playheadMs, listener, false);
+        this(context, media, playheadMs, listener, false);
     }
 
     /**
@@ -84,17 +81,15 @@ public final class AsrGenerationController {
      *                      the playback position (used by the background finalize worker)
      */
     public AsrGenerationController(@NonNull Context context, @NonNull FeedMedia media,
-                                   @NonNull AsrModelLanguage language,
                                    @NonNull LongSupplier playheadMs,
                                    @NonNull Listener listener, boolean finalizeToEnd) {
         this.context = context.getApplicationContext();
         this.media = media;
-        this.language = language;
         this.playheadMs = playheadMs;
         this.listener = listener;
         this.finalizeToEnd = finalizeToEnd;
         this.modelStore = modelStore(context);
-        this.modelId = AsrModelCatalog.forLanguage(language).getId();
+        this.modelId = AsrModelCatalog.model().getId();
         this.durationMs = Math.max(0, media.getDuration());
     }
 
@@ -112,14 +107,6 @@ public final class AsrGenerationController {
         return new AsrModelStore(new File(context.getFilesDir(), "asr-models"));
     }
 
-    @NonNull
-    public static AsrModelLanguage languageFor(@NonNull FeedMedia media) {
-        String feedLanguage = media.getItem() != null && media.getItem().getFeed() != null
-                ? media.getItem().getFeed().getLanguage() : null;
-        AsrModelLanguage fallback = AsrModelLanguage.fromFeedLanguage(
-                Locale.getDefault().getLanguage(), AsrModelLanguage.EN);
-        return AsrModelLanguage.fromFeedLanguage(feedLanguage, fallback);
-    }
 
     public boolean isRunning() {
         return running;
@@ -142,7 +129,7 @@ public final class AsrGenerationController {
             }
         }
         durationMs = localFile != null ? resolveDuration(localFile) : Math.max(0, media.getDuration());
-        Log.i(TAG, "start media=" + media.getId() + " language=" + language
+        Log.i(TAG, "start media=" + media.getId()
                 + " duration=" + durationMs + " playhead=" + playheadMs.getAsLong()
                 + " streaming=" + (localFile == null));
         transcriptStore = new AsrTranscriptStore(new File(transcriptPath));
@@ -175,7 +162,7 @@ public final class AsrGenerationController {
 
         final SherpaStreamingRecognizer recognizer;
         try {
-            recognizer = SherpaRecognizerFactory.create(modelStore.spec(language));
+            recognizer = SherpaRecognizerFactory.create(modelStore.spec());
         } catch (RuntimeException e) {
             pipeline.close();
             throw new IOException("cannot load speech model", e);
@@ -190,7 +177,7 @@ public final class AsrGenerationController {
         session = new AsrGenerationSession(pipeline, recognizer, sessionPlayhead,
                 new SessionListener(), IDLE_SLEEP_MS);
         running = true;
-        Log.i(TAG, "Generation started for " + language);
+        Log.i(TAG, "Generation started");
         new Thread(session::run, "AsrGeneration").start();
     }
 

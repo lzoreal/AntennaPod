@@ -59,7 +59,7 @@ public class AsrFinalizeWorker extends Worker {
             // Streaming sources need the player cache; finalization only covers local files.
             return Result.success();
         }
-        if (isComplete(media)) {
+        if (isComplete(new File(media.getGeneratedTranscriptFileUrl()), media.getDuration())) {
             return Result.success();
         }
         try {
@@ -71,8 +71,8 @@ public class AsrFinalizeWorker extends Worker {
         final CountDownLatch finished = new CountDownLatch(1);
         final AtomicBoolean failed = new AtomicBoolean(false);
         AsrGenerationController controller = new AsrGenerationController(
-                getApplicationContext(), media, AsrGenerationController.languageFor(media),
-                () -> 0L, new AsrGenerationController.Listener() {
+                getApplicationContext(), media, () -> 0L,
+                new AsrGenerationController.Listener() {
                     @Override
                     public void onSegment(@NonNull AsrSegment segment) {
                     }
@@ -111,21 +111,19 @@ public class AsrFinalizeWorker extends Worker {
         return failed.get() ? Result.retry() : Result.success();
     }
 
-    private static boolean isComplete(FeedMedia media) {
-        AsrTranscriptStore store =
-                new AsrTranscriptStore(new File(media.getGeneratedTranscriptFileUrl()));
+    static boolean isComplete(File transcriptFile, long durationMs) {
+        AsrTranscriptStore store = new AsrTranscriptStore(transcriptFile);
         if (!store.hasTranscript()) {
             return false;
         }
         try {
             GeneratedTranscriptCheckpoint checkpoint = store.loadCheckpoint();
             List<MediaRange> ranges = checkpoint.getCoverage();
-            if (ranges.isEmpty()) {
+            if (ranges.isEmpty() || durationMs <= 0) {
                 return false;
             }
             long end = ranges.get(ranges.size() - 1).endMs();
-            return media.getDuration() > 0
-                    && end >= media.getDuration() - COMPLETE_MARGIN_MS;
+            return end >= durationMs - COMPLETE_MARGIN_MS;
         } catch (IOException e) {
             return false;
         }
