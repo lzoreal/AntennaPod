@@ -137,6 +137,10 @@ public abstract class UserPreferences {
     private static final String PREF_TRANSCRIPT_VERTICAL_SPACING = "prefTranscriptLayoutVerticalSpacing";
     private static final String PREF_TRANSCRIPT_SENTENCE_PER_LINE = "prefTranscriptSentencePerLine";
     public static final String PREF_TRANSCRIPT_LANGUAGE_MODE = "prefTranscriptLanguageMode";
+    public static final String PREF_ASR_LOOKAHEAD_SECONDS = "prefAsrLookaheadSeconds";
+    public static final int ASR_LOOKAHEAD_MIN_SECONDS = 10;
+    public static final int ASR_LOOKAHEAD_MAX_SECONDS = 120;
+    public static final int ASR_LOOKAHEAD_DEFAULT_SECONDS = 30;
     public static final int TRANSCRIPT_LANGUAGE_MODE_BOTH = 0;
     public static final int TRANSCRIPT_LANGUAGE_MODE_PRIMARY_ONLY = 1;
     public static final int TRANSCRIPT_LANGUAGE_MODE_SECONDARY_ONLY = 2;
@@ -1180,6 +1184,18 @@ public abstract class UserPreferences {
                 .putInt(PREF_FLOATING_TRANSCRIPT_X_DP, x)
                 .putInt(PREF_FLOATING_TRANSCRIPT_Y_DP, y)
                 .apply();
+    }
+
+    public static int getAsrLookaheadSeconds() {
+        int seconds = prefs.getInt(PREF_ASR_LOOKAHEAD_SECONDS, ASR_LOOKAHEAD_DEFAULT_SECONDS);
+        return Math.max(ASR_LOOKAHEAD_MIN_SECONDS,
+                Math.min(ASR_LOOKAHEAD_MAX_SECONDS, seconds));
+    }
+
+    public static void setAsrLookaheadSeconds(int seconds) {
+        int clamped = Math.max(ASR_LOOKAHEAD_MIN_SECONDS,
+                Math.min(ASR_LOOKAHEAD_MAX_SECONDS, seconds));
+        prefs.edit().putInt(PREF_ASR_LOOKAHEAD_SECONDS, clamped).apply();
     }
 
     public static boolean isFloatingTranscriptLocked() {

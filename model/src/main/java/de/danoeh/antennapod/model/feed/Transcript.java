@@ -9,6 +9,7 @@ public class Transcript {
     private final ArrayList<TranscriptSegment> segments = new ArrayList<>();
     private boolean bilingual = false;
     private boolean wordLevel = false;
+    private boolean generated = false;
     private long audioDurationMs = 0L;
 
     public void addSegment(TranscriptSegment segment) {
@@ -72,6 +73,14 @@ public class Transcript {
 
     public void setBilingual(boolean bilingual) {
         this.bilingual = bilingual;
+    }
+
+    public boolean isGenerated() {
+        return generated;
+    }
+
+    public void setGenerated(boolean generated) {
+        this.generated = generated;
     }
 
     public long getAudioDurationMs() {

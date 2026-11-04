@@ -14,6 +14,7 @@ import java.util.Map;
 import de.danoeh.antennapod.model.feed.FeedMedia;
 import de.danoeh.antennapod.net.common.AntennapodHttpClient;
 import de.danoeh.antennapod.model.feed.Transcript;
+import de.danoeh.antennapod.model.feed.TranscriptType;
 import de.danoeh.antennapod.parser.transcript.TranscriptParser;
 import okhttp3.CacheControl;
 import okhttp3.Request;
@@ -260,6 +261,10 @@ public class TranscriptUtils {
 
     private static Transcript parseTranscript(String text, String transcriptType) {
         Transcript transcript = TranscriptParser.parse(text, transcriptType);
+        if (transcript == null && TranscriptType.fromMime(transcriptType) == TranscriptType.NONE
+                && text.trim().startsWith("{")) {
+            transcript = TranscriptParser.parse(text, TranscriptType.JSON.canonicalMime);
+        }
         if (transcript != null && !transcript.isBilingual()) {
             transcript.setBilingual(hasBilingualSegments(transcript));
         }

@@ -1,0 +1,72 @@
+plugins {
+    alias(libs.plugins.android.library)
+}
+apply from: "../common.gradle"
+
+def sherpaAar = file('libs/sherpa-onnx-2.0.1.aar')
+def sherpaAarUrl = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/v2.0.1/sherpa-onnx-2.0.1.aar'
+def sherpaAarSha256 = 'a8d09d1d32f3eb8520482c6d3d43fae674681c5b050385967c70a3c2c9bf0ee7'
+
+android {
+    namespace "de.danoeh.antennapod.asr"
+}
+
+dependencies {
+    implementation project(':model')
+    implementation project(':parser:transcript')
+
+    implementation files(sherpaAar)
+    implementation libs.commons.compress
+    implementation libs.androidx.media3.datasource
+    implementation libs.androidx.annotation
+    annotationProcessor libs.androidx.annotation
+
+    testImplementation libs.junit
+    testImplementation libs.robolectric
+}
+
+tasks.register('prepareSherpaAar') {
+    outputs.upToDateWhen { false }
+    doLast {
+        if (sherpaAar.exists() && sha256(sherpaAar) == sherpaAarSha256) {
+            return
+        }
+        if (!sherpaAar.parentFile.exists() && !sherpaAar.parentFile.mkdirs()) {
+            throw new GradleException("Cannot create ${sherpaAar.parentFile}")
+        }
+        def temp = new File(sherpaAar.parentFile, sherpaAar.name + '.tmp')
+        if (temp.exists() && !temp.delete()) {
+            throw new GradleException("Cannot delete ${temp}")
+        }
+        new java.net.URL(sherpaAarUrl).withInputStream { input ->
+            temp.withOutputStream { output -> output << input }
+        }
+        def actual = sha256(temp)
+        if (actual != sherpaAarSha256) {
+            temp.delete()
+            throw new GradleException("sherpa AAR checksum mismatch: ${actual}")
+        }
+        if (sherpaAar.exists() && !sherpaAar.delete()) {
+            throw new GradleException("Cannot replace ${sherpaAar}")
+        }
+        if (!temp.renameTo(sherpaAar)) {
+            throw new GradleException("Cannot install ${sherpaAar}")
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    dependsOn 'prepareSherpaAar'
+}
+
+def sha256(File file) {
+    def digest = java.security.MessageDigest.getInstance('SHA-256')
+    file.withInputStream { input ->
+        byte[] buffer = new byte[64 * 1024]
+        int read
+        while ((read = input.read(buffer)) != -1) {
+            digest.update(buffer, 0, read)
+        }
+    }
+    return digest.digest().encodeHex().toString()
+}

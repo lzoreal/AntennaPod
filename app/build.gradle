@@ -54,10 +54,19 @@ android {
     androidResources {
         additionalParameters += ["--no-version-vectors"]
     }
+
+    packagingOptions {
+        jniLibs {
+            excludes += ["lib/armeabi-v7a/libsherpa-onnx-*.so",
+                         "lib/x86/libsherpa-onnx-*.so",
+                         "lib/x86_64/libsherpa-onnx-*.so"]
+        }
+    }
 }
 
 dependencies {
     implementation project(":event")
+    implementation project(":asr")
     implementation project(':model')
     implementation project(':net:common')
     implementation project(':net:discovery')

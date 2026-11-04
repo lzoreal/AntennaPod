@@ -309,4 +309,15 @@ public class JsonTranscriptParserTest {
         result = TranscriptParser.parse(jsonStr, type);
         assertEquals(result, null);
     }
+
+    @Test
+    public void testGeneratedTranscriptIsMarked() {
+        String json = "{\"version\":1,\"model\":\"sherpa\",\"segments\":["
+                + "{\"start\":0,\"end\":1000,\"text\":\"Hi\",\"words\":[[\"Hi\",0,1000]]}]}";
+
+        Transcript result = JsonTranscriptParser.parse(json);
+
+        assertNotNull(result);
+        assertTrue(result.isGenerated());
+    }
 }

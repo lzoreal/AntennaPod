@@ -2,13 +2,17 @@ package de.danoeh.antennapod.ui.screen.playback;
 
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.text.format.DateUtils;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -21,9 +25,11 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
+import androidx.media3.common.DeviceInfo;
 import androidx.media3.session.MediaController;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -32,6 +38,9 @@ import androidx.recyclerview.widget.SimpleItemAnimator;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import de.danoeh.antennapod.R;
+import de.danoeh.antennapod.asr.AsrModelLanguage;
+import de.danoeh.antennapod.asr.AsrModelStore;
+import de.danoeh.antennapod.asr.ModelDownloader;
 import de.danoeh.antennapod.databinding.TranscriptPageFragmentBinding;
 import de.danoeh.antennapod.event.FeedItemEvent;
 import de.danoeh.antennapod.event.FeedListUpdateEvent;
@@ -39,6 +48,7 @@ import de.danoeh.antennapod.event.PlayerStatusEvent;
 import de.danoeh.antennapod.event.playback.PlaybackPositionEvent;
 import de.danoeh.antennapod.model.feed.FeedItem;
 import de.danoeh.antennapod.model.feed.FeedMedia;
+import de.danoeh.antennapod.model.feed.Transcript;
 import de.danoeh.antennapod.model.feed.TranscriptSegment;
 import de.danoeh.antennapod.model.playback.MediaType;
 import de.danoeh.antennapod.model.playback.Playable;
@@ -55,6 +65,7 @@ import io.reactivex.rxjava3.core.Maybe;
 import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import java.io.File;
+import java.io.IOException;
 import java.text.DecimalFormat;
 import java.util.Locale;
 import java.util.Map;
@@ -99,6 +110,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         return true;
     };
     private long lastPositionMs = 0;
+    private volatile long lastRawPlayerPosition = -1;
+    private long lastSyncLogMs;
+    private int lastSyncLogSegment = -2;
     private volatile double transcriptTimeScale = 1.0;
     private long timeScaleGeneration = 0;
     private static final long MIN_DURATION_DIFF_MS = 250;
@@ -140,6 +154,14 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private MediaController mediaController;
     private boolean highlightTickerActive = false;
     private boolean highlightTickerDriving = false;
+    private static final long ASR_RELOAD_INTERVAL_MS = 1000;
+    private final Handler asrHandler = new Handler(Looper.getMainLooper());
+    private boolean asrActive;
+    private boolean asrModelDownloading;
+    private ModelDownloader modelDownloader;
+    private int lastModelPercent = -1;
+    private long lastAsrReloadMs;
+    private volatile int asrSessionToken;
     private final Runnable highlightTicker = new Runnable() {
         @Override
         public void run() {
@@ -149,23 +171,27 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             MediaController controller = mediaController;
             boolean playing = controller != null && controller.isConnected() && controller.isPlaying();
             if (playing) {
-                long position = toTranscriptTime(controller.getCurrentPosition());
+                long rawPosition = controller.getCurrentPosition();
+                lastRawPlayerPosition = rawPosition;
+                long position = toTranscriptTime(rawPosition);
                 setHighlightTickerDriving(true);
                 if (adapter != null) {
                     adapter.updatePlaybackPosition(position);
                 }
                 handlePlaybackPosition(position);
-            } else if (highlightTickerDriving) {
+            } else {
                 long playerPosition = controller != null && controller.isConnected()
                         ? controller.getCurrentPosition() : -1;
-                long position = playerPosition >= 0 ? toTranscriptTime(playerPosition) : -1;
-                setHighlightTickerDriving(false);
-                if (position >= 0) {
+                if (playerPosition >= 0 && playerPosition != lastRawPlayerPosition) {
+                    lastRawPlayerPosition = playerPosition;
+                    long position = toTranscriptTime(playerPosition);
+                    setHighlightTickerDriving(true);
                     if (adapter != null) {
                         adapter.updatePlaybackPosition(position);
                     }
                     handlePlaybackPosition(position);
                 }
+                setHighlightTickerDriving(false);
             }
             highlightHandler.postDelayed(this, highlightUpdateInterval());
         }
@@ -240,6 +266,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         viewBinding.btnLayoutReset.setOnClickListener(v -> resetTranscriptLayout());
         viewBinding.btnSegmentLoop.setOnClickListener(v -> toggleSegmentLoop());
         viewBinding.btnBackToCurrent.setOnClickListener(v -> returnToCurrentSentence());
+        viewBinding.btnGenerateTranscript.setOnClickListener(v -> startAsrGeneration());
+        viewBinding.btnContinueTranscript.setOnClickListener(v -> startAsrGeneration());
         viewBinding.btnLineBreakToggle.setContentDescription(
                 getString(R.string.transcript_line_break_description));
         viewBinding.btnImmersive.setOnClickListener(v -> {
@@ -280,6 +308,10 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         updateOffsetLabel();
         loadTranscript();
+        if (currentMedia != null) {
+            asrActive = AsrGenerationManager.isRunning(currentMedia.getId());
+            updateGenerateButtonVisibility();
+        }
     }
 
     @Override
@@ -365,6 +397,14 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         super.onDestroyView();
         stopFollowFrame();
         searchHandler.removeCallbacks(searchRunnable);
+        if (modelDownloader != null) {
+            modelDownloader.cancel();
+            modelDownloader = null;
+        }
+        asrSessionToken++;
+        asrActive = false;
+        asrModelDownloading = false;
+        asrHandler.removeCallbacksAndMessages(null);
         if (viewBinding != null) {
             stopSearchScrollFrame(viewBinding.recyclerView);
             viewBinding.recyclerView.setAdapter(null);
@@ -388,21 +428,21 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 && currentMedia.getId() == currentMediaId
                 && adapter != null && adapter.getItemCount() > 0) {
             viewBinding.progLoading.setVisibility(View.GONE);
-            viewBinding.emptyView.setVisibility(View.GONE);
+            viewBinding.emptyState.setVisibility(View.GONE);
             viewBinding.recyclerView.setVisibility(View.VISIBLE);
             if (!userScrolling) {
-                long offset = UserPreferences.getTranscriptTimeOffset(
-                        currentMedia.getId(), lastPositionMs);
-                int pos = currentMedia.getTranscript().findSegmentIndexBefore(lastPositionMs - offset);
+                long offset = transcriptOffsetAt(lastPositionMs);
+                int pos = currentSegmentIndex(lastPositionMs - offset);
                 adapter.setHighlightPosition(pos, lastPositionMs - offset);
                 scrollToPosition(pos);
             }
+            updateOffsetAvailability();
             return;
         }
 
         if (viewBinding != null && !forceReload) {
             viewBinding.progLoading.setVisibility(View.VISIBLE);
-            viewBinding.emptyView.setVisibility(View.GONE);
+            viewBinding.emptyState.setVisibility(View.GONE);
             viewBinding.recyclerView.setVisibility(View.GONE);
         }
 
@@ -449,21 +489,38 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (viewBinding == null) {
             return;
         }
+        if (currentMedia != null && currentMedia.getId() != media.getId()
+                && (AsrGenerationManager.isRunning(currentMedia.getId()) || asrModelDownloading)) {
+            asrSessionToken++;
+            AsrGenerationManager.stopIfRunningFor(currentMedia.getId());
+            if (modelDownloader != null) {
+                modelDownloader.cancel();
+                modelDownloader = null;
+            }
+            asrActive = false;
+            asrModelDownloading = false;
+        }
         if (currentMedia != null && currentMedia.getId() == media.getId()
                 && media.getTranscript() != null && adapter != null
                 && adapter.getItemCount() > 0
                 && currentMedia.getTranscript() == media.getTranscript()) {
             currentMedia = media;
+            asrActive = AsrGenerationManager.isRunning(media.getId());
             updateLoadedTranscriptSource(media);
             viewBinding.progLoading.setVisibility(View.GONE);
+            updateOffsetAvailability();
+            updateGenerateButtonVisibility();
             return;
         }
         if (searchActive) {
             closeSearch();
         }
         currentMedia = media;
+        asrActive = AsrGenerationManager.isRunning(media.getId());
         loadTranscriptTimeScale(media);
         updateLoadedTranscriptSource(media);
+        updateOffsetAvailability();
+        updateGenerateButtonVisibility();
         viewBinding.progLoading.setVisibility(View.GONE);
 
         if (currentMedia.getTranscript() == null) {
@@ -478,7 +535,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
 
-        viewBinding.emptyView.setVisibility(View.GONE);
+        viewBinding.emptyState.setVisibility(View.GONE);
         viewBinding.recyclerView.setVisibility(View.VISIBLE);
 
         adapter.setMedia(currentMedia);
@@ -488,8 +545,16 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         segmentLooping = false;
         loopSegmentIndex = -1;
         lastPositionMs = Math.max(0, toTranscriptTime(currentMedia.getPosition()));
-        long offset = UserPreferences.getTranscriptTimeOffset(currentMedia.getId(), lastPositionMs);
-        int initialPosition = currentMedia.getTranscript().findSegmentIndexBefore(lastPositionMs - offset);
+        MediaController controller = mediaController;
+        if (controller != null && controller.isConnected()) {
+            long playerPosition = controller.getCurrentPosition();
+            if (playerPosition >= 0) {
+                lastPositionMs = toTranscriptTime(playerPosition);
+                lastRawPlayerPosition = playerPosition;
+            }
+        }
+        long offset = transcriptOffsetAt(lastPositionMs);
+        int initialPosition = currentSegmentIndex(lastPositionMs - offset);
         adapter.setHighlightPosition(initialPosition);
         scrollToPosition(initialPosition);
         updateBackToCurrentVisibility();
@@ -510,7 +575,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         viewBinding.progLoading.setVisibility(View.GONE);
         viewBinding.recyclerView.setVisibility(View.GONE);
-        viewBinding.emptyView.setVisibility(View.VISIBLE);
+        viewBinding.emptyState.setVisibility(View.VISIBLE);
+        updateGenerateButtonVisibility();
+        updateOffsetAvailability();
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
@@ -562,6 +629,45 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         handlePlaybackPosition(toTranscriptTime(event.getPosition()));
     }
 
+    private void logSyncState(long position, int pos) {
+        long now = SystemClock.elapsedRealtime();
+        if (pos == lastSyncLogSegment && now - lastSyncLogMs < 2000) {
+            return;
+        }
+        lastSyncLogSegment = pos;
+        lastSyncLogMs = now;
+        if (currentMedia == null || currentMedia.getTranscript() == null) {
+            return;
+        }
+        Transcript transcript = currentMedia.getTranscript();
+        long offset = transcriptOffsetAt(position);
+        TranscriptSegment segment = pos >= 0 && pos < transcript.getSegmentCount()
+                ? transcript.getSegmentAt(pos) : null;
+        long segmentStart = segment == null ? -1 : segment.getStartTime();
+        long segmentEnd = segment == null ? -1 : segment.getEndTime();
+        int wordIndex = segment == null ? -1 : segment.getWordIndexAt(position - offset);
+        long wordStart = -1;
+        long wordEnd = -1;
+        if (segment != null && wordIndex >= 0 && wordIndex < segment.getWordTimings().size()) {
+            wordStart = segment.getWordTimings().get(wordIndex).getStartTime();
+            wordEnd = segment.getWordTimings().get(wordIndex).getEndTime();
+        }
+        long lastEnd = transcript.getSegmentCount() == 0 ? -1
+                : transcript.getSegmentAt(transcript.getSegmentCount() - 1).getEndTime();
+        Log.i("AsrSync", "raw=" + lastRawPlayerPosition
+                + " tx=" + position
+                + " scale=" + transcriptTimeScale
+                + " off=" + offset
+                + " gen=" + transcript.isGenerated()
+                + " seg=" + pos + "/" + transcript.getSegmentCount()
+                + " segStart=" + segmentStart
+                + " segEnd=" + segmentEnd
+                + " word=" + wordIndex
+                + " wordStart=" + wordStart
+                + " wordEnd=" + wordEnd
+                + " lastEnd=" + lastEnd);
+    }
+
     private void handlePlaybackPosition(long position) {
         if (position >= 0) {
             lastPositionMs = position;
@@ -574,9 +680,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             applySegmentLoop(position);
         }
 
-        int pos = currentMedia.getTranscript().findSegmentIndexBefore(
-                lastPositionMs - UserPreferences.getTranscriptTimeOffset(
-                        currentMedia.getId(), lastPositionMs));
+        int pos = currentSegmentIndex(lastPositionMs - transcriptOffsetAt(lastPositionMs));
+        logSyncState(lastPositionMs, pos);
         if (pos < 0) {
             return;
         }
@@ -805,12 +910,14 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     @Override
     public void onTranscriptClicked(int position, TranscriptSegment segment,
                                     long sentenceStartTime, long sentenceEndTime) {
+        Log.i("AsrSync", "click pos=" + position + " cue=" + sentenceStartTime + ".."
+                + sentenceEndTime + " raw=" + lastRawPlayerPosition);
         if (syncPickMode) {
             syncOffsetToPickedSentence(position, sentenceStartTime, sentenceEndTime);
             return;
         }
         long mediaId = currentMedia == null ? 0 : currentMedia.getId();
-        long offset = UserPreferences.getTranscriptTimeOffsetAtCueTime(mediaId, sentenceStartTime);
+        long offset = transcriptOffsetAtCue(sentenceStartTime);
         long startTime = sentenceStartTime + offset;
         long endTime = sentenceEndTime + offset;
 
@@ -1163,8 +1270,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         TranscriptSegment segment = currentMedia.getTranscript().getSegmentAt(loopSegmentIndex);
-        long offset = UserPreferences.getTranscriptTimeOffsetAtCueTime(
-                currentMedia.getId(), segment.getStartTime());
+        long offset = transcriptOffsetAtCue(segment.getStartTime());
         long startTime = Math.max(0, segment.getStartTime() + offset);
         long endTime = segment.getEndTime() + offset;
         if (endTime <= startTime) {
@@ -1279,6 +1385,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private void loadTranscriptTimeScale(FeedMedia media) {
         transcriptTimeScale = 1.0;
         final long generation = ++timeScaleGeneration;
+        if (media.getTranscript() != null && media.getTranscript().isGenerated()) {
+            return;
+        }
         final long reportedDuration = media.getDuration();
         if (reportedDuration <= 0) {
             return;
@@ -1710,5 +1819,299 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         viewBinding.btnTranslationToggle.setVisibility(isBilingual() ? View.VISIBLE : View.GONE);
         viewBinding.btnTranslationToggle.setAlpha(getLanguageMode() == TranscriptAdapter.LANGUAGE_MODE_BOTH
                 ? 1.0f : 0.5f);
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onAsrGenerationEvent(AsrGenerationEvent event) {
+        if (currentMedia == null || event.mediaId != currentMedia.getId()) {
+            return;
+        }
+        switch (event.type) {
+            case STARTED:
+                asrActive = true;
+                updateGenerateButtonVisibility();
+                break;
+            case SEGMENT:
+                asrActive = true;
+                long now = SystemClock.elapsedRealtime();
+                if (now - lastAsrReloadMs >= ASR_RELOAD_INTERVAL_MS) {
+                    lastAsrReloadMs = now;
+                    reloadGeneratedTranscript();
+                }
+                break;
+            case PROGRESS:
+                if (viewBinding != null && asrActive) {
+                    viewBinding.btnGenerateTranscript.setText(getString(
+                            R.string.transcript_generate_progress_format,
+                            DateUtils.formatElapsedTime(event.decodedEndMs / 1000)));
+                }
+                break;
+            case COMPLETED:
+                asrActive = false;
+                lastAsrReloadMs = 0;
+                updateGenerateButtonVisibility();
+                reloadGeneratedTranscript();
+                showToast(R.string.transcript_generate_done);
+                break;
+            case ERROR:
+                asrActive = false;
+                updateGenerateButtonVisibility();
+                showToast(R.string.transcript_generate_failed);
+                if (event.error != null) {
+                    Log.e(TAG, "ASR generation failed", event.error);
+                }
+                break;
+            case STOPPED:
+                asrActive = false;
+                updateGenerateButtonVisibility();
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void updateGenerateButtonVisibility() {
+        if (viewBinding == null) {
+            return;
+        }
+        boolean support = currentMedia != null
+                && currentMedia.getLocalFileUrl() != null
+                && (currentMedia.getItem() == null
+                || currentMedia.getItem().getTranscriptUrl() == null)
+                && AsrGenerationController.isSupported()
+                && !isCasting();
+        boolean available = viewBinding.emptyState.getVisibility() == View.VISIBLE && support;
+        viewBinding.btnGenerateTranscript.setVisibility(available ? View.VISIBLE : View.GONE);
+        if (available) {
+            viewBinding.btnGenerateTranscript.setEnabled(!asrActive && !asrModelDownloading);
+            if (!asrActive && !asrModelDownloading) {
+                viewBinding.btnGenerateTranscript.setText(R.string.transcript_generate);
+            } else if (!asrModelDownloading) {
+                viewBinding.btnGenerateTranscript.setText(R.string.transcript_generate_running);
+            }
+        }
+
+        boolean continueVisible = false;
+        if (support && viewBinding.emptyState.getVisibility() != View.VISIBLE
+                && currentMedia.getTranscript() != null
+                && currentMedia.getTranscript().isGenerated()
+                && !AsrGenerationManager.isRunning(currentMedia.getId())) {
+            int segmentCount = currentMedia.getTranscript().getSegmentCount();
+            long lastEnd = segmentCount == 0 ? 0
+                    : currentMedia.getTranscript().getSegmentAt(segmentCount - 1).getEndTime();
+            long duration = currentMedia.getTranscript().getAudioDurationMs();
+            continueVisible = duration <= 0 || lastEnd < duration - 5000;
+        }
+        viewBinding.btnContinueTranscript.setVisibility(continueVisible ? View.VISIBLE : View.GONE);
+    }
+
+    private boolean isCasting() {
+        MediaController controller = mediaController;
+        return controller != null && controller.isConnected()
+                && controller.getDeviceInfo().playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE;
+    }
+
+    private int currentSegmentIndex(long time) {
+        if (currentMedia == null || currentMedia.getTranscript() == null) {
+            return -1;
+        }
+        Transcript transcript = currentMedia.getTranscript();
+        int index = transcript.findSegmentIndexBefore(time);
+        if (index >= 0 && transcript.getSegmentAt(index).getEndTime() < time
+                && index + 1 < transcript.getSegmentCount()) {
+            return index + 1;
+        }
+        return index;
+    }
+
+    private boolean isGeneratedTranscript() {
+        return currentMedia != null && currentMedia.getTranscript() != null
+                && currentMedia.getTranscript().isGenerated();
+    }
+
+    private long transcriptOffsetAt(long positionMs) {
+        if (currentMedia == null || isGeneratedTranscript()) {
+            return 0;
+        }
+        return UserPreferences.getTranscriptTimeOffset(currentMedia.getId(), positionMs);
+    }
+
+    private long transcriptOffsetAtCue(long cueTimeMs) {
+        if (currentMedia == null || isGeneratedTranscript()) {
+            return 0;
+        }
+        return UserPreferences.getTranscriptTimeOffsetAtCueTime(currentMedia.getId(), cueTimeMs);
+    }
+
+    private void updateOffsetAvailability() {
+        if (viewBinding == null) {
+            return;
+        }
+        boolean hide = currentMedia == null || currentMedia.getTranscript() == null
+                || currentMedia.getTranscript().isGenerated();
+        viewBinding.btnOffsetToggle.setVisibility(hide ? View.GONE : View.VISIBLE);
+        if (hide) {
+            viewBinding.offsetControls.setVisibility(View.GONE);
+        }
+    }
+
+    private void startAsrGeneration() {
+        if (asrActive || asrModelDownloading || currentMedia == null || getContext() == null) {
+            return;
+        }
+        if (!AsrGenerationController.isSupported()) {
+            showToast(R.string.transcript_generate_not_supported);
+            return;
+        }
+        if (isCasting()) {
+            showToast(R.string.transcript_generate_casting);
+            return;
+        }
+        Context context = getContext();
+        PowerManager powerManager = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        if (powerManager != null && powerManager.isPowerSaveMode()) {
+            showToast(R.string.transcript_generate_power_saver);
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && powerManager != null
+                && powerManager.getCurrentThermalStatus() >= PowerManager.THERMAL_STATUS_SEVERE) {
+            showToast(R.string.transcript_generate_thermal);
+            return;
+        }
+        if (currentMedia.getLocalFileUrl() == null
+                || currentMedia.getTranscriptFileUrl() == null) {
+            showToast(R.string.transcript_generate_needs_download);
+            return;
+        }
+        if (currentMedia.getItem() != null && currentMedia.getItem().getTranscriptUrl() != null) {
+            return;
+        }
+        AsrModelLanguage language = AsrGenerationController.languageFor(currentMedia);
+        AsrModelStore store = AsrGenerationController.modelStore(requireContext());
+        if (store.isInstalled(language)) {
+            startAsrSession(language);
+        } else {
+            promptModelDownload(store, language);
+        }
+    }
+
+    private void promptModelDownload(AsrModelStore store, AsrModelLanguage language) {
+        Context context = getContext();
+        if (context == null) {
+            return;
+        }
+        new AlertDialog.Builder(context)
+                .setTitle(R.string.transcript_model_download_title)
+                .setMessage(R.string.transcript_model_download_message)
+                .setPositiveButton(android.R.string.ok,
+                        (dialog, which) -> confirmMobileDownload(store, language))
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private void confirmMobileDownload(AsrModelStore store, AsrModelLanguage language) {
+        Context context = getContext();
+        if (context == null) {
+            return;
+        }
+        ConnectivityManager manager =
+                (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkCapabilities capabilities = manager == null ? null
+                : manager.getNetworkCapabilities(manager.getActiveNetwork());
+        boolean metered = capabilities != null
+                && !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
+        if (!metered) {
+            downloadModel(store, language);
+            return;
+        }
+        new AlertDialog.Builder(context)
+                .setTitle(R.string.transcript_model_download_title)
+                .setMessage(R.string.transcript_model_download_mobile_message)
+                .setPositiveButton(android.R.string.ok,
+                        (dialog, which) -> downloadModel(store, language))
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private void downloadModel(AsrModelStore store, AsrModelLanguage language) {
+        if (asrActive || asrModelDownloading || viewBinding == null) {
+            return;
+        }
+        asrActive = true;
+        asrModelDownloading = true;
+        lastModelPercent = -1;
+        final int downloadToken = asrSessionToken;
+        modelDownloader = new ModelDownloader(store);
+        viewBinding.btnGenerateTranscript.setEnabled(false);
+        viewBinding.btnGenerateTranscript.setText(R.string.transcript_generate_running);
+        new Thread(() -> {
+            try {
+                modelDownloader.download(language, (read, total) -> {
+                    if (total <= 0) {
+                        return;
+                    }
+                    int percent = (int) (read * 100 / total);
+                    if (percent != lastModelPercent) {
+                        lastModelPercent = percent;
+                        asrHandler.post(() -> updateModelDownloadProgress(percent));
+                    }
+                });
+                asrHandler.post(() -> {
+                    if (downloadToken != asrSessionToken) {
+                        return;
+                    }
+                    modelDownloader = null;
+                    asrModelDownloading = false;
+                    asrActive = false;
+                    if (getContext() != null) {
+                        startAsrSession(language);
+                    }
+                });
+            } catch (IOException e) {
+                asrHandler.post(() -> {
+                    if (downloadToken != asrSessionToken) {
+                        return;
+                    }
+                    modelDownloader = null;
+                    asrModelDownloading = false;
+                    asrActive = false;
+                    if (viewBinding != null) {
+                        updateGenerateButtonVisibility();
+                    }
+                    showToast(R.string.transcript_model_download_failed);
+                    Log.e(TAG, "Model download failed", e);
+                });
+            }
+        }, "AsrModelDownload").start();
+    }
+
+    private void updateModelDownloadProgress(int percent) {
+        if (viewBinding != null && asrModelDownloading) {
+            viewBinding.btnGenerateTranscript.setText(
+                    getString(R.string.transcript_model_downloading_format, percent));
+        }
+    }
+
+    private void startAsrSession(AsrModelLanguage language) {
+        if (asrActive || currentMedia == null || getContext() == null || viewBinding == null) {
+            return;
+        }
+        asrActive = true;
+        viewBinding.btnGenerateTranscript.setEnabled(false);
+        viewBinding.btnGenerateTranscript.setText(R.string.transcript_generate_running);
+        AsrGenerationManager.start(requireContext().getApplicationContext(), currentMedia, language);
+    }
+
+    private void reloadGeneratedTranscript() {
+        if (viewBinding != null && currentMedia != null) {
+            loadTranscript(true);
+        }
+    }
+
+    private void showToast(int resId) {
+        Context context = getContext();
+        if (context != null) {
+            Toast.makeText(context, resId, Toast.LENGTH_SHORT).show();
+        }
     }
 }

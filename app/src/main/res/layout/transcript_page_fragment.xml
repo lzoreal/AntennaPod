@@ -175,13 +175,30 @@
             android:layout_gravity="center"
             android:visibility="gone" />
 
-        <TextView
-            android:id="@+id/emptyView"
+        <LinearLayout
+            android:id="@+id/emptyState"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            android:text="@string/no_transcript_label"
-            android:visibility="gone" />
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/emptyView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/no_transcript_label" />
+
+            <Button
+                android:id="@+id/btnGenerateTranscript"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/transcript_generate"
+                android:textAllCaps="false"
+                android:visibility="gone" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/btnBackToCurrent"
@@ -194,6 +211,21 @@
             android:paddingStart="16dp"
             android:paddingEnd="16dp"
             android:text="@string/transcript_back_to_current"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/btnContinueTranscript"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="60dp"
+            android:background="@drawable/bg_transcript_offset_button"
+            android:gravity="center"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:text="@string/transcript_continue"
             android:textColor="?android:attr/textColorPrimary"
             android:textSize="13sp"
             android:visibility="gone" />

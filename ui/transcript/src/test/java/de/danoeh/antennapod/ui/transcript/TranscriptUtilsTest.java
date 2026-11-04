@@ -156,6 +156,21 @@ public class TranscriptUtilsTest {
         assertEquals("Hello", transcript.getSegmentAt(0).getWords());
     }
 
+    @Test
+    public void testGeneratedJsonWithoutTypeIsParsed() throws Exception {
+        FeedMedia media = media(9, null, null);
+        String json = "{\"segments\":[{\"start\":0,\"end\":1000,\"text\":\"hello\","
+                + "\"words\":[[\"hello\",0,1000]]}]}";
+        FileUtils.writeStringToFile(new File(media.getTranscriptFileUrl()), json,
+                StandardCharsets.UTF_8);
+
+        Transcript transcript = TranscriptUtils.loadTranscript(media, false);
+
+        assertNotNull(transcript);
+        assertEquals("hello", transcript.getSegmentAt(0).getWords());
+        assertTrue(transcript.hasWordTimings());
+    }
+
     private FeedMedia media(long id, String type, String url) throws Exception {
         FeedItem item = new FeedItem();
         item.setId(id);

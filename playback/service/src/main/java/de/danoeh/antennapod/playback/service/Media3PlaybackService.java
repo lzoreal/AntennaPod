@@ -139,6 +139,7 @@ public class Media3PlaybackService extends MediaLibraryService {
             if (adSkipController != null && exoPlayer != null && exoPlayer.isPlaying() && !isCasting()) {
                 long position = exoPlayer.getCurrentPosition();
                 lastPlayerPositionMs = position;
+                PlaybackServiceInterface.currentPositionMs = position;
                 Long target = adSkipController.skipAt(position);
                 if (target != null) {
                     exoPlayer.seekTo(target);
@@ -473,6 +474,11 @@ public class Media3PlaybackService extends MediaLibraryService {
         @Override
         public void onPositionDiscontinuity(@NonNull Player.PositionInfo oldPosition,
                                             @NonNull Player.PositionInfo newPosition, int reason) {
+            Log.i(TAG, "Position discontinuity reason=" + reason
+                    + " old=" + oldPosition.positionMs
+                    + " new=" + newPosition.positionMs
+                    + " newMedia=" + (newPosition.mediaItem == null
+                    ? "null" : newPosition.mediaItem.mediaId));
             if ((reason != Player.DISCONTINUITY_REASON_SEEK && reason != Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT)
                     || currentPlayable == null || oldPosition.mediaItem == null || newPosition.mediaItem == null
                     || !oldPosition.mediaItem.mediaId.equals(newPosition.mediaItem.mediaId)
@@ -481,6 +487,7 @@ public class Media3PlaybackService extends MediaLibraryService {
             }
             checkpointPlayedDuration((int) oldPosition.positionMs);
             playedDurationCountedUntil = (int) newPosition.positionMs;
+            PlaybackServiceInterface.currentPositionMs = newPosition.positionMs;
             if (adSkipController != null) {
                 adSkipController.onUserSeek(newPosition.positionMs);
             }
@@ -492,12 +499,14 @@ public class Media3PlaybackService extends MediaLibraryService {
         @Override
         public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
             PlaybackServiceInterface.isPlaying = !Util.shouldShowPlayButton(player);
+            PlaybackServiceInterface.currentPositionMs = player.getCurrentPosition();
             updatePlaybackPreferences();
         }
 
         @Override
         public void onIsPlayingChanged(boolean isPlaying) {
             PlaybackServiceInterface.isPlaying = !Util.shouldShowPlayButton(player);
+            PlaybackServiceInterface.currentPositionMs = player.getCurrentPosition();
             if (isPlaying && adSkipController != null) {
                 adSkipHandler.removeCallbacks(adSkipTick);
                 adSkipHandler.postDelayed(adSkipTick, 250);
@@ -784,6 +793,8 @@ public class Media3PlaybackService extends MediaLibraryService {
         currentPlayable = media;
         adStreamMediaId = media.getId();
         lastPlayerPositionMs = Math.max(media.getPosition(), 0);
+        PlaybackServiceInterface.currentMediaId = media.getId();
+        PlaybackServiceInterface.currentPositionMs = lastPlayerPositionMs;
         if (media.getId() != adSkipMediaId) {
             adSkipMediaId = media.getId();
             adSkipHandler.removeCallbacks(adSkipTick);

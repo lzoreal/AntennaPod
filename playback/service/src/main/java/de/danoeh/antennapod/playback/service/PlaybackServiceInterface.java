@@ -30,6 +30,10 @@ public abstract class PlaybackServiceInterface {
      */
     public static boolean isPlaying = false;
 
+    /** Media id and position shared with in-process consumers such as transcript generation. */
+    public static volatile long currentMediaId = -1;
+    public static volatile long currentPositionMs = -1;
+
     public static Intent getPlayerActivityIntent(Context context, Playable media) {
         if (media.getMediaType() == MediaType.VIDEO) {
             return new VideoPlayerActivityStarter(context).getIntent();

@@ -22,6 +22,20 @@ public class UserPreferencesTest {
     }
 
     @Test
+    public void asrLookaheadIsClamped() {
+        UserPreferences.setAsrLookaheadSeconds(5);
+        assertEquals(UserPreferences.ASR_LOOKAHEAD_MIN_SECONDS,
+                UserPreferences.getAsrLookaheadSeconds());
+
+        UserPreferences.setAsrLookaheadSeconds(500);
+        assertEquals(UserPreferences.ASR_LOOKAHEAD_MAX_SECONDS,
+                UserPreferences.getAsrLookaheadSeconds());
+
+        UserPreferences.setAsrLookaheadSeconds(45);
+        assertEquals(45, UserPreferences.getAsrLookaheadSeconds());
+    }
+
+    @Test
     public void testTranscriptOffsetsAreStoredPerMedia() {
         UserPreferences.setTranscriptTimeOffset(1, 0, 1000);
         UserPreferences.setTranscriptTimeOffset(2, 0, 2000);

@@ -44,9 +44,14 @@ public class JsonTranscriptParser {
                 return null;
             }
             long audioDurationMs = parseAudioDurationMs(obj);
+            boolean generated = obj.has("model");
 
             if (usesTimedSegments(objSegments)) {
-                return parseTimedSegments(objSegments, audioDurationMs);
+                Transcript timedTranscript = parseTimedSegments(objSegments, audioDurationMs);
+                if (timedTranscript != null) {
+                    timedTranscript.setGenerated(generated);
+                }
+                return timedTranscript;
             }
 
             for (int i = 0; i < objSegments.length(); i++) {
@@ -117,6 +122,7 @@ public class JsonTranscriptParser {
             if (transcript.getSegmentCount() > 0) {
                 transcript.setSpeakers(speakers);
                 transcript.setAudioDurationMs(audioDurationMs);
+                transcript.setGenerated(generated);
                 return transcript;
             } else {
                 return null;
