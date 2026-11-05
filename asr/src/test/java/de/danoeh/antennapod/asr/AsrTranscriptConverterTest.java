@@ -44,4 +44,20 @@ public class AsrTranscriptConverterTest {
         assertEquals(1, segments.size());
         assertTrue(segments.get(0).getWords().isEmpty());
     }
+
+    @Test
+    public void wordRangesPastTheTextAreClampedInsteadOfCrashing() {
+        Transcript transcript = new Transcript();
+        transcript.addSegment(new TranscriptSegment(0, 500, "hello", "",
+                Arrays.asList(new TranscriptWord(0, 5, 0, 200),
+                        new TranscriptWord(3, 99, 250, 400),
+                        new TranscriptWord(9, 12, 450, 500))));
+
+        List<AsrSegment> segments = AsrTranscriptConverter.fromTranscript(transcript);
+
+        assertEquals(2, segments.get(0).getWords().size());
+        assertEquals("hello", segments.get(0).getWords().get(0).getText());
+        assertEquals("lo", segments.get(0).getWords().get(1).getText());
+        assertEquals(5, segments.get(0).getWords().get(1).getEndChar());
+    }
 }

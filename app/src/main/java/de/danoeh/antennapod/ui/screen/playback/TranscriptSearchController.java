@@ -54,6 +54,8 @@ final class TranscriptSearchController {
     private int scrollPosition = -1;
     private int scrollIndex = -1;
     private int scrollAttempts = 0;
+    private String pendingQuery;
+    private String lastRunQuery = "";
     private final Runnable searchRunnable = () -> {
         if (binding != null) {
             runSearch(binding.searchInput.getText().toString());
@@ -73,6 +75,18 @@ final class TranscriptSearchController {
         handler.removeCallbacks(searchRunnable);
     }
 
+    /** Runs a keystroke that was still debounced when the page went to the background. */
+    void resume() {
+        if (!active || binding == null || pendingQuery == null) {
+            return;
+        }
+        String query = pendingQuery;
+        pendingQuery = null;
+        if (!query.equals(lastRunQuery)) {
+            runSearch(query);
+        }
+    }
+
     void detach() {
         handler.removeCallbacks(searchRunnable);
         if (binding != null) {
@@ -80,6 +94,7 @@ final class TranscriptSearchController {
         }
         scrollListener = null;
         active = false;
+        pendingQuery = null;
         binding = null;
     }
 
@@ -111,6 +126,7 @@ final class TranscriptSearchController {
             @Override
             public void afterTextChanged(Editable s) {
                 handler.removeCallbacks(searchRunnable);
+                pendingQuery = s.toString();
                 handler.postDelayed(searchRunnable, SEARCH_DEBOUNCE_MS);
             }
         });
@@ -200,6 +216,8 @@ final class TranscriptSearchController {
         if (adapter == null) {
             return;
         }
+        lastRunQuery = query;
+        pendingQuery = null;
         if (query.trim().isEmpty()) {
             adapter.clearSearch();
             updateControls();

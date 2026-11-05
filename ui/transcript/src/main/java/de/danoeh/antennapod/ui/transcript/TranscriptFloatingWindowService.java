@@ -229,8 +229,10 @@ public class TranscriptFloatingWindowService extends Service {
 
         final int touchSlop = ViewConfiguration.get(this).getScaledTouchSlop();
         floatingView.setOnTouchListener(new View.OnTouchListener() {
-            private float downX, downY;
-            private int startX, startY;
+            private float downX;
+            private float downY;
+            private int startX;
+            private int startY;
             private boolean moved;
 
             @Override
@@ -277,6 +279,8 @@ public class TranscriptFloatingWindowService extends Service {
                             openTranscriptPage();
                         }
                         return true;
+                    default:
+                        break;
                 }
                 return false;
             }
@@ -483,8 +487,12 @@ public class TranscriptFloatingWindowService extends Service {
             long advanced = event.getPosition() - positionBase;
             if (elapsed >= 200 && elapsed <= 3000 && advanced > 0) {
                 // Calibrate from the events themselves, so variable playback speed and
-                // skip-silence do not make the extrapolation drift.
-                playbackSpeed = Math.max(0.5f, Math.min(advanced / (float) elapsed, 4f));
+                // skip-silence do not make the extrapolation drift. A value outside the
+                // plausible range is a seek, so keep the previous calibration.
+                float candidate = advanced / (float) elapsed;
+                if (candidate >= 0.5f && candidate <= 4f) {
+                    playbackSpeed = candidate;
+                }
             }
         }
         positionBase = event.getPosition();
@@ -590,6 +598,11 @@ public class TranscriptFloatingWindowService extends Service {
         if (!forceUpdate && !isNewSentence) {
             return;
         }
+        if (isNewSentence) {
+            // The horizontal offset belongs to the previous sentence; the new one starts left.
+            tvTranscript.setScrollX(0);
+            tvTranscriptTranslation.setScrollX(0);
+        }
 
         lastSentenceSegmentStart = segment.getStartTime();
         lastSentenceIndex = sentenceIndex;
@@ -600,7 +613,7 @@ public class TranscriptFloatingWindowService extends Service {
         int languageMode = UserPreferences.getTranscriptLanguageMode();
         boolean showTranslation = bilingual
                 && languageMode != UserPreferences.TRANSCRIPT_LANGUAGE_MODE_PRIMARY_ONLY;
-        boolean showPrimary = languageMode != UserPreferences.TRANSCRIPT_LANGUAGE_MODE_SECONDARY_ONLY
+        final boolean showPrimary = languageMode != UserPreferences.TRANSCRIPT_LANGUAGE_MODE_SECONDARY_ONLY
                 || !showTranslation;
 
         setTouchable(true);
@@ -617,7 +630,10 @@ public class TranscriptFloatingWindowService extends Service {
             int sentenceStart = sentenceStarts[sentenceIndex];
             int sentenceEnd = sentenceStarts[sentenceIndex + 1];
             String text = primaryText.substring(sentenceStart, sentenceEnd).trim();
-            tvTranscript.setText(text);
+            if (!text.contentEquals(tvTranscript.getText())) {
+                // Re-setting the same text can reset the horizontal offset while paused.
+                tvTranscript.setText(text);
+            }
             tvTranscript.setVisibility(View.VISIBLE);
             startPrimaryScroll(segment, position, primaryText, sentenceStart, sentenceEnd,
                     text, remainingMs);
@@ -646,7 +662,9 @@ public class TranscriptFloatingWindowService extends Service {
                 tvTranscriptTranslation.setVisibility(View.GONE);
                 return;
             }
-            tvTranscriptTranslation.setText(text);
+            if (!text.contentEquals(tvTranscriptTranslation.getText())) {
+                tvTranscriptTranslation.setText(text);
+            }
             tvTranscriptTranslation.setVisibility(View.VISIBLE);
             startAutoScrollIfPlaying(tvTranscriptTranslation, remainingMs);
             return;
@@ -657,8 +675,11 @@ public class TranscriptFloatingWindowService extends Service {
             return;
         }
         int translationIndex = Math.min(sentenceIndex, translationStarts.length - 2);
-        tvTranscriptTranslation.setText(translation.substring(translationStarts[translationIndex],
-                translationStarts[translationIndex + 1]).trim());
+        String sentenceText = translation.substring(translationStarts[translationIndex],
+                translationStarts[translationIndex + 1]).trim();
+        if (!sentenceText.contentEquals(tvTranscriptTranslation.getText())) {
+            tvTranscriptTranslation.setText(sentenceText);
+        }
         tvTranscriptTranslation.setVisibility(View.VISIBLE);
         startAutoScrollIfPlaying(tvTranscriptTranslation, remainingMs);
     }
@@ -667,7 +688,8 @@ public class TranscriptFloatingWindowService extends Service {
         if (playing) {
             view.startAutoScroll(remainingMs, windowWidth);
         } else {
-            view.stopAutoScroll();
+            // Keep the reading position while paused; resuming continues from there.
+            view.stopScrollAnimation();
         }
     }
 

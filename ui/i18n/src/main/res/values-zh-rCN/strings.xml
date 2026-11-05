@@ -231,6 +231,7 @@
     <string name="transcript_offset_forward_fine_description">将声音文字延后 %1$s 秒</string>
     <string name="transcript_offset_value_format">%1$s 秒</string>
     <string name="transcript_offset_label">偏移：%1$s</string>
+    <string name="transcript_offset_value_description">当前偏移 %1$s，双击重置。</string>
     <string name="transcript_offset_title">声音文字偏移</string>
     <string name="transcript_offset_reset_description">重置声音文字偏移</string>
     <string name="transcript_offset_message">声音文字偏移：%1$s</string>

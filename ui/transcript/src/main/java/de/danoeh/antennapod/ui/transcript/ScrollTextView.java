@@ -25,16 +25,28 @@ public class ScrollTextView extends TextView {
     private ValueAnimator scrollAnimator;
     private long lastFrameBucket = -1;
 
-    public ScrollTextView(Context context) { super(context); }
-    public ScrollTextView(Context context, AttributeSet attrs) { super(context, attrs); }
-    public ScrollTextView(Context context, AttributeSet attrs, int defStyle) { super(context, attrs, defStyle); }
+    public ScrollTextView(Context context) {
+        super(context);
+    }
+
+    public ScrollTextView(Context context, AttributeSet attrs) {
+        super(context, attrs);
+    }
+
+    public ScrollTextView(Context context, AttributeSet attrs, int defStyle) {
+        super(context, attrs, defStyle);
+    }
 
     public void startAutoScroll(long durationMs, int availableWidth) {
-        stopAutoScroll();
-        if (durationMs <= 0 || availableWidth <= 0) return;
+        stopScrollAnimation();
+        if (durationMs <= 0 || availableWidth <= 0) {
+            return;
+        }
 
         String text = getText().toString();
-        if (text.isEmpty()) return;
+        if (text.isEmpty()) {
+            return;
+        }
 
         float textWidth = getPaint().measureText(text);
         float contentWidth = availableWidth - getPaddingLeft() - getPaddingRight();
@@ -44,20 +56,26 @@ public class ScrollTextView extends TextView {
             return;
         }
 
-        float scrollDistance = textWidth - contentWidth;
-        float requiredSpeed = scrollDistance / durationMs;  // px/ms
+        final float scrollDistance = textWidth - contentWidth;
+        int startScroll = Math.max(0, Math.min(getScrollX(), (int) scrollDistance));
+        float remainingDistance = scrollDistance - startScroll;
+        if (remainingDistance <= 0) {
+            return;
+        }
+        float requiredSpeed = remainingDistance / durationMs;  // px/ms
         float maxSpeed = 0.30f;  // Max speed of 300px/s, any faster and it becomes unreadable
 
         long actualDuration;
         if (requiredSpeed > maxSpeed) {
             // Text too long for the duration: scroll at max speed, which finishes early
-            actualDuration = (long) (scrollDistance / maxSpeed);
+            actualDuration = (long) (remainingDistance / maxSpeed);
         } else {
             // Normal case: finish scrolling exactly within durationMs
             actualDuration = durationMs;
         }
 
-        scrollAnimator = ValueAnimator.ofFloat(0f, scrollDistance);
+        // Resume from the current offset so pausing does not jump back to the sentence start.
+        scrollAnimator = ValueAnimator.ofFloat(startScroll, scrollDistance);
         scrollAnimator.setDuration(actualDuration);
         scrollAnimator.setInterpolator(new LinearInterpolator());
         scrollAnimator.addUpdateListener(animation ->
@@ -72,14 +90,20 @@ public class ScrollTextView extends TextView {
      */
     public void startTimedScroll(TranscriptScrollTimeline timeline, long positionMs,
                                  int availableWidth) {
-        stopAutoScroll();
-        if (timeline == null || availableWidth <= 0) return;
+        stopScrollAnimation();
+        if (timeline == null || availableWidth <= 0) {
+            return;
+        }
 
         long duration = timeline.getEndTime() - positionMs;
-        if (duration <= 0) return;
+        if (duration <= 0) {
+            return;
+        }
 
         String text = getText().toString();
-        if (text.isEmpty()) return;
+        if (text.isEmpty()) {
+            return;
+        }
 
         float textWidth = getPaint().measureText(text);
         float contentWidth = availableWidth - getPaddingLeft() - getPaddingRight();
@@ -87,7 +111,7 @@ public class ScrollTextView extends TextView {
             setScrollX(0);
             return;
         }
-        float scrollDistance = textWidth - contentWidth;
+        final float scrollDistance = textWidth - contentWidth;
 
         // Width of every prefix of the text, so the animation can move by fractions of a
         // character instead of snapping from one character boundary to the next.
@@ -98,7 +122,9 @@ public class ScrollTextView extends TextView {
             prefixWidths[i + 1] = accumulated;
         }
         final float totalWidth = prefixWidths[text.length()];
-        if (totalWidth <= 0f) return;
+        if (totalWidth <= 0f) {
+            return;
+        }
 
         scrollAnimator = ValueAnimator.ofFloat(0f, 1f);
         scrollAnimator.setDuration(duration);
@@ -134,11 +160,16 @@ public class ScrollTextView extends TextView {
         setScrollX(scrollX);
     }
 
-    public void stopAutoScroll() {
+    /** Cancels the running animation but keeps the current horizontal offset. */
+    public void stopScrollAnimation() {
         if (scrollAnimator != null && scrollAnimator.isRunning()) {
             scrollAnimator.cancel();
         }
         lastFrameBucket = -1;
+    }
+
+    public void stopAutoScroll() {
+        stopScrollAnimation();
         setScrollX(0);
     }
 
@@ -151,12 +182,12 @@ public class ScrollTextView extends TextView {
     @Override
     protected void onDraw(Canvas canvas) {
         TextPaint paint = getPaint();
-        int textColor = getCurrentTextColor();
-        int previousColor = paint.getColor();
-        Shader previousShader = paint.getShader();
-        Paint.Style previousStyle = paint.getStyle();
-        float previousStrokeWidth = paint.getStrokeWidth();
-        Paint.Join previousStrokeJoin = paint.getStrokeJoin();
+        final int textColor = getCurrentTextColor();
+        final int previousColor = paint.getColor();
+        final Shader previousShader = paint.getShader();
+        final Paint.Style previousStyle = paint.getStyle();
+        final float previousStrokeWidth = paint.getStrokeWidth();
+        final Paint.Join previousStrokeJoin = paint.getStrokeJoin();
 
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(outlineWidth);

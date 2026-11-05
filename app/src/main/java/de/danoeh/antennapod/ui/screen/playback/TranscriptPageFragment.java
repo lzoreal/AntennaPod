@@ -1,9 +1,7 @@
 package de.danoeh.antennapod.ui.screen.playback;
 
-import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Rect;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -41,18 +39,14 @@ import de.danoeh.antennapod.model.feed.TranscriptSegment;
 import de.danoeh.antennapod.model.playback.Playable;
 import de.danoeh.antennapod.playback.service.PlaybackController;
 import de.danoeh.antennapod.storage.database.DBReader;
-import de.danoeh.antennapod.playback.service.PlaybackServiceInterface;
 import de.danoeh.antennapod.storage.preferences.PlaybackPreferences;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.ui.screen.playback.audio.AudioPlayerFragment;
 import de.danoeh.antennapod.ui.transcript.TranscriptUtils;
-import de.danoeh.antennapod.ui.transcript.TranscriptTiming;
-import de.danoeh.antennapod.ui.transcript.TranscriptViewholder;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.core.Maybe;
 import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
-import java.io.IOException;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import org.greenrobot.eventbus.EventBus;
@@ -405,9 +399,6 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                     lastRawPlayerPosition = rawPosition;
                     long position = positionSource.toTranscriptTime(rawPosition);
                     setHighlightTickerDriving(true);
-                    if (adapter != null) {
-                        adapter.updatePlaybackPosition(position);
-                    }
                     handlePlaybackPosition(position);
                 }
             } else {
@@ -418,9 +409,6 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                     lastRawPlayerPosition = playerPosition;
                     long position = positionSource.toTranscriptTime(playerPosition);
                     setHighlightTickerDriving(true);
-                    if (adapter != null) {
-                        adapter.updatePlaybackPosition(position);
-                    }
                     handlePlaybackPosition(position);
                 }
                 setHighlightTickerDriving(controller != null && controller.isConnected());
@@ -665,6 +653,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         highlightHandler.post(highlightTicker);
         followController.startClock();
         followController.scheduleFrame();
+        searchController.resume();
     }
 
     @Override
@@ -815,38 +804,38 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
 
         disposable = Maybe.create(emitter -> {
-                    long mediaId = PlaybackPreferences.getCurrentlyPlayingFeedMediaId();
+            long mediaId = PlaybackPreferences.getCurrentlyPlayingFeedMediaId();
 
-                    if (mediaId == 0) {
-                        emitter.onComplete();
-                        return;
-                    }
+            if (mediaId == 0) {
+                emitter.onComplete();
+                return;
+            }
 
-                    Playable media = DBReader.getFeedMedia(mediaId);
+            Playable media = DBReader.getFeedMedia(mediaId);
 
-                    if (media instanceof FeedMedia) {
-                        FeedMedia feedMedia = (FeedMedia) media;
+            if (media instanceof FeedMedia) {
+                FeedMedia feedMedia = (FeedMedia) media;
 
-                        if (forceReload || !feedMedia.hasTranscript()
-                                || feedMedia.getTranscript() == null) {
-                            feedMedia.setTranscript(TranscriptUtils.loadTranscript(feedMedia, false));
-                        }
+                if (forceReload || !feedMedia.hasTranscript()
+                        || feedMedia.getTranscript() == null) {
+                    feedMedia.setTranscript(TranscriptUtils.loadTranscript(feedMedia, false));
+                }
 
-                        emitter.onSuccess(feedMedia);
-                    } else {
-                        emitter.onComplete();
-                    }
-                })
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(
-                        media -> onMediaLoaded((FeedMedia) media),
-                        error -> {
-                            Log.e(TAG, "subscribe onError", error);
-                            showEmptyState(R.string.transcript_load_failed, true);
-                        },
-                        this::showEmptyState
-                );
+                emitter.onSuccess(feedMedia);
+            } else {
+                emitter.onComplete();
+            }
+        })
+        .subscribeOn(Schedulers.io())
+        .observeOn(AndroidSchedulers.mainThread())
+        .subscribe(
+                media -> onMediaLoaded((FeedMedia) media),
+                error -> {
+                    Log.e(TAG, "subscribe onError", error);
+                    showEmptyState(R.string.transcript_load_failed, true);
+                },
+                this::showEmptyState
+        );
     }
 
     private void onMediaLoaded(FeedMedia media) {
@@ -897,6 +886,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
         if (currentMedia.getTranscript() == null) {
             showEmptyState();
+            restoreNonTranscriptState();
             return;
         }
 
@@ -905,6 +895,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
         if (segmentCount == 0) {
             showEmptyState();
+            restoreNonTranscriptState();
             return;
         }
 
@@ -946,6 +937,21 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         updateTranslationToggle();
         updateSegmentLoopToggle();
         restoreViewState();
+    }
+
+    private void restoreNonTranscriptState() {
+        Bundle state = restoredState;
+        restoredState = null;
+        if (state == null || viewBinding == null) {
+            return;
+        }
+        if (state.getBoolean(STATE_IMMERSIVE, false)
+                && getParentFragment() instanceof AudioPlayerFragment) {
+            AudioPlayerFragment parent = (AudioPlayerFragment) getParentFragment();
+            if (!parent.isImmersiveMode()) {
+                viewBinding.recyclerView.post(parent::toggleImmersiveMode);
+            }
+        }
     }
 
     private void restoreViewState() {
@@ -1264,6 +1270,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             }
         });
     }
+
     private void toggleSegmentLoop() {
         if (segmentLooping) {
             stopSegmentLoop();
@@ -1343,9 +1350,6 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 ? controller.getCurrentPosition() : currentMedia.getPosition();
         long position = positionSource.toTranscriptTime(Math.max(0, playerPosition));
         lastPositionMs = position;
-        if (adapter != null) {
-            adapter.updatePlaybackPosition(position);
-        }
         handlePlaybackPosition(position);
     }
 

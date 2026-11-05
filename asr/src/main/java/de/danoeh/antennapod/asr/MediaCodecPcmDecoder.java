@@ -152,7 +152,11 @@ public final class MediaCodecPcmDecoder implements PcmDecoder {
             codec = null;
         }
         if (extractor != null) {
-            extractor.release();
+            try {
+                extractor.release();
+            } catch (RuntimeException e) {
+                Log.d(TAG, "extractor release failed", e);
+            }
             extractor = null;
         }
         if (dataSource != null) {

@@ -17,10 +17,18 @@ public final class AsrTranscriptConverter {
         for (int i = 0; i < transcript.getSegmentCount(); i++) {
             TranscriptSegment segment = transcript.getSegmentAt(i);
             List<AsrWord> words = new ArrayList<>(segment.getWordTimings().size());
+            int textLength = segment.getWords().length();
             for (TranscriptWord word : segment.getWordTimings()) {
-                String text = segment.getWords().substring(word.getStartChar(), word.getEndChar());
+                // A journal line may carry a stale character range; clamp it instead of
+                // crashing every later generation attempt.
+                int start = Math.max(0, Math.min(word.getStartChar(), textLength));
+                int end = Math.max(start, Math.min(word.getEndChar(), textLength));
+                if (end <= start) {
+                    continue;
+                }
+                String text = segment.getWords().substring(start, end);
                 words.add(new AsrWord(text, word.getStartTime(), word.getEndTime(),
-                        word.getStartChar(), word.getEndChar()));
+                        start, end));
             }
             result.add(new AsrSegment(segment.getWords(), words));
         }

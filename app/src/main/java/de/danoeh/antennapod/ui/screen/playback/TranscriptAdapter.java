@@ -3,6 +3,7 @@ package de.danoeh.antennapod.ui.screen.playback;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Typeface;
+import android.os.SystemClock;
 import android.text.Layout;
 import android.text.Spannable;
 import android.text.SpannableStringBuilder;
@@ -31,12 +32,9 @@ import de.danoeh.antennapod.ui.transcript.TranscriptTiming;
 import de.danoeh.antennapod.ui.transcript.TranscriptViewholder;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -69,6 +67,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     private int verticalSpacingPx;
     private float lastTouchX = 0;
     private float lastTouchY = 0;
+    private long lastTouchDownMs = -1;
     private boolean sentencePerLine = UserPreferences.isTranscriptSentencePerLine();
     private final TranscriptDisplayInfoBuilder displayInfoBuilder =
             new TranscriptDisplayInfoBuilder();
@@ -143,7 +142,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
 
     private void applyLayout(TranscriptViewholder holder) {
         TextView content = holder.viewContent;
-        TextView timecode = holder.viewTimecode;
+        final TextView timecode = holder.viewTimecode;
         if (content.getLineSpacingMultiplier() != lineSpacingMultiplier) {
             content.setLineSpacing(0, lineSpacingMultiplier);
         }
@@ -214,6 +213,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 lastTouchX = event.getX() - holder.viewContent.getTotalPaddingLeft();
                 lastTouchY = event.getY() - holder.viewContent.getTotalPaddingTop();
+                lastTouchDownMs = SystemClock.uptimeMillis();
             }
             return false;
         });
@@ -221,7 +221,12 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             int position = holder.getBindingAdapterPosition();
             TranscriptSegment segment = segmentAt(position);
             if (segment != null && segmentClickListener != null) {
-                long[] sentenceTimes = sentenceTimesAtTouch(holder, segment);
+                // TalkBack and keyboard activation do not send ACTION_DOWN, so the stored
+                // coordinates would point at an unrelated sentence. Fall back to the segment.
+                boolean touchRecent = SystemClock.uptimeMillis() - lastTouchDownMs <= 1000;
+                long[] sentenceTimes = touchRecent
+                        ? sentenceTimesAtTouch(holder, segment)
+                        : new long[]{segment.getStartTime(), segment.getEndTime()};
                 segmentClickListener.onTranscriptClicked(position, segment,
                         sentenceTimes[0], sentenceTimes[1]);
             }
@@ -261,6 +266,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         searchHits.clear();
         searchHitsByPosition.clear();
         currentSearchHit = -1;
+        rowStates.clear();
         long position = Math.max(0, ((FeedMedia) media).getPosition());
         long offset = TranscriptTiming.offsetAt(((FeedMedia) media).getTranscript(),
                 ((FeedMedia) media).getId(), position);
@@ -420,7 +426,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         holder.viewContent.setTextColor(transcriptMutedColor);
         holder.viewTimecode.setTextColor(transcriptMutedColor);
         int sentence = sentenceIndexAt(segment, info, lastHighlightPositionMs);
-        SpannableStringBuilder graded = TranscriptHighlightWriter.buildSentence(
+        final SpannableStringBuilder graded = TranscriptHighlightWriter.buildSentence(
                 info, sentence, highlightTextColor, transcriptStrongColor,
                 transcriptMutedColor);
         RowState state = stateFor(holder);
@@ -440,16 +446,23 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
                 && state.content != null;
         if (!fresh) {
             buildWordContent(holder, state, position, segment, info);
+            if (state.wordSpans != null) {
+                // Apply the grading before installing the text, so a single setText builds the
+                // display list with the final colours instead of mutating them afterwards.
+                state.wordSpans.update(info, segment, position, highlighted,
+                        lastHighlightPositionMs, highlightPosition,
+                        highlightTextColor, transcriptStrongColor, transcriptMutedColor, true);
+            }
             holder.viewContent.setText(state.content);
         }
         holder.viewContent.setAlpha(1f);
         holder.viewContent.setTypeface(null, Typeface.NORMAL);
         holder.viewContent.setTextColor(transcriptMutedColor);
         holder.viewTimecode.setTextColor(transcriptMutedColor);
-        if (state.wordSpans != null) {
+        if (fresh && state.wordSpans != null) {
             boolean changed = state.wordSpans.update(info, segment, position, highlighted,
                     lastHighlightPositionMs, highlightPosition,
-                    highlightTextColor, transcriptStrongColor, transcriptMutedColor, !fresh);
+                    highlightTextColor, transcriptStrongColor, transcriptMutedColor, false);
             if (changed) {
                 // Re-applying the text rebuilds the TextView display list. Mutating the span
                 // colours alone does not, so the previously drawn colours would stay on screen.
@@ -695,7 +708,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         if (next.equals(searchQuery)) {
             return searchHits.size();
         }
-        Set<Integer> affected = hitPositions();
+        final Set<Integer> affected = hitPositions();
         searchQuery = next;
         renderVersion++;
         rebuildSearchHits();
@@ -708,7 +721,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         if (searchHits.isEmpty() && searchQuery.isEmpty()) {
             return;
         }
-        Set<Integer> affected = hitPositions();
+        final Set<Integer> affected = hitPositions();
         searchQuery = "";
         renderVersion++;
         searchHits.clear();
@@ -895,7 +908,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
 
     /** Must be the exact text the row draws: sentence-per-line reorders a bilingual cue. */
     private String displayText(TranscriptSegment segment) {
-        return displayInfoBuilder.get(segment, languageMode, sentencePerLine).text;
+        return displayInfoBuilder.textFor(segment, languageMode, sentencePerLine);
     }
 
     public int getFontSizeStep() {
@@ -914,7 +927,14 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         if (positionEventsSuppressed) {
             return;
         }
-        updatePlaybackPosition(event.getPosition());
+        long positionMs = event.getPosition();
+        if (media != null && media.getTranscript() != null) {
+            // The page maps the position through the transcript scale before updating us; the
+            // dialog does not, so apply the same correction for its standalone subscription.
+            positionMs = TranscriptTiming.toTranscriptTime(positionMs,
+                    TranscriptTiming.scale(media.getTranscript(), media.getDuration()));
+        }
+        updatePlaybackPosition(positionMs);
     }
 
     public void setPositionEventsSuppressed(boolean suppressed) {
@@ -1040,6 +1060,12 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             }
         }
         notifyItemChanged(position);
+    }
+
+    @Override
+    public void onViewRecycled(@NonNull TranscriptViewholder holder) {
+        rowStates.remove(holder);
+        super.onViewRecycled(holder);
     }
 
     @Override

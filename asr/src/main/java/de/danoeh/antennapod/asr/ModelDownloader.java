@@ -35,6 +35,7 @@ public final class ModelDownloader {
     private static final String USER_AGENT = "AntennaPod-ASR";
     private static final int MAX_REDIRECTS = 5;
     private static final int BUFFER_SIZE = 64 * 1024;
+    private static final long MAX_ENTRY_BYTES = 512L * 1024 * 1024;
 
     private final AsrModelStore store;
     private final int connectTimeoutMs;
@@ -175,6 +176,9 @@ public final class ModelDownloader {
                     continue;
                 }
                 File outputFile = new File(targetDir, name);
+                if (entry.getSize() > MAX_ENTRY_BYTES) {
+                    throw new IOException("archive entry too large: " + name);
+                }
                 try (OutputStream output = new BufferedOutputStream(new FileOutputStream(outputFile))) {
                     copy(tarInput, output);
                 }

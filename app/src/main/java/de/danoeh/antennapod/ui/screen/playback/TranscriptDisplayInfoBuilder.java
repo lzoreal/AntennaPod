@@ -9,11 +9,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Builds and caches {@link DisplayInfo} for transcript rows. */
+/**
+ * Builds and caches {@link DisplayInfo} for transcript rows.
+ */
 final class TranscriptDisplayInfoBuilder {
     private static final int MAX_CACHE_SIZE = 512;
 
-    private final Map<TranscriptSegment, DisplayInfo> cache =
+    private final Map<Key, DisplayInfo> cache =
             new LinkedHashMap<>(16, 0.75f, true);
 
     void clear() {
@@ -21,7 +23,18 @@ final class TranscriptDisplayInfoBuilder {
     }
 
     DisplayInfo get(TranscriptSegment segment, int languageMode, boolean sentencePerLine) {
-        DisplayInfo cached = cache.get(segment);
+        return get(segment, languageMode, sentencePerLine, true);
+    }
+
+    /** Only the rendered text is needed for search; skip the word-span mapping. */
+    String textFor(TranscriptSegment segment, int languageMode, boolean sentencePerLine) {
+        return get(segment, languageMode, sentencePerLine, false).text;
+    }
+
+    private DisplayInfo get(TranscriptSegment segment, int languageMode, boolean sentencePerLine,
+                            boolean mapWords) {
+        Key key = new Key(segment, languageMode, sentencePerLine, mapWords);
+        DisplayInfo cached = cache.get(key);
         if (cached != null) {
             return cached;
         }
@@ -42,19 +55,58 @@ final class TranscriptDisplayInfoBuilder {
         DisplayInfo info;
         if (sentencePerLine && split >= 0
                 && languageMode == TranscriptAdapter.LANGUAGE_MODE_BOTH) {
-            info = buildInterleavedInfo(segment, text, split);
+            info = buildInterleavedInfo(segment, text, split, mapWords);
         } else {
-            info = buildBlockInfo(segment, text, split, wordMappingAllowed, sentencePerLine);
+            info = buildBlockInfo(segment, text, split,
+                    mapWords && wordMappingAllowed, sentencePerLine);
         }
-        cache.put(segment, info);
+        cache.put(key, info);
         if (cache.size() > MAX_CACHE_SIZE) {
-            Iterator<TranscriptSegment> iterator = cache.keySet().iterator();
+            Iterator<Key> iterator = cache.keySet().iterator();
             if (iterator.hasNext()) {
                 iterator.next();
                 iterator.remove();
             }
         }
         return info;
+    }
+
+    /** One rendered form of a segment; the same segment can be shown in six different ways. */
+    private static final class Key {
+        private final TranscriptSegment segment;
+        private final int languageMode;
+        private final boolean sentencePerLine;
+        private final boolean mapWords;
+
+        private Key(TranscriptSegment segment, int languageMode, boolean sentencePerLine,
+                    boolean mapWords) {
+            this.segment = segment;
+            this.languageMode = languageMode;
+            this.sentencePerLine = sentencePerLine;
+            this.mapWords = mapWords;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+            if (!(other instanceof Key)) {
+                return false;
+            }
+            Key key = (Key) other;
+            return segment == key.segment && languageMode == key.languageMode
+                    && sentencePerLine == key.sentencePerLine && mapWords == key.mapWords;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = System.identityHashCode(segment);
+            result = 31 * result + languageMode;
+            result = 31 * result + (sentencePerLine ? 1 : 0);
+            result = 31 * result + (mapWords ? 1 : 0);
+            return result;
+        }
     }
 
     private DisplayInfo buildBlockInfo(TranscriptSegment segment, String text, int split,
@@ -93,7 +145,8 @@ final class TranscriptDisplayInfoBuilder {
                 wordStarts, wordEnds, wordEndTimes);
     }
 
-    private DisplayInfo buildInterleavedInfo(TranscriptSegment segment, String text, int split) {
+    private DisplayInfo buildInterleavedInfo(TranscriptSegment segment, String text, int split,
+                                             boolean mapWords) {
         String primaryBlock = TranscriptTextUtils.splitIntoSentences(text.substring(0, split));
         String translationBlock = TranscriptTextUtils.splitIntoSentences(text.substring(split + 1));
         List<String> primarySentences = sentencesOf(primaryBlock);
@@ -129,7 +182,7 @@ final class TranscriptDisplayInfoBuilder {
         int[] wordStarts = null;
         int[] wordEnds = null;
         long[] wordEndTimes = null;
-        if (segment.hasWordTimings()) {
+        if (mapWords && segment.hasWordTimings()) {
             String rawPrimary = text.substring(0, split);
             int[] rawSentenceStarts = TranscriptTextUtils.chunkStarts(
                     rawPrimary, rawPrimary.length());

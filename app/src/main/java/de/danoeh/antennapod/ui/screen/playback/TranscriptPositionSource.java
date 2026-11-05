@@ -113,28 +113,28 @@ final class TranscriptPositionSource {
         if (path == null) {
             return;
         }
-        File file = new File(path);
-        if (!file.isFile()) {
-            return;
-        }
-        String cacheKey = media.getId() + ":mp3:" + file.length() + ":" + reportedDuration;
-        Double cached = SCALE_CACHE.get(cacheKey);
-        if (cached != null) {
-            loadSession.setScale(cached);
-            return;
-        }
         final long mediaId = media.getId();
         executor.execute(() -> {
-            double resolvedScale = 1.0;
-            try {
-                Mp3DurationScanner.Result result = Mp3DurationScanner.scan(file);
-                if (result != null && !result.hasXingHeader()) {
-                    resolvedScale = resolveScale(result.getDurationMs(), reportedDuration);
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "Could not scan MP3 duration", e);
+            File file = new File(path);
+            if (!file.isFile()) {
+                return;
             }
-            SCALE_CACHE.put(cacheKey, resolvedScale);
+            String cacheKey = mediaId + ":mp3:" + file.length() + ":" + reportedDuration;
+            double resolvedScale = 1.0;
+            Double cached = SCALE_CACHE.get(cacheKey);
+            if (cached != null) {
+                resolvedScale = cached;
+            } else {
+                try {
+                    Mp3DurationScanner.Result result = Mp3DurationScanner.scan(file);
+                    if (result != null && !result.hasXingHeader()) {
+                        resolvedScale = resolveScale(result.getDurationMs(), reportedDuration);
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "Could not scan MP3 duration", e);
+                }
+                SCALE_CACHE.put(cacheKey, resolvedScale);
+            }
             final double resolved = resolvedScale;
             host.post(() -> {
                 if (loadGeneration != generation || !host.isAdded()) {

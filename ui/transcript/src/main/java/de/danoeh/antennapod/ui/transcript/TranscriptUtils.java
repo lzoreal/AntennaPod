@@ -25,9 +25,11 @@ import org.apache.commons.lang3.StringUtils;
 public class TranscriptUtils {
     private static final String TAG = "Transcript";
     private static final int MAX_CACHED_TRANSCRIPTS = 8;
+    private static final long MAX_CACHE_BYTES = 16L * 1024 * 1024;
     private static final long MAX_TRANSCRIPT_BYTES = 5L * 1024 * 1024;
     private static final Map<String, Transcript> TRANSCRIPT_CACHE =
             new LinkedHashMap<>(16, 0.75f, true);
+    private static long cachedBytes;
     private static final Object[] LOAD_LOCKS = new Object[8];
     static final String GENERATED_SOURCE = "generated";
 
@@ -140,7 +142,7 @@ public class TranscriptUtils {
             if (transcript != null) {
                 boolean storeLocal = media.getTranscriptFileUrl() != null;
                 if (storeLocal) {
-                    storeTranscript(media, t);
+                    storeTranscript(media, t, transcript);
                     cacheTranscript(cacheKey(media), transcript);
                 } else {
                     cacheTranscript(cacheKey, transcript);
@@ -313,18 +315,37 @@ public class TranscriptUtils {
     }
 
     private static synchronized void cacheTranscript(String key, Transcript transcript) {
-        TRANSCRIPT_CACHE.put(key, transcript);
-        if (TRANSCRIPT_CACHE.size() > MAX_CACHED_TRANSCRIPTS) {
-            Iterator<String> iterator = TRANSCRIPT_CACHE.keySet().iterator();
-            if (iterator.hasNext()) {
-                iterator.next();
-                iterator.remove();
-            }
+        Transcript previous = TRANSCRIPT_CACHE.put(key, transcript);
+        if (previous != null) {
+            cachedBytes -= estimateBytes(previous);
         }
+        cachedBytes += estimateBytes(transcript);
+        Iterator<Map.Entry<String, Transcript>> iterator = TRANSCRIPT_CACHE.entrySet().iterator();
+        while (iterator.hasNext()
+                && (TRANSCRIPT_CACHE.size() > MAX_CACHED_TRANSCRIPTS
+                || cachedBytes > MAX_CACHE_BYTES)) {
+            if (TRANSCRIPT_CACHE.size() == 1) {
+                break;
+            }
+            Map.Entry<String, Transcript> eldest = iterator.next();
+            iterator.remove();
+            cachedBytes -= estimateBytes(eldest.getValue());
+        }
+    }
+
+    /** Rough heap estimate; transcripts hold text plus one timing object per word. */
+    private static long estimateBytes(Transcript transcript) {
+        long bytes = 256;
+        for (int i = 0; i < transcript.getSegmentCount(); i++) {
+            bytes += 128 + transcript.getSegmentAt(i).getWords().length() * 2L
+                    + transcript.getSegmentAt(i).getWordTimings().size() * 32L;
+        }
+        return bytes;
     }
 
     public static synchronized void clearCache() {
         TRANSCRIPT_CACHE.clear();
+        cachedBytes = 0;
     }
 
     private static Transcript parseTranscript(String text, String transcriptType) {
@@ -349,10 +370,20 @@ public class TranscriptUtils {
     }
 
     public static void storeTranscript(FeedMedia media, String transcript) {
+        if (media == null || media.getItem() == null || media.getTranscriptFileUrl() == null) {
+            return;
+        }
+        storeTranscript(media, transcript,
+                parseTranscript(transcript, media.getItem().getTranscriptType()));
+    }
+
+    /** Stores an already parsed transcript, avoiding a second full parse on the load path. */
+    private static void storeTranscript(FeedMedia media, String transcript,
+                                        Transcript parsedTranscript) {
         if (media.getItem() == null || media.getTranscriptFileUrl() == null) {
             return;
         }
-        if (parseTranscript(transcript, media.getItem().getTranscriptType()) == null) {
+        if (parsedTranscript == null) {
             Log.e(TAG, "Refusing to store invalid transcript");
             return;
         }
@@ -380,22 +411,41 @@ public class TranscriptUtils {
         if (temp.renameTo(target)) {
             return;
         }
-        if (target.exists() && !target.delete()) {
-            throw new IOException("cannot replace " + target);
+        File backup = new File(target.getPath() + ".bak");
+        boolean hadTarget = target.exists();
+        if (hadTarget) {
+            if (backup.exists() && !backup.delete()) {
+                throw new IOException("cannot replace " + backup);
+            }
+            if (!target.renameTo(backup)) {
+                throw new IOException("cannot move " + target);
+            }
         }
-        if (temp.renameTo(target)) {
-            return;
-        }
-        File copy = File.createTempFile("transcript-copy-", ".tmp", target.getParentFile());
         try {
-            FileUtils.copyFile(temp, copy);
-            if (!copy.renameTo(target)) {
-                throw new IOException("cannot install " + target);
+            if (!temp.renameTo(target)) {
+                File copy = File.createTempFile("transcript-copy-", ".tmp",
+                        target.getParentFile());
+                try {
+                    FileUtils.copyFile(temp, copy);
+                    if (!copy.renameTo(target)) {
+                        throw new IOException("cannot install " + target);
+                    }
+                } finally {
+                    if (copy.exists() && !copy.delete()) {
+                        copy.deleteOnExit();
+                    }
+                }
             }
-        } finally {
-            if (copy.exists() && !copy.delete()) {
-                copy.deleteOnExit();
+        } catch (IOException e) {
+            // Do not leave the caller without any transcript when the replacement fails.
+            if (hadTarget && backup.exists() && !target.exists()
+                    && !backup.renameTo(target)) {
+                Log.e(TAG, "Unable to restore " + target + " from " + backup);
             }
+            throw e;
+        }
+        if (backup.exists() && !backup.delete()) {
+            backup.deleteOnExit();
         }
     }
 }

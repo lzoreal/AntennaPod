@@ -249,7 +249,7 @@ final class TranscriptOffsetController {
             return;
         }
         long mediaId = media.getId();
-        TranscriptTimeOffsets previous = UserPreferences.getTranscriptTimeOffsetsForMedia(mediaId);
+        final TranscriptTimeOffsets previous = UserPreferences.getTranscriptTimeOffsetsForMedia(mediaId);
         long position = host.currentPlaybackPosition();
         long offsetMs = clamp(position - media.getTranscript().getSegmentAt(0).getStartTime());
         host.setLastPositionMs(position);
@@ -352,8 +352,8 @@ final class TranscriptOffsetController {
         lastLabelMs = offsetMs;
         binding.txtOffsetValue.setText(context.getString(
                 R.string.transcript_offset_label, format(offsetMs)));
-        binding.txtOffsetValue.setContentDescription(
-                context.getString(R.string.transcript_offset_reset_description));
+        binding.txtOffsetValue.setContentDescription(context.getString(
+                R.string.transcript_offset_value_description, format(offsetMs)));
         boolean hasOffset = media != null && UserPreferences.hasTranscriptTimeOffset(media.getId());
         binding.btnOffsetReset.setEnabled(hasOffset);
         binding.btnOffsetReset.setAlpha(hasOffset ? 1.0f : 0.5f);

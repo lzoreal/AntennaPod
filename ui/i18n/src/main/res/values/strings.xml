@@ -357,6 +357,7 @@
     <string name="transcript_offset_forward_fine_description">Shift transcript %1$s seconds later</string>
     <string name="transcript_offset_value_format">%1$s s</string>
     <string name="transcript_offset_label">Offset: %1$s</string>
+    <string name="transcript_offset_value_description">Current offset %1$s. Double tap to reset.</string>
     <string name="transcript_offset_title">Transcript offset</string>
     <string name="transcript_offset_reset_description">Reset transcript offset</string>
     <string name="transcript_offset_message">Transcript offset: %1$s</string>
