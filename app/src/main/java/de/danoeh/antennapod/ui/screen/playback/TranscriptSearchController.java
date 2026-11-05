@@ -95,7 +95,7 @@ final class TranscriptSearchController {
         if (binding == null) {
             return;
         }
-        binding.btnSearch.setOnClickListener(v -> toggle());
+        binding.rowSearch.setOnClickListener(v -> toggle());
         binding.btnSearchClose.setOnClickListener(v -> close());
         binding.btnSearchPrev.setOnClickListener(v -> move(false));
         binding.btnSearchNext.setOnClickListener(v -> move(true));
@@ -121,7 +121,6 @@ final class TranscriptSearchController {
             }
             return false;
         });
-        binding.btnSearch.setAlpha(0.5f);
         updateControls();
     }
 
@@ -136,7 +135,6 @@ final class TranscriptSearchController {
         host.hideControlPanels();
         active = true;
         binding.searchBar.setVisibility(View.VISIBLE);
-        binding.btnSearch.setAlpha(1.0f);
         binding.searchInput.requestFocus();
         showKeyboard();
         if (!getQuery().trim().isEmpty()) {
@@ -159,7 +157,6 @@ final class TranscriptSearchController {
         }
         active = false;
         binding.searchBar.setVisibility(View.GONE);
-        binding.btnSearch.setAlpha(0.5f);
         updateControls();
         // Search positioning pauses follow. Closing it must hand the list back to the reader.
         stopScrollFrame(binding.recyclerView);
@@ -182,7 +179,6 @@ final class TranscriptSearchController {
         }
         active = true;
         binding.searchBar.setVisibility(View.VISIBLE);
-        binding.btnSearch.setAlpha(1.0f);
         binding.searchInput.setText(query);
         handler.removeCallbacks(searchRunnable);
         runSearch(query);

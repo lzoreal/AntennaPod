@@ -44,8 +44,6 @@ import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
 
 public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder> {
-    private static final int SEARCH_MATCH_COLOR = 0x4DFFEB3B;
-    private static final int CURRENT_SEARCH_MATCH_COLOR = 0xB3FFC107;
     private static final int MAX_CONTENT_WIDTH_DP = 720;
     private static final Object SEGMENT_HIGHLIGHT_PAYLOAD = new Object();
     private static final Object SEARCH_PAYLOAD = new Object();
@@ -75,6 +73,8 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             new TranscriptDisplayInfoBuilder();
     private final Map<TranscriptViewholder, RowState> rowStates = new IdentityHashMap<>();
     private final int highlightTextColor;
+    private final int searchMatchColor;
+    private final int currentSearchMatchColor;
     private final int normalTextColor;
     private final int transcriptStrongColor;
     private final int transcriptMutedColor;
@@ -93,6 +93,8 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         TypedArray typedArray = context.obtainStyledAttributes(new int[]{R.attr.colorAccent});
         highlightTextColor = typedArray.getColor(0, 0);
         typedArray.recycle();
+        searchMatchColor = withAlpha(highlightTextColor, 0x33);
+        currentSearchMatchColor = withAlpha(highlightTextColor, 0x66);
         typedArray = context.obtainStyledAttributes(new int[]{android.R.attr.textColorPrimary});
         normalTextColor = typedArray.getColor(0, 0);
         typedArray.recycle();
@@ -420,7 +422,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         if (state.wordSpans != null) {
             boolean changed = state.wordSpans.update(info, segment, position, highlighted,
                     lastHighlightPositionMs, highlightPosition,
-                    transcriptStrongColor, transcriptMutedColor, !fresh);
+                    highlightTextColor, transcriptStrongColor, transcriptMutedColor, !fresh);
             if (changed) {
                 // Re-applying the text rebuilds the TextView display list. Mutating the span
                 // colours alone does not, so the previously drawn colours would stay on screen.
@@ -639,6 +641,10 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         holder.viewContent.setText(spannable);
     }
 
+    private static int withAlpha(int color, int alpha) {
+        return (color & 0x00FFFFFF) | (alpha << 24);
+    }
+
     private void applySearchHighlights(int position, Spannable spannable) {
         List<SearchHit> hits = searchHitsByPosition.get(position);
         if (hits == null) {
@@ -651,7 +657,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
                 continue;
             }
             int color = hit.index == currentSearchHit
-                    ? CURRENT_SEARCH_MATCH_COLOR : SEARCH_MATCH_COLOR;
+                    ? currentSearchMatchColor : searchMatchColor;
             spannable.setSpan(new BackgroundColorSpan(color), start, end,
                     Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
@@ -882,8 +888,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         if (positionMs < 0 || media == null || media.getTranscript() == null) {
             return;
         }
-        long offset = media.getTranscript().isGenerated()
-                ? 0 : UserPreferences.getTranscriptTimeOffset(media.getId(), positionMs);
+        long offset = UserPreferences.getTranscriptTimeOffset(media.getId(), positionMs);
         long position = positionMs - offset;
         int index = media.getTranscript().findSegmentIndexBefore(position);
         if (index < 0 || index >= media.getTranscript().getSegmentCount()) {

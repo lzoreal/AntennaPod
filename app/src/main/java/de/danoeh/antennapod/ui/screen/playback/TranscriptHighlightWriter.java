@@ -119,7 +119,7 @@ final class TranscriptHighlightWriter {
 
         boolean update(DisplayInfo info, TranscriptSegment segment,
                        int position, boolean highlighted, long positionMs, int highlightPosition,
-                       int strongColor, int mutedColor, boolean force) {
+                       int currentColor, int strongColor, int mutedColor, boolean force) {
             int activeWord = highlighted ? segment.getWordIndexAt(positionMs) : -1;
             boolean beforeRow = position < highlightPosition;
             if (!force && this.activeWord == activeWord && this.beforeRow == beforeRow
@@ -136,7 +136,7 @@ final class TranscriptHighlightWriter {
                 long wordEnd = i < wordEnds.length ? wordEnds[i] : Long.MAX_VALUE;
                 boolean active = highlighted && i == activeWord && positionMs < wordEnd;
                 boolean past = !active && (beforeRow || wordEnd <= positionMs);
-                int color = active || past ? strongColor : mutedColor;
+                int color = active ? currentColor : past ? strongColor : mutedColor;
                 if (colorSpan.getColor() != color) {
                     colorSpan.setColor(color);
                     changed = true;

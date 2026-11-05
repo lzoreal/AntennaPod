@@ -103,6 +103,8 @@ final class TranscriptOffsetController {
             setSyncPickMode(false);
         }
         binding.layoutControls.setVisibility(View.GONE);
+        binding.moreControls.setVisibility(View.GONE);
+        binding.btnMore.setAlpha(0.5f);
         binding.offsetControls.setVisibility(visible ? View.GONE : View.VISIBLE);
         updateToggle();
         host.onLayoutPanelStateChanged();
@@ -132,8 +134,7 @@ final class TranscriptOffsetController {
             return;
         }
         FeedMedia media = host.getMedia();
-        boolean hide = media == null || media.getTranscript() == null
-                || media.getTranscript().isGenerated();
+        boolean hide = media == null || media.getTranscript() == null;
         binding.btnOffsetToggle.setVisibility(hide ? View.GONE : View.VISIBLE);
         if (hide) {
             setSyncPickMode(false);

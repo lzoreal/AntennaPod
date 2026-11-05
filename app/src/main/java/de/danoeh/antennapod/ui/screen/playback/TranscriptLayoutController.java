@@ -127,8 +127,8 @@ final class TranscriptLayoutController {
                 verticalStep > UserPreferences.TRANSCRIPT_LAYOUT_MIN_STEP ? 1.0f : 0.5f);
         binding.btnVerticalSpacingUp.setAlpha(
                 verticalStep < UserPreferences.TRANSCRIPT_LAYOUT_MAX_STEP ? 1.0f : 0.5f);
-        binding.btnLayout.setAlpha(binding.layoutControls.getVisibility() == View.VISIBLE
-                ? 1.0f : 0.5f);
+        binding.btnLayout.setAlpha(
+                binding.layoutControls.getVisibility() == View.VISIBLE ? 1.0f : 0.5f);
     }
 
     void applyLayout() {

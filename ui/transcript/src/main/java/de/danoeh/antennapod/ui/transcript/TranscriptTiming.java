@@ -13,16 +13,10 @@ public final class TranscriptTiming {
     }
 
     public static long offsetAt(Transcript transcript, long mediaId, long mediaPositionMs) {
-        if (transcript != null && transcript.isGenerated()) {
-            return 0;
-        }
         return UserPreferences.getTranscriptTimeOffset(mediaId, mediaPositionMs);
     }
 
     public static long offsetAtCue(Transcript transcript, long mediaId, long cueTimeMs) {
-        if (transcript != null && transcript.isGenerated()) {
-            return 0;
-        }
         return UserPreferences.getTranscriptTimeOffsetAtCueTime(mediaId, cueTimeMs);
     }
 

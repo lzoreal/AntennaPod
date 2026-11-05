@@ -1,16 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="20dp"
-    android:height="20dp"
+    android:width="24dp"
+    android:height="24dp"
     android:viewportWidth="960"
     android:viewportHeight="960">
     <group android:translateY="960">
-        <group
-            android:scaleX="0.75"
-            android:translateX="120">
-            <path
-                android:fillColor="?attr/action_icon_color"
-                android:pathData="M220-220h-71q-26 0-44.5-18.5T86-283q0-26 18.5-44.5T149-346h134q26 0 44.5 18.5T346-283v134q0 26-18.5 44.5T283-86q-26 0-44.5-18.5T220-149v-71Zm521 0v71q0 26-18.5 44.5T678-86q-26 0-44.5-18.5T615-149v-134q0-26 18.5-44.5T678-346h133q26 0 44.5 18.5T874-283q0 26-18.5 44.5T811-220h-70ZM220-741v-70q0-26 18.5-44.5T283-874q26 0 44.5 18.5T346-811v133q0 26-18.5 44.5T283-615H149q-26 0-44.5-18.5T86-678q0-26 18.5-44.5T149-741h71Zm521 0h70q26 0 44.5 18.5T874-678q0 26-18.5 44.5T811-615H678q-26 0-44.5-18.5T615-678v-133q0-26 18.5-44.5T678-874q26 0 44.5 18.5T741-811v70Z" />
-        </group>
+        <path
+            android:fillColor="?attr/action_icon_color"
+            android:pathData="M240-120v-120H120v-80h200v200h-80Zm400 0v-200h200v80H720v120h-80ZM120-640v-80h120v-120h80v200H120Zm520 0v-200h80v120h120v80H640Z" />
     </group>
 </vector>

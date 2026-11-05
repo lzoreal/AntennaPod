@@ -358,6 +358,10 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 @Override
                 public void onLayoutPanelStateChanged() {
                     layoutController.updateControls();
+                    if (viewBinding != null
+                            && viewBinding.offsetControls.getVisibility() == View.VISIBLE) {
+                        followController.returnToCurrentSentence();
+                    }
                 }
             });
 
@@ -499,12 +503,32 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         viewBinding.btnOffsetToggle.setOnClickListener(v -> offsetController.toggleBar());
         viewBinding.btnOffsetToggle.setContentDescription(
                 getString(R.string.transcript_offset_toggle_description));
-        viewBinding.btnTranslationToggle.setOnClickListener(v -> cycleLanguageMode());
-        viewBinding.btnTranslationToggle.setContentDescription(getString(R.string.toggle_translation));
-        viewBinding.btnLineBreakToggle.setOnClickListener(v -> toggleSentencePerLine());
         viewBinding.btnLayout.setOnClickListener(v -> toggleLayoutBar());
         viewBinding.btnLayout.setContentDescription(getString(R.string.transcript_layout_toggle_description));
-        viewBinding.btnSegmentLoop.setOnClickListener(v -> toggleSegmentLoop());
+        viewBinding.btnImmersive.setOnClickListener(v -> {
+            if (getParentFragment() instanceof AudioPlayerFragment) {
+                ((AudioPlayerFragment) getParentFragment()).toggleImmersiveMode();
+            }
+        });
+        viewBinding.btnMore.setOnClickListener(v -> toggleMoreBar());
+        viewBinding.languageGroup.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
+            if (isChecked) {
+                int mode = languageModeForButton(checkedId);
+                if (mode != getLanguageMode()) {
+                    setLanguageMode(mode);
+                }
+            }
+        });
+        viewBinding.switchSentencePerLine.setOnCheckedChangeListener((button, checked) -> {
+            if (adapter != null && adapter.isSentencePerLine() != checked) {
+                toggleSentencePerLine();
+            }
+        });
+        viewBinding.switchSegmentLoop.setOnCheckedChangeListener((button, checked) -> {
+            if (segmentLooping != checked) {
+                toggleSegmentLoop();
+            }
+        });
         viewBinding.btnBackToCurrent.setOnClickListener(v -> followController.returnToCurrentSentence());
         viewBinding.btnRetryTranscript.setOnClickListener(v -> {
             viewBinding.progLoading.setVisibility(View.VISIBLE);
@@ -514,19 +538,14 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         viewBinding.btnGenerateTranscript.setOnClickListener(v -> asrCoordinator.startGeneration());
         viewBinding.btnContinueTranscript.setOnClickListener(v -> asrCoordinator.startGeneration());
         viewBinding.btnCancelTranscript.setOnClickListener(v -> asrCoordinator.cancelGeneration());
-        viewBinding.btnLineBreakToggle.setContentDescription(
-                getString(R.string.transcript_line_break_description));
-        viewBinding.btnImmersive.setOnClickListener(v -> {
-            if (getParentFragment() instanceof AudioPlayerFragment) {
-                ((AudioPlayerFragment) getParentFragment()).toggleImmersiveMode();
-            }
-        });
         offsetController.updateLabel();
         updateTranslationToggle();
         updateSentenceToggle();
         offsetController.updateToggle();
         layoutController.updateControls();
         layoutController.applyLayout();
+        viewBinding.btnMore.setAlpha(0.5f);
+        viewBinding.btnImmersive.setAlpha(0.5f);
         viewBinding.recyclerView.addOnLayoutChangeListener((v, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> {
             if (bottom - top != oldBottom - oldTop || right - left != oldRight - oldLeft) {
@@ -1112,9 +1131,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (viewBinding == null) {
             return;
         }
-        viewBinding.btnSegmentLoop.setAlpha(segmentLooping ? 1.0f : 0.5f);
-        setToggleState(viewBinding.btnSegmentLoop,
-                R.string.transcript_segment_loop_description, segmentLooping);
+        viewBinding.switchSegmentLoop.setChecked(segmentLooping);
     }
 
     private void setToggleState(View view, int descriptionRes, boolean on) {
@@ -1169,8 +1186,30 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         boolean visible = viewBinding.layoutControls.getVisibility() == View.VISIBLE;
         offsetController.closePanels();
+        viewBinding.moreControls.setVisibility(View.GONE);
+        viewBinding.btnMore.setAlpha(0.5f);
         viewBinding.layoutControls.setVisibility(visible ? View.GONE : View.VISIBLE);
         layoutController.updateControls();
+        if (!visible) {
+            followController.returnToCurrentSentence();
+        }
+    }
+
+    private void toggleMoreBar() {
+        if (viewBinding == null) {
+            return;
+        }
+        boolean visible = viewBinding.moreControls.getVisibility() == View.VISIBLE;
+        offsetController.closePanels();
+        viewBinding.layoutControls.setVisibility(View.GONE);
+        viewBinding.moreControls.setVisibility(visible ? View.GONE : View.VISIBLE);
+        viewBinding.btnMore.setAlpha(visible ? 0.5f : 1.0f);
+        updateTranslationToggle();
+        updateSentenceToggle();
+        updateSegmentLoopToggle();
+        if (!visible) {
+            followController.returnToCurrentSentence();
+        }
     }
 
     // ===== Public methods called by AudioPlayerFragment =====
@@ -1210,9 +1249,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         boolean enabled = adapter != null && adapter.isSentencePerLine();
-        viewBinding.btnLineBreakToggle.setAlpha(enabled ? 1.0f : 0.5f);
-        setToggleState(viewBinding.btnLineBreakToggle,
-                R.string.transcript_line_break_description, enabled);
+        viewBinding.switchSentencePerLine.setChecked(enabled);
     }
 
     public void toggleControlsBar() {
@@ -1230,6 +1267,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private void hideControlPanels() {
         offsetController.closePanels();
         viewBinding.layoutControls.setVisibility(View.GONE);
+        viewBinding.moreControls.setVisibility(View.GONE);
+        viewBinding.btnMore.setAlpha(0.5f);
         layoutController.updateControls();
     }
 
@@ -1252,6 +1291,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                     controlsBarVisibleBeforeImmersive ? View.VISIBLE : View.GONE);
         }
         viewBinding.getRoot().setPadding(0, immersive ? getImmersiveTopInset() : 0, 0, 0);
+        viewBinding.btnImmersive.setAlpha(immersive ? 1.0f : 0.5f);
         viewBinding.btnImmersive.setImageResource(
                 immersive ? R.drawable.ic_fullscreen_exit : R.drawable.ic_fullscreen);
     }
@@ -1272,12 +1312,31 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (viewBinding == null) {
             return;
         }
-        viewBinding.btnTranslationToggle.setVisibility(isBilingual() ? View.VISIBLE : View.GONE);
-        boolean showTranslation = getLanguageMode()
-                != UserPreferences.TRANSCRIPT_LANGUAGE_MODE_PRIMARY_ONLY;
-        viewBinding.btnTranslationToggle.setAlpha(showTranslation ? 1.0f : 0.5f);
-        setToggleState(viewBinding.btnTranslationToggle, R.string.toggle_translation,
-                showTranslation);
+        viewBinding.languageRow.setVisibility(isBilingual() ? View.VISIBLE : View.GONE);
+        int checkedId = languageButtonForMode(getLanguageMode());
+        if (viewBinding.languageGroup.getCheckedButtonId() != checkedId) {
+            viewBinding.languageGroup.check(checkedId);
+        }
+    }
+
+    private int languageButtonForMode(int mode) {
+        if (mode == UserPreferences.TRANSCRIPT_LANGUAGE_MODE_PRIMARY_ONLY) {
+            return R.id.btnLanguagePrimary;
+        }
+        if (mode == UserPreferences.TRANSCRIPT_LANGUAGE_MODE_SECONDARY_ONLY) {
+            return R.id.btnLanguageSecondary;
+        }
+        return R.id.btnLanguageBoth;
+    }
+
+    private int languageModeForButton(int checkedId) {
+        if (checkedId == R.id.btnLanguagePrimary) {
+            return TranscriptAdapter.LANGUAGE_MODE_PRIMARY_ONLY;
+        }
+        if (checkedId == R.id.btnLanguageSecondary) {
+            return TranscriptAdapter.LANGUAGE_MODE_SECONDARY_ONLY;
+        }
+        return TranscriptAdapter.LANGUAGE_MODE_BOTH;
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)

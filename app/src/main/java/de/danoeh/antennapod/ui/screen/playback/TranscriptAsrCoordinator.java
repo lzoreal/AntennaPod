@@ -117,6 +117,9 @@ final class TranscriptAsrCoordinator {
         switch (event.type) {
             case STARTED:
                 active = true;
+                if (binding != null) {
+                    binding.txtAsrStatus.setText(R.string.transcript_generate_running);
+                }
                 updateVisibility();
                 break;
             case SEGMENT:
@@ -127,9 +130,11 @@ final class TranscriptAsrCoordinator {
                 break;
             case PROGRESS:
                 if (binding != null && active) {
+                    String progress = DateUtils.formatElapsedTime(event.decodedEndMs / 1000);
+                    binding.txtAsrStatus.setText(host.getContext().getString(
+                            R.string.transcript_generating_progress_format, progress));
                     binding.btnGenerateTranscript.setText(host.getContext().getString(
-                            R.string.transcript_generate_progress_format,
-                            DateUtils.formatElapsedTime(event.decodedEndMs / 1000)));
+                            R.string.transcript_generate_progress_format, progress));
                 }
                 break;
             case COMPLETED:
@@ -178,6 +183,7 @@ final class TranscriptAsrCoordinator {
         boolean available = binding.emptyState.getVisibility() == View.VISIBLE
                 && canOfferGeneration;
         binding.btnGenerateTranscript.setVisibility(available ? View.VISIBLE : View.GONE);
+        binding.emptyHint.setVisibility(available ? View.VISIBLE : View.GONE);
         if (available) {
             binding.btnGenerateTranscript.setEnabled(!active && !modelDownloading);
             if (!active && !modelDownloading) {
@@ -209,9 +215,21 @@ final class TranscriptAsrCoordinator {
                 && AsrGenerationManager.isRunning(media.getId()))
                 + " lastEnd=" + lastEnd + " duration=" + duration
                 + " visible=" + continueVisible);
-        binding.btnContinueTranscript.setVisibility(continueVisible ? View.VISIBLE : View.GONE);
         boolean runningHere = media != null && AsrGenerationManager.isRunning(media.getId());
+        boolean busy = runningHere || modelDownloading;
+        boolean showStatus = busy || continueVisible;
+        boolean statusWasVisible = binding.statusChip.getVisibility() == View.VISIBLE;
+        binding.statusChip.setSelected(!busy);
+        binding.statusChip.setVisibility(showStatus ? View.VISIBLE : View.GONE);
+        binding.statusProgress.setVisibility(busy ? View.VISIBLE : View.GONE);
+        binding.txtAsrStatus.setVisibility(busy ? View.VISIBLE : View.GONE);
+        binding.btnContinueTranscript.setVisibility(busy ? View.GONE : View.VISIBLE);
         binding.btnCancelTranscript.setVisibility(runningHere ? View.VISIBLE : View.GONE);
+        if (busy && !statusWasVisible) {
+            binding.txtAsrStatus.setText(modelDownloading
+                    ? R.string.transcript_model_installing
+                    : R.string.transcript_generate_running);
+        }
     }
 
     private static boolean isCurrentPlaybackMedia(FeedMedia media) {
@@ -319,6 +337,8 @@ final class TranscriptAsrCoordinator {
         final ModelDownloader downloader = modelDownloader;
         binding.btnGenerateTranscript.setEnabled(false);
         binding.btnGenerateTranscript.setText(R.string.transcript_generate_running);
+        binding.txtAsrStatus.setText(R.string.transcript_model_installing);
+        updateVisibility();
         new Thread(() -> {
             try {
                 downloader.download((read, total) -> {
@@ -364,10 +384,12 @@ final class TranscriptAsrCoordinator {
                 // Extraction and SHA-256 verification of the 155 MB encoder run after the
                 // transfer finished and used to look like a frozen 100 %.
                 binding.btnGenerateTranscript.setText(R.string.transcript_model_installing);
+                binding.txtAsrStatus.setText(R.string.transcript_model_installing);
             } else {
-                binding.btnGenerateTranscript.setText(
-                        host.getContext().getString(
-                                R.string.transcript_model_downloading_format, percent));
+                String text = host.getContext().getString(
+                        R.string.transcript_model_downloading_format, percent);
+                binding.btnGenerateTranscript.setText(text);
+                binding.txtAsrStatus.setText(text);
             }
         }
     }

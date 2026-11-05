@@ -65,16 +65,16 @@ public class TranscriptHighlightWriterTest {
                 content, info, segment, MUTED);
 
         assertTrue(spans.update(info, segment, 0, true, 1700, 0,
-                STRONG, MUTED, true));
+                CURRENT, STRONG, MUTED, true));
         assertEquals(STRONG, colorAt(content, 1));
-        assertEquals(STRONG, colorAt(content, 4));
+        assertEquals(CURRENT, colorAt(content, 4));
         assertEquals(MUTED, colorAt(content, 7));
 
         assertFalse(spans.update(info, segment, 0, true, 1700, 0,
-                STRONG, MUTED, false));
+                CURRENT, STRONG, MUTED, false));
 
         assertTrue(spans.update(info, segment, 0, false, 2600, 1,
-                STRONG, MUTED, false));
+                CURRENT, STRONG, MUTED, false));
         assertEquals(STRONG, colorAt(content, 1));
         assertEquals(STRONG, colorAt(content, 4));
         assertEquals(STRONG, colorAt(content, 7));
