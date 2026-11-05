@@ -1,5 +1,6 @@
 package de.danoeh.antennapod.ad;
 
+import android.annotation.SuppressLint;
 import android.app.Notification;
 import android.content.Context;
 import android.content.pm.ServiceInfo;
@@ -196,6 +197,9 @@ public class AdScanWorker extends Worker {
                 getApplicationContext(), episodeIndex, total));
     }
 
+    // The dataSync type is declared on SystemForegroundService in app/src/main/AndroidManifest.xml;
+    // lint only inspects this library module's manifest and cannot see it.
+    @SuppressLint("SpecifyForegroundServiceType")
     private static ForegroundInfo foregroundInfo(Notification notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             return new ForegroundInfo(NOTIFICATION_ID, notification,
