@@ -13,7 +13,6 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
-import android.widget.RelativeLayout;
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.IdRes;
 import androidx.annotation.NonNull;
@@ -412,7 +411,7 @@ public class MainActivity extends CastEnabledActivity implements NavigationToolb
         ViewGroup.MarginLayoutParams playerParams = (ViewGroup.MarginLayoutParams) playerView.getLayoutParams();
         playerParams.setMargins(systemBarInsets.left, 0, systemBarInsets.right, 0);
         playerView.setLayoutParams(playerParams);
-        RelativeLayout playerContent = findViewById(R.id.playerContent);
+        ViewGroup playerContent = findViewById(R.id.playerContent);
         playerContent.setPadding(systemBarInsets.left, systemBarInsets.top, systemBarInsets.right, 0);
     }
 

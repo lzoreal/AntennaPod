@@ -25,6 +25,15 @@ public class TranscriptTimingTest {
     }
 
     @Test
+    public void generatedTranscriptNeverUsesOffsets() {
+        Transcript transcript = new Transcript();
+        transcript.setGenerated(true);
+
+        assertEquals(0, TranscriptTiming.offsetAt(transcript, 7, 120_000));
+        assertEquals(0, TranscriptTiming.offsetAtCue(transcript, 7, 120_000));
+    }
+
+    @Test
     public void generatedTranscriptNeverUsesDurationScale() {
         Transcript transcript = new Transcript();
         transcript.setGenerated(true);

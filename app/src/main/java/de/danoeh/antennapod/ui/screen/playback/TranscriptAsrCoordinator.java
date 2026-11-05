@@ -9,6 +9,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.text.TextUtils;
 import android.text.format.DateUtils;
 import android.util.Log;
 import android.view.View;
@@ -61,6 +62,11 @@ final class TranscriptAsrCoordinator {
     private int lastModelPercent = -1;
     private long lastReloadMs;
     private volatile int sessionToken;
+    private boolean completed;
+    private boolean pausedState;
+    private boolean playbackPaused;
+    private CharSequence lastStatusText;
+    private CharSequence lastGenerateText;
 
     TranscriptAsrCoordinator(Host host) {
         this.host = host;
@@ -68,6 +74,11 @@ final class TranscriptAsrCoordinator {
 
     void attach(TranscriptPageFragmentBinding viewBinding) {
         binding = viewBinding;
+        completed = false;
+        pausedState = false;
+        playbackPaused = false;
+        lastStatusText = null;
+        lastGenerateText = null;
     }
 
     void detach() {
@@ -78,13 +89,56 @@ final class TranscriptAsrCoordinator {
         sessionToken++;
         active = false;
         modelDownloading = false;
+        completed = false;
+        pausedState = false;
         handler.removeCallbacksAndMessages(null);
         binding = null;
+        lastStatusText = null;
+        lastGenerateText = null;
+    }
+
+    // Any requestLayout inside the player page makes the bottom sheet re-measure its content at
+    // full height for one pass, which visibly shakes the transcript while ASR streams progress.
+    // Only touch the texts when they actually change and when they are on screen.
+    private void setStatusText(int resId, Object... args) {
+        Context context = host.getContext();
+        if (context == null) {
+            return;
+        }
+        CharSequence text = context.getString(resId, args);
+        if (binding == null || TextUtils.equals(text, lastStatusText)) {
+            return;
+        }
+        lastStatusText = text;
+        binding.txtAsrStatus.setText(text);
+    }
+
+    private void setGenerateText(int resId, Object... args) {
+        Context context = host.getContext();
+        if (context == null) {
+            return;
+        }
+        CharSequence text = context.getString(resId, args);
+        if (binding == null || binding.emptyState.getVisibility() != View.VISIBLE
+                || TextUtils.equals(text, lastGenerateText)) {
+            return;
+        }
+        lastGenerateText = text;
+        binding.btnGenerateTranscript.setText(text);
     }
 
     boolean isRunningHere() {
         FeedMedia media = host.getCurrentMedia();
         return media != null && (AsrGenerationManager.isRunning(media.getId()) || modelDownloading);
+    }
+
+    /** Called from the page's playback ticker, which polls the controller every 100–250 ms. */
+    void setPlaybackPaused(boolean paused) {
+        if (playbackPaused == paused) {
+            return;
+        }
+        playbackPaused = paused;
+        updateVisibility();
     }
 
     void syncRunningState() {
@@ -105,6 +159,7 @@ final class TranscriptAsrCoordinator {
             }
             active = false;
             modelDownloading = false;
+            completed = false;
         }
         syncRunningState();
     }
@@ -114,12 +169,15 @@ final class TranscriptAsrCoordinator {
         if (media == null || event.mediaId != media.getId()) {
             return;
         }
+        Log.d("AsrJitter", "asr event " + event.type + " media=" + event.mediaId
+                + " decoded=" + event.decodedEndMs + " segment="
+                + (event.segment == null ? "null"
+                    : "len=" + event.segment.getText().length()
+                    + " words=" + event.segment.getWords().size()));
         switch (event.type) {
             case STARTED:
                 active = true;
-                if (binding != null) {
-                    binding.txtAsrStatus.setText(R.string.transcript_generate_running);
-                }
+                setStatusText(R.string.transcript_generate_running);
                 updateVisibility();
                 break;
             case SEGMENT:
@@ -131,14 +189,15 @@ final class TranscriptAsrCoordinator {
             case PROGRESS:
                 if (binding != null && active) {
                     String progress = DateUtils.formatElapsedTime(event.decodedEndMs / 1000);
-                    binding.txtAsrStatus.setText(host.getContext().getString(
-                            R.string.transcript_generating_progress_format, progress));
-                    binding.btnGenerateTranscript.setText(host.getContext().getString(
-                            R.string.transcript_generate_progress_format, progress));
+                    if (!pausedState) {
+                        setStatusText(R.string.transcript_generating_progress_format, progress);
+                    }
+                    setGenerateText(R.string.transcript_generate_progress_format, progress);
                 }
                 break;
             case COMPLETED:
                 active = false;
+                completed = true;
                 lastReloadMs = 0;
                 updateVisibility();
                 host.reloadTranscript();
@@ -146,6 +205,7 @@ final class TranscriptAsrCoordinator {
                 break;
             case ERROR:
                 active = false;
+                completed = false;
                 updateVisibility();
                 host.showToast(R.string.transcript_generate_failed);
                 if (event.error != null) {
@@ -154,6 +214,7 @@ final class TranscriptAsrCoordinator {
                 break;
             case STOPPED:
                 active = false;
+                completed = false;
                 updateVisibility();
                 if (event.stopReason != 0) {
                     host.showToast(event.stopReason);
@@ -187,9 +248,9 @@ final class TranscriptAsrCoordinator {
         if (available) {
             binding.btnGenerateTranscript.setEnabled(!active && !modelDownloading);
             if (!active && !modelDownloading) {
-                binding.btnGenerateTranscript.setText(R.string.transcript_generate);
+                setGenerateText(R.string.transcript_generate);
             } else if (!modelDownloading) {
-                binding.btnGenerateTranscript.setText(R.string.transcript_generate_running);
+                setGenerateText(R.string.transcript_generate_running);
             }
         }
 
@@ -217,19 +278,40 @@ final class TranscriptAsrCoordinator {
                 + " visible=" + continueVisible);
         boolean runningHere = media != null && AsrGenerationManager.isRunning(media.getId());
         boolean busy = runningHere || modelDownloading;
-        boolean showStatus = busy || continueVisible;
+        // Generation follows the playhead, so a paused player stalls it. Say so instead of
+        // leaving a spinner that never advances. The page polls the controller (PlayerStatusEvent
+        // arrives before the MediaController has applied the new state, which flipped the label).
+        boolean paused = runningHere && playbackPaused;
+        boolean showCompleted = completed && !busy;
+        Log.d("AsrJitter", "asr visibility busy=" + busy + " download=" + modelDownloading
+                + " paused=" + paused + " complete=" + completed
+                + " continue=" + continueVisible + " empty="
+                + (binding.emptyState.getVisibility() == View.VISIBLE));
+        boolean showStatus = busy || continueVisible || showCompleted;
         boolean statusWasVisible = binding.statusChip.getVisibility() == View.VISIBLE;
-        binding.statusChip.setSelected(!busy);
+        boolean showContinue = !busy && !showCompleted && continueVisible;
+        binding.statusChip.setSelected(showContinue);
         binding.statusChip.setVisibility(showStatus ? View.VISIBLE : View.GONE);
-        binding.statusProgress.setVisibility(busy ? View.VISIBLE : View.GONE);
-        binding.txtAsrStatus.setVisibility(busy ? View.VISIBLE : View.GONE);
-        binding.btnContinueTranscript.setVisibility(busy ? View.GONE : View.VISIBLE);
+        binding.statusProgress.setVisibility(busy && !paused ? View.VISIBLE : View.GONE);
+        binding.statusIcon.setVisibility(paused || showCompleted ? View.VISIBLE : View.GONE);
+        if (paused || showCompleted) {
+            binding.statusIcon.setImageResource(paused
+                    ? R.drawable.ic_pause : R.drawable.ic_check);
+        }
+        binding.txtAsrStatus.setVisibility(busy || showCompleted ? View.VISIBLE : View.GONE);
+        binding.btnContinueTranscript.setVisibility(showContinue ? View.VISIBLE : View.GONE);
         binding.btnCancelTranscript.setVisibility(runningHere ? View.VISIBLE : View.GONE);
-        if (busy && !statusWasVisible) {
-            binding.txtAsrStatus.setText(modelDownloading
+        if (paused) {
+            setStatusText(R.string.transcript_generate_paused);
+        } else if (showCompleted) {
+            setStatusText(R.string.transcript_generate_complete);
+        } else if (busy && (pausedState || !statusWasVisible)) {
+            // Leaving the paused state shows a label again until the next progress event.
+            setStatusText(modelDownloading
                     ? R.string.transcript_model_installing
                     : R.string.transcript_generate_running);
         }
+        pausedState = paused;
     }
 
     private static boolean isCurrentPlaybackMedia(FeedMedia media) {
@@ -336,8 +418,8 @@ final class TranscriptAsrCoordinator {
         modelDownloader = new ModelDownloader(store);
         final ModelDownloader downloader = modelDownloader;
         binding.btnGenerateTranscript.setEnabled(false);
-        binding.btnGenerateTranscript.setText(R.string.transcript_generate_running);
-        binding.txtAsrStatus.setText(R.string.transcript_model_installing);
+        setGenerateText(R.string.transcript_generate_running);
+        setStatusText(R.string.transcript_model_installing);
         updateVisibility();
         new Thread(() -> {
             try {
@@ -383,18 +465,17 @@ final class TranscriptAsrCoordinator {
             if (percent >= 100) {
                 // Extraction and SHA-256 verification of the 155 MB encoder run after the
                 // transfer finished and used to look like a frozen 100 %.
-                binding.btnGenerateTranscript.setText(R.string.transcript_model_installing);
-                binding.txtAsrStatus.setText(R.string.transcript_model_installing);
+                setGenerateText(R.string.transcript_model_installing);
+                setStatusText(R.string.transcript_model_installing);
             } else {
-                String text = host.getContext().getString(
-                        R.string.transcript_model_downloading_format, percent);
-                binding.btnGenerateTranscript.setText(text);
-                binding.txtAsrStatus.setText(text);
+                setGenerateText(R.string.transcript_model_downloading_format, percent);
+                setStatusText(R.string.transcript_model_downloading_format, percent);
             }
         }
     }
 
     void cancelGeneration() {
+        Log.d("AsrJitter", "cancelGeneration");
         FeedMedia media = host.getCurrentMedia();
         if (media == null) {
             return;
@@ -405,17 +486,22 @@ final class TranscriptAsrCoordinator {
     }
 
     private void startSession() {
+        Log.d("AsrJitter", "startSession currentMedia="
+                + (host.getCurrentMedia() == null ? "null" : host.getCurrentMedia().getId()));
         Context context = host.getContext();
         if (active || host.getCurrentMedia() == null || context == null || binding == null) {
             return;
         }
         active = true;
+        completed = false;
         binding.btnGenerateTranscript.setEnabled(false);
-        binding.btnGenerateTranscript.setText(R.string.transcript_generate_running);
+        setGenerateText(R.string.transcript_generate_running);
         AsrGenerationManager.start(context.getApplicationContext(), host.getCurrentMedia());
     }
 
     private void appendSegment(TranscriptSegment segment) {
+        Log.d("AsrJitter", "appendSegment " + segment.getStartTime() + "-"
+                + segment.getEndTime());
         FeedMedia media = host.getCurrentMedia();
         TranscriptAdapter adapter = host.getAdapter();
         if (binding == null || media == null) {

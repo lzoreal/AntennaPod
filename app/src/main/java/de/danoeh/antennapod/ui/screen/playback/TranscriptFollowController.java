@@ -18,7 +18,9 @@ import de.danoeh.antennapod.ui.transcript.TranscriptViewholder;
 
 /** Keeps the current sentence on the reading line, animating or snapping as needed. */
 final class TranscriptFollowController {
+    private static final String TAG = "AsrJitter";
     private static final long FOLLOW_CLOCK_INTERVAL_MS = 250;
+    private static final int MAX_NO_PROGRESS_FRAMES = 3;
 
     interface Host {
         @Nullable
@@ -42,6 +44,8 @@ final class TranscriptFollowController {
         void setPendingSnapToHighlight(boolean pending);
 
         void setLastScrolledPosition(int position);
+
+        void onFollowSnap();
     }
 
     private final Host host;
@@ -54,9 +58,13 @@ final class TranscriptFollowController {
     private long followDurationMs = 0;
     private int followStartError = 0;
     private int followScrolled = 0;
+    private int followNoProgressFrames = 0;
     private int followTargetPosition = -1;
     private int followTargetStart = -1;
     private int followTargetEnd = -1;
+    private int animDySign;
+    private int frameCount;
+    private long lastFrameLogMs;
     private long lastLayoutRecoveryMs;
     private long lastFollowSkipLogMs;
     private ViewTreeObserver followObserver;
@@ -64,6 +72,14 @@ final class TranscriptFollowController {
         if (!canAutoFollow()) {
             stopFrame();
             return true;
+        }
+        long frameNow = SystemClock.elapsedRealtime();
+        frameCount++;
+        if (frameNow - lastFrameLogMs >= 1000) {
+            Log.d(TAG, "follow frames/s=" + frameCount + " animating=" + followAnimating
+                    + " target=" + followTargetPosition + " scrolled=" + followScrolled);
+            frameCount = 0;
+            lastFrameLogMs = frameNow;
         }
         if (!scrollTowardsCurrentSentence()) {
             stopFrame();
@@ -134,6 +150,9 @@ final class TranscriptFollowController {
         if (binding == null || !canAutoFollow()) {
             return;
         }
+        Log.d(TAG, "scheduleFrame clock=" + followClockActive
+                + " pendingSnap=" + host.isPendingSnapToHighlight()
+                + " scrollState=" + binding.recyclerView.getScrollState());
         ViewTreeObserver observer = binding.recyclerView.getViewTreeObserver();
         if (!observer.isAlive()) {
             return;
@@ -199,6 +218,7 @@ final class TranscriptFollowController {
         stopFrame();
         recyclerView.stopScroll();
         host.setPendingSnapToHighlight(true);
+        host.onFollowSnap();
         recyclerView.scrollToPosition(position);
         scheduleFrame();
     }
@@ -211,6 +231,10 @@ final class TranscriptFollowController {
             return;
         }
         int position = adapter.getHighlightPosition();
+        StackTraceElement caller = new Throwable().getStackTrace()[1];
+        Log.d(TAG, "returnToCurrent pos=" + position + " caller=."
+                + caller.getMethodName() + ":" + caller.getLineNumber()
+                + " pendingSnap=" + host.isPendingSnapToHighlight());
         if (position >= 0) {
             scrollToPosition(position, true);
         }
@@ -287,6 +311,12 @@ final class TranscriptFollowController {
         RecyclerView.ViewHolder holder = recyclerView.findViewHolderForAdapterPosition(position);
         if (!(holder instanceof TranscriptViewholder)) {
             followAnimating = false;
+            LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
+            Log.d(TAG, "no holder pos=" + position + " kids=" + recyclerView.getChildCount()
+                    + " first=" + (lm == null ? -1 : lm.findFirstVisibleItemPosition())
+                    + " last=" + (lm == null ? -1 : lm.findLastVisibleItemPosition())
+                    + " n=" + adapter.getItemCount()
+                    + " scroll=" + recyclerView.computeVerticalScrollOffset());
             // scrollToPosition() issued from a pre-draw pass only sets a pending position that
             // waits for the next unrelated layout (an ASR reload), so the view froze for tens of
             // seconds while the highlight row sat off screen. scrollBy() is applied immediately,
@@ -315,7 +345,8 @@ final class TranscriptFollowController {
         int target = holder.itemView.getTop() + (bounds[0] + bounds[1]) / 2;
         int anchor = readingLinePx(recyclerView);
         int error = target - anchor;
-        boolean targetChanged = position != followTargetPosition
+        boolean rowChanged = position != followTargetPosition;
+        boolean targetChanged = rowChanged
                 || bounds[0] != followTargetStart
                 || bounds[1] != followTargetEnd;
         if (targetChanged) {
@@ -331,10 +362,12 @@ final class TranscriptFollowController {
             followTargetStart = bounds[0];
             followTargetEnd = bounds[1];
             followAnimating = false;
+            followNoProgressFrames = 0;
         }
-        if (snap || targetChanged) {
-            // A new line or row is read: jump straight onto the reading line instead of
-            // letting it drift down and catching up afterwards.
+        if (snap || rowChanged) {
+            // A new row is read (or the user jumped): land straight on the reading line.
+            // A new sentence inside the same row is only about a line height away, so it is
+            // animated below; snapping it made the list jump once per sentence.
             followAnimating = false;
             if (!TranscriptFollowMotion.isWithinStopThreshold(error, followDensity)) {
                 snapToError(recyclerView, error);
@@ -365,6 +398,10 @@ final class TranscriptFollowController {
             followDurationMs = TranscriptFollowMotion.durationFor(error, followDensity);
             followStartError = error;
             followScrolled = 0;
+            followNoProgressFrames = 0;
+            animDySign = 0;
+            Log.d(TAG, "anim start err=" + error + " dur=" + followDurationMs
+                    + " viewport=" + viewportHeight);
         }
         int dy = TranscriptFollowMotion.nextScrollDelta(
                 followStartError, now - followStartMs, followDurationMs, followScrolled);
@@ -377,11 +414,32 @@ final class TranscriptFollowController {
                 followAnimating = false;
                 return false;
             }
-            recyclerView.scrollBy(0, dy);
+            if (Integer.signum(dy) != animDySign) {
+                animDySign = Integer.signum(dy);
+                Log.d(TAG, "anim dir flip dy=" + dy + " scrolled=" + followScrolled
+                        + " err=" + error + " scroll="
+                        + recyclerView.computeVerticalScrollOffset());
+            }
+            int applied = scrollWithoutNestedScroll(recyclerView, dy);
+            if (applied == 0) {
+                // The list did not move at all (for example because the scroll was handed to the
+                // player's bottom sheet instead). Restarting the animation then spins at frame
+                // rate without ever reaching the target, which is the visible shaking.
+                if (++followNoProgressFrames >= MAX_NO_PROGRESS_FRAMES) {
+                    Log.d(TAG, "anim stalled dy=" + dy + " err=" + error
+                            + " scroll=" + recyclerView.computeVerticalScrollOffset());
+                    followAnimating = false;
+                    return false;
+                }
+            } else {
+                followNoProgressFrames = 0;
+            }
             followScrolled += dy;
         }
         if (now - followStartMs >= followDurationMs) {
             followAnimating = false;
+            Log.d(TAG, "anim end scrolled=" + followScrolled + " err=" + error
+                    + " scroll=" + recyclerView.computeVerticalScrollOffset());
             return false;
         }
         recyclerView.postInvalidateOnAnimation();
@@ -389,6 +447,9 @@ final class TranscriptFollowController {
     }
 
     private void snapToError(RecyclerView recyclerView, int error) {
+        if (error != 0) {
+            host.onFollowSnap();
+        }
         if (error < 0 && !recyclerView.canScrollVertically(-1)) {
             return;
         }
@@ -398,8 +459,28 @@ final class TranscriptFollowController {
         if (error != 0) {
             Log.d("AsrSync", "snap error=" + error + " scroll="
                     + recyclerView.computeVerticalScrollOffset());
-            recyclerView.scrollBy(0, error);
+            scrollWithoutNestedScroll(recyclerView, error);
         }
+    }
+
+    /**
+     * The list lives inside the player's bottom sheet, which also implements nested scrolling.
+     * A programmatic {@link RecyclerView#scrollBy} dispatches a TYPE_TOUCH nested scroll, so the
+     * sheet can swallow the distance and slide the player instead of moving the transcript.
+     *
+     * @return the scroll offset distance that was actually applied
+     */
+    static int scrollWithoutNestedScroll(RecyclerView recyclerView, int dy) {
+        int before = recyclerView.computeVerticalScrollOffset();
+        boolean nestedScrolling = recyclerView.isNestedScrollingEnabled();
+        if (nestedScrolling) {
+            recyclerView.setNestedScrollingEnabled(false);
+        }
+        recyclerView.scrollBy(0, dy);
+        if (nestedScrolling) {
+            recyclerView.setNestedScrollingEnabled(true);
+        }
+        return recyclerView.computeVerticalScrollOffset() - before;
     }
 
     private boolean areFollowAnimationsEnabled() {
@@ -453,7 +534,10 @@ final class TranscriptFollowController {
         if (direction > 0 && !recyclerView.canScrollVertically(1)) {
             return false;
         }
-        recyclerView.scrollBy(0, direction * stepPx);
+        Log.d(TAG, "step dir=" + direction + " by=" + stepPx + " pos=" + position
+                + " first=" + first + " last=" + last + " scroll="
+                + recyclerView.computeVerticalScrollOffset());
+        scrollWithoutNestedScroll(recyclerView, direction * stepPx);
         return true;
     }
 }

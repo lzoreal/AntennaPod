@@ -317,6 +317,8 @@
     <string name="transcript_generate">Generate transcript</string>
     <string name="transcript_continue">Continue generating</string>
     <string name="transcript_generate_running">Generating…</string>
+    <string name="transcript_generate_paused">Paused</string>
+    <string name="transcript_generate_complete">Complete</string>
     <string name="transcript_cancel_generate">Cancel generation</string>
     <string name="transcript_generate_progress_format">Generated to %1$s</string>
     <string name="transcript_generate_done">Transcript generated</string>

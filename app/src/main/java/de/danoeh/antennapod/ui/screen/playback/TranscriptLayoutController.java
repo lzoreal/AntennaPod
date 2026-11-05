@@ -1,6 +1,7 @@
 package de.danoeh.antennapod.ui.screen.playback;
 
 import android.content.Context;
+import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
@@ -40,6 +41,9 @@ final class TranscriptLayoutController {
         TranscriptAdapter getAdapter();
     }
 
+    /** A relayout inside the player page briefly measures the page at full height (see below). */
+    private static final long HEIGHT_SETTLE_MS = 120;
+
     private final Host host;
     @Nullable
     private TranscriptPageFragmentBinding binding;
@@ -47,6 +51,7 @@ final class TranscriptLayoutController {
     private int appliedLayoutHeight = -1;
     private int appliedLayoutWidth = -1;
     private int followBottomSpace;
+    private int pendingLayoutHeight = -1;
 
     TranscriptLayoutController(Host host) {
         this.host = host;
@@ -54,10 +59,14 @@ final class TranscriptLayoutController {
 
     void attach(TranscriptPageFragmentBinding viewBinding) {
         binding = viewBinding;
+        pendingLayoutHeight = -1;
         setupSteppers();
     }
 
     void detach() {
+        if (binding != null) {
+            binding.recyclerView.removeCallbacks(applySettledHeight);
+        }
         binding = null;
     }
 
@@ -149,6 +158,8 @@ final class TranscriptLayoutController {
                 + UserPreferences.getTranscriptSideMarginsStep() * 100
                 + UserPreferences.getTranscriptVerticalSpacingStep();
         if (signature != appliedLayoutSignature) {
+            Log.d("AsrJitter", "applyLayout signature " + appliedLayoutSignature
+                    + " -> " + signature + " padding=" + padding);
             appliedLayoutSignature = signature;
             binding.recyclerView.setPadding(0, padding, 0, padding);
             if (adapter != null) {
@@ -165,14 +176,38 @@ final class TranscriptLayoutController {
         // A footer gap extends the scrollable content without shrinking the visible viewport,
         // so the last rows can still reach the 40% reading line (bottom padding cannot).
         int height = binding.recyclerView.getHeight();
-        int bottomSpace = height > 0
-                ? Math.round(height * (1f - TranscriptFollowMotion.ANCHOR_RATIO)) : 0;
-        if (height != appliedLayoutHeight || bottomSpace != followBottomSpace) {
-            appliedLayoutHeight = height;
-            followBottomSpace = bottomSpace;
-            binding.recyclerView.invalidateItemDecorations();
+        if (height > 0 && height != pendingLayoutHeight) {
+            pendingLayoutHeight = height;
+            binding.recyclerView.removeCallbacks(applySettledHeight);
+            binding.recyclerView.postDelayed(applySettledHeight, HEIGHT_SETTLE_MS);
         }
     }
+
+    // Any requestLayout inside the player page makes the bottom sheet re-measure its content at
+    // full height for one pass, so the list height briefly flips (e.g. 1540 <-> 2171) and back.
+    // Invalidating the footer for each of those passes requests another layout and lets the
+    // follow chase a moving footer. Only apply the footer once the height has settled.
+    private final Runnable applySettledHeight = () -> {
+        if (binding == null) {
+            return;
+        }
+        int height = binding.recyclerView.getHeight();
+        if (height <= 0 || height != pendingLayoutHeight) {
+            return;
+        }
+        int bottomSpace = Math.round(height * (1f - TranscriptFollowMotion.ANCHOR_RATIO));
+        // Only grow the gap. Shrinking would need another requestLayout in the middle of the
+        // panel animation, and a larger gap is still enough for the last row to reach the line.
+        if (bottomSpace <= followBottomSpace) {
+            appliedLayoutHeight = height;
+            return;
+        }
+        Log.d("AsrJitter", "applyLayout settled height " + appliedLayoutHeight + " -> " + height
+                + " bottomSpace=" + bottomSpace);
+        appliedLayoutHeight = height;
+        followBottomSpace = bottomSpace;
+        binding.recyclerView.invalidateItemDecorations();
+    };
 
     private void adjustLineSpacing(int delta) {
         UserPreferences.setTranscriptLineSpacingStep(

@@ -21,7 +21,7 @@ public class TranscriptSessionTest {
     }
 
     @Test
-    public void generatedTranscriptHasNoDurationScale() {
+    public void generatedTranscriptHasNoOffsetOrScale() {
         Transcript transcript = new Transcript();
         transcript.setGenerated(true);
         transcript.setAudioDurationMs(2_000_000);
@@ -29,6 +29,8 @@ public class TranscriptSessionTest {
         session.setDuration(1_000_000);
 
         assertEquals(1.0, session.getScale(), EPSILON);
-        assertEquals(1_000_000, session.toTranscriptTime(1_000_000));
+        assertEquals(0, session.offsetAt(120_000));
+        assertEquals(0, session.offsetAtCue(120_000));
+        assertEquals(1500, session.transcriptPositionAt(1500));
     }
 }

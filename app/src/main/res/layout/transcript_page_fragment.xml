@@ -40,7 +40,18 @@
                 android:indeterminate="true"
                 android:indeterminateTint="?attr/colorOnSecondaryContainer" />
 
-            <TextView
+            <ImageView
+                android:id="@+id/statusIcon"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:importantForAccessibility="no"
+                android:tint="?attr/colorOnSecondaryContainer"
+                android:visibility="gone" />
+
+            <!-- The progress text changes every second. A plain TextView would request a layout
+                 on every update, and any requestLayout inside the player page makes the bottom
+                 sheet re-measure its content at full height, which visibly shakes the list. -->
+            <de.danoeh.antennapod.ui.screen.playback.audio.NoRelayoutTextView
                 android:id="@+id/txtAsrStatus"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

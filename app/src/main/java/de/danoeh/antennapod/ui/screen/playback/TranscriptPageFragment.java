@@ -12,6 +12,7 @@ import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -24,7 +25,6 @@ import androidx.media3.common.DeviceInfo;
 import androidx.media3.session.MediaController;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-import androidx.recyclerview.widget.SimpleItemAnimator;
 
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -70,6 +70,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private boolean userScrolling = false;
     private boolean pendingSnapToHighlight = false;
     private int lastScrolledPosition = -1;
+    private int lastListScreenY = -1;
     private long lastScrollInteractionMs;
     private int loadedSegmentCount;
 
@@ -124,7 +125,15 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 public void setLastScrolledPosition(int position) {
                     lastScrolledPosition = position;
                 }
+
+                @Override
+                public void onFollowSnap() {
+                    jitterMonitor.onSnap();
+                }
             });
+
+    private final TranscriptJitterMonitor jitterMonitor =
+            new TranscriptJitterMonitor(this::describeJitterState);
 
     private long lastPositionMs = 0;
     private volatile long lastRawPlayerPosition = -1;
@@ -137,6 +146,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private static final long TICKER_STALE_MS = 1500;
     private static final long POSITION_BACKSTEP_TOLERANCE_MS = 1200;
     private long lastBackstepLogMs;
+    private long lastTickLogMs;
+    private long lastLoggedPosition = Long.MIN_VALUE;
+    private int lastLoggedSegment = Integer.MIN_VALUE;
     private static final long WORD_HIGHLIGHT_UPDATE_INTERVAL_MS = 100;
     private static final String STATE_SEARCH_ACTIVE = "transcript_search_active";
     private static final String STATE_SEARCH_QUERY = "transcript_search_query";
@@ -358,10 +370,6 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 @Override
                 public void onLayoutPanelStateChanged() {
                     layoutController.updateControls();
-                    if (viewBinding != null
-                            && viewBinding.offsetControls.getVisibility() == View.VISIBLE) {
-                        followController.returnToCurrentSentence();
-                    }
                 }
             });
 
@@ -374,19 +382,38 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             lastTickerMs = SystemClock.elapsedRealtime();
             MediaController controller = mediaController;
             boolean playing = controller != null && controller.isConnected() && controller.isPlaying();
+            if (controller != null && controller.isConnected()) {
+                // Polled here instead of on PlayerStatusEvent: the controller applies the new
+                // state after that event is posted, so reading it there showed the opposite label.
+                asrCoordinator.setPlaybackPaused(!playing);
+            }
+            if (SystemClock.elapsedRealtime() - lastTickLogMs >= 1000) {
+                lastTickLogMs = SystemClock.elapsedRealtime();
+                jitterMonitor.onSecondTick(lastTickLogMs);
+                Log.d("AsrJitter", "tick playing=" + playing
+                        + " rawLast=" + lastRawPlayerPosition
+                        + " last=" + lastPositionMs
+                        + " pos=" + (adapter == null ? -1 : adapter.getHighlightPosition())
+                        + " userScrolling=" + userScrolling
+                        + " tickerDriving=" + highlightTickerDriving
+                        + " pageVisible=" + isResumed());
+            }
             if (playing) {
                 long rawPosition = smoothPlayingPosition(controller.getCurrentPosition());
-                lastRawPlayerPosition = rawPosition;
-                long position = positionSource.toTranscriptTime(rawPosition);
-                setHighlightTickerDriving(true);
-                if (adapter != null) {
-                    adapter.updatePlaybackPosition(position);
+                if (!isTransientZeroPosition(rawPosition)) {
+                    lastRawPlayerPosition = rawPosition;
+                    long position = positionSource.toTranscriptTime(rawPosition);
+                    setHighlightTickerDriving(true);
+                    if (adapter != null) {
+                        adapter.updatePlaybackPosition(position);
+                    }
+                    handlePlaybackPosition(position);
                 }
-                handlePlaybackPosition(position);
             } else {
                 long playerPosition = controller != null && controller.isConnected()
                         ? controller.getCurrentPosition() : -1;
-                if (playerPosition >= 0 && playerPosition != lastRawPlayerPosition) {
+                if (playerPosition >= 0 && playerPosition != lastRawPlayerPosition
+                        && !isTransientZeroPosition(playerPosition)) {
                     lastRawPlayerPosition = playerPosition;
                     long position = positionSource.toTranscriptTime(playerPosition);
                     setHighlightTickerDriving(true);
@@ -423,6 +450,21 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         return previous;
     }
 
+    /**
+     * A freshly connected MediaController reports 0 until the session state arrives. Treating
+     * that as a real position sent the highlight to the first segment and back a few seconds
+     * later, which looked like the list shaking when the transcript page was opened.
+     */
+    private boolean isTransientZeroPosition(long playerPosition) {
+        boolean transientZero = playerPosition == 0
+                && lastPositionMs > POSITION_BACKSTEP_TOLERANCE_MS;
+        if (transientZero) {
+            Log.d("AsrJitter", "ignore transient zero, last=" + lastPositionMs
+                    + " rawLast=" + lastRawPlayerPosition);
+        }
+        return transientZero;
+    }
+
     private long highlightUpdateInterval() {
         return currentMedia != null && currentMedia.getTranscript() != null
                 && currentMedia.getTranscript().hasWordTimings()
@@ -451,16 +493,18 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             public void getItemOffsets(@NonNull Rect outRect, @NonNull View view,
                                        @NonNull RecyclerView parent,
                                        @NonNull RecyclerView.State state) {
+                // Only the last row carries the gap; TranscriptAdapter must invalidate the
+                // decorations after every insert or the old last row keeps a blank gap.
                 int position = parent.getChildAdapterPosition(view);
                 if (adapter != null && position == adapter.getItemCount() - 1) {
                     outRect.bottom = layoutController.getFollowBottomSpace();
                 }
             }
         });
-        RecyclerView.ItemAnimator animator = viewBinding.recyclerView.getItemAnimator();
-        if (animator instanceof SimpleItemAnimator) {
-            ((SimpleItemAnimator) animator).setSupportsChangeAnimations(false);
-        }
+        // Do not put an ItemAnimator back: with the last-row footer gap above, a data-set change
+        // makes RecyclerView lay every visible row out one footer gap lower and then translate it
+        // back, so appending a segment visibly shakes the list (see TranscriptInsertStabilityTest).
+        viewBinding.recyclerView.setItemAnimator(null);
 
         viewBinding.recyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
@@ -492,6 +536,15 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                         }
                     }
                     followController.scheduleFrame();
+                }
+            }
+        });
+
+        viewBinding.recyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                if (recyclerView.getScrollState() != RecyclerView.SCROLL_STATE_DRAGGING) {
+                    jitterMonitor.onScroll(dy, SystemClock.elapsedRealtime());
                 }
             }
         });
@@ -548,7 +601,26 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         viewBinding.btnImmersive.setAlpha(0.5f);
         viewBinding.recyclerView.addOnLayoutChangeListener((v, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> {
+            // A header (controls bar, search bar) or the whole page (immersive mode) moving
+            // shifts the text on screen. Scroll by the same distance so the current line stays
+            // where it is instead of being re-centred by the follow.
+            int[] screenLocation = new int[2];
+            v.getLocationOnScreen(screenLocation);
+            int shift = lastListScreenY < 0 ? 0 : screenLocation[1] - lastListScreenY;
+            lastListScreenY = screenLocation[1];
+            if (Math.abs(shift) >= 2) {
+                followController.stopFrame();
+                TranscriptFollowController.scrollWithoutNestedScroll(
+                        (RecyclerView) v, shift);
+                followController.scheduleFrame();
+            }
             if (bottom - top != oldBottom - oldTop || right - left != oldRight - oldLeft) {
+                ViewParent parent = viewBinding.getRoot().getParent();
+                Log.d("AsrJitter", "list layout " + (oldRight - oldLeft) + "x"
+                        + (oldBottom - oldTop) + " -> " + (right - left) + "x"
+                        + (bottom - top) + " page=" + viewBinding.getRoot().getHeight()
+                        + " pageParent=" + (parent instanceof View ? ((View) parent).getHeight() : -1)
+                        + " shift=" + shift);
                 layoutController.applyLayout();
             }
         });
@@ -571,6 +643,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     @Override
     public void onStart() {
         super.onStart();
+        Log.d("AsrJitter", "onStart hash=" + hashCode());
         EventBus.getDefault().register(this);
         connectPlaybackController();
         if (adapter != null
@@ -586,6 +659,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     @Override
     public void onResume() {
         super.onResume();
+        Log.d("AsrJitter", "onResume hash=" + hashCode());
         highlightTickerActive = true;
         highlightHandler.post(highlightTicker);
         followController.startClock();
@@ -594,6 +668,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
     @Override
     public void onPause() {
+        Log.d("AsrJitter", "onPause hash=" + hashCode());
         highlightTickerActive = false;
         setHighlightTickerDriving(false);
         highlightHandler.removeCallbacks(highlightTicker);
@@ -604,6 +679,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
     @Override
     public void onStop() {
+        Log.d("AsrJitter", "onStop hash=" + hashCode());
         super.onStop();
         followController.stopClock();
         if (disposable != null) {
@@ -626,6 +702,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             }
             try {
                 mediaController = future.get();
+                Log.d("AsrJitter", "controller connected hash=" + hashCode());
             } catch (ExecutionException | InterruptedException e) {
                 Log.e(TAG, "Error getting media controller", e);
             }
@@ -643,6 +720,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     }
 
     private void disconnectPlaybackController() {
+        Log.d("AsrJitter", "controller released hash=" + hashCode());
         highlightTickerActive = false;
         setHighlightTickerDriving(false);
         highlightHandler.removeCallbacks(highlightTicker);
@@ -704,6 +782,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (!forceReload && viewBinding != null && currentMedia != null
                 && currentMedia.getId() == currentMediaId
                 && adapter != null && adapter.getItemCount() > 0) {
+            Log.d("AsrJitter", "loadTranscript early return media=" + currentMediaId
+                    + " last=" + lastPositionMs + " userScrolling=" + userScrolling);
             viewBinding.progLoading.setVisibility(View.GONE);
             viewBinding.emptyState.setVisibility(View.GONE);
             viewBinding.recyclerView.setVisibility(View.VISIBLE);
@@ -770,6 +850,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             currentMedia = media;
             int newCount = media.getTranscript().getSegmentCount();
             if (newCount != loadedSegmentCount) {
+                Log.d("AsrJitter", "mediaLoaded count " + loadedSegmentCount + " -> " + newCount);
                 // Segments may be inserted anywhere while gaps are filled, so a full refresh is
                 // the only safe notification; the highlighted row is restored right after.
                 // Re-centre immediately instead of slowly catching up from below the viewport.
@@ -969,6 +1050,49 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         handlePlaybackPosition(positionSource.toTranscriptTime(event.getPosition()));
     }
 
+    private String describeJitterState() {
+        if (viewBinding == null) {
+            return "noBinding";
+        }
+        boolean playing = mediaController != null && mediaController.isConnected()
+                && mediaController.isPlaying();
+        RecyclerView list = viewBinding.recyclerView;
+        String visibleRange = "";
+        RecyclerView.LayoutManager lm = list.getLayoutManager();
+        if (lm instanceof LinearLayoutManager) {
+            LinearLayoutManager linear = (LinearLayoutManager) lm;
+            View firstChild = list.getChildAt(0);
+            StringBuilder children = new StringBuilder();
+            for (int i = 0; i < Math.min(list.getChildCount(), 4); i++) {
+                View child = list.getChildAt(i);
+                children.append(children.length() == 0 ? "" : ",").append('(')
+                        .append(list.getChildAdapterPosition(child)).append(',')
+                        .append(child.getTop()).append("..").append(child.getBottom()).append(')');
+            }
+            visibleRange = " kids=" + list.getChildCount() + children
+                    + " first=" + linear.findFirstVisibleItemPosition()
+                    + " firstTop=" + (firstChild == null ? -1 : firstChild.getTop())
+                    + " last=" + linear.findLastVisibleItemPosition()
+                    + " listH=" + list.getHeight();
+        }
+        return "scroll=" + list.computeVerticalScrollOffset()
+                + " n=" + (adapter == null ? -1 : adapter.getItemCount())
+                + visibleRange
+                + " pos=" + (adapter == null ? -1 : adapter.getHighlightPosition())
+                + " last=" + lastPositionMs
+                + " playing=" + playing
+                + " userScrolling=" + userScrolling
+                + " pendingSnap=" + pendingSnapToHighlight
+                + " panels=" + viewBinding.moreControls.getVisibility()
+                + "/" + viewBinding.layoutControls.getVisibility()
+                + "/" + viewBinding.offsetControls.getVisibility()
+                + " chip=" + viewBinding.statusChip.getVisibility()
+                + " gen=" + (currentMedia != null && currentMedia.getTranscript() != null
+                    && currentMedia.getTranscript().isGenerated())
+                + " asrRunning=" + (currentMedia != null
+                    && AsrGenerationManager.isRunning(currentMedia.getId()));
+    }
+
     private void logSyncState(long position, int pos) {
         long now = SystemClock.elapsedRealtime();
         if (pos == lastSyncLogSegment && now - lastSyncLogMs < 2000) {
@@ -1026,6 +1150,15 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
         int pos = currentSegmentIndex(lastPositionMs - positionSource.offsetAt(lastPositionMs));
         logSyncState(lastPositionMs, pos);
+        if (position != lastLoggedPosition || pos != lastLoggedSegment) {
+            lastLoggedPosition = position;
+            lastLoggedSegment = pos;
+            Log.d("AsrJitter", "handlePos pos=" + position + " seg=" + pos
+                    + " lastScrolled=" + lastScrolledPosition
+                    + " userScrolling=" + userScrolling
+                    + " pendingSnap=" + pendingSnapToHighlight
+                    + " adapterPos=" + (adapter == null ? -1 : adapter.getHighlightPosition()));
+        }
         if (pos < 0) {
             return;
         }
@@ -1185,14 +1318,12 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         boolean visible = viewBinding.layoutControls.getVisibility() == View.VISIBLE;
+        Log.d("AsrJitter", "toggleLayoutBar open=" + !visible);
         offsetController.closePanels();
         viewBinding.moreControls.setVisibility(View.GONE);
         viewBinding.btnMore.setAlpha(0.5f);
         viewBinding.layoutControls.setVisibility(visible ? View.GONE : View.VISIBLE);
         layoutController.updateControls();
-        if (!visible) {
-            followController.returnToCurrentSentence();
-        }
     }
 
     private void toggleMoreBar() {
@@ -1200,6 +1331,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         boolean visible = viewBinding.moreControls.getVisibility() == View.VISIBLE;
+        Log.d("AsrJitter", "toggleMoreBar open=" + !visible);
         offsetController.closePanels();
         viewBinding.layoutControls.setVisibility(View.GONE);
         viewBinding.moreControls.setVisibility(visible ? View.GONE : View.VISIBLE);
@@ -1207,9 +1339,6 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         updateTranslationToggle();
         updateSentenceToggle();
         updateSegmentLoopToggle();
-        if (!visible) {
-            followController.returnToCurrentSentence();
-        }
     }
 
     // ===== Public methods called by AudioPlayerFragment =====
@@ -1257,14 +1386,19 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         boolean visible = viewBinding.controlsBar.getVisibility() == View.VISIBLE;
+        Log.d("AsrJitter", "toggleControlsBar visible=" + visible
+                + " searchActive=" + searchController.isActive());
         if (visible) {
             hideControlPanels();
-            searchController.close();
+            if (searchController.isActive()) {
+                searchController.close();
+            }
         }
         viewBinding.controlsBar.setVisibility(visible ? View.GONE : View.VISIBLE);
     }
 
     private void hideControlPanels() {
+        Log.d("AsrJitter", "hideControlPanels");
         offsetController.closePanels();
         viewBinding.layoutControls.setVisibility(View.GONE);
         viewBinding.moreControls.setVisibility(View.GONE);
@@ -1281,6 +1415,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         immersiveMode = immersive;
+        Log.d("AsrJitter", "setImmersiveMode immersive=" + immersive);
         if (immersive) {
             controlsBarVisibleBeforeImmersive = viewBinding.controlsBar.getVisibility() == View.VISIBLE;
             searchController.close();

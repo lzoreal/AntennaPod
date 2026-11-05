@@ -17,7 +17,6 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
-import android.widget.RelativeLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
@@ -105,6 +104,7 @@ public class AudioPlayerFragment extends Fragment implements
 
     private TextView txtvPlaybackSpeed;
     private ViewPager2 pager;
+    private View pagerContainer;
     private TextView txtvPosition;
     private TextView txtvLength;
     private ChapterSeekBar sbPosition;
@@ -180,11 +180,13 @@ public class AudioPlayerFragment extends Fragment implements
         sbPosition.setOnSeekBarChangeListener(this);
 
         pager = root.findViewById(R.id.pager);
+        pagerContainer = root.findViewById(R.id.pagerContainer);
         pager.setAdapter(new AudioPlayerPagerAdapter(this));
         pager.setOffscreenPageLimit(NUM_CONTENT_FRAGMENTS);
         pager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
             @Override
             public void onPageSelected(int position) {
+                Log.d("AsrJitter", "pager selected " + position);
                 pager.post(() -> {
                     if (getActivity() != null) {
                         ((MainActivity) getActivity()).getBottomSheet().updateScrollingChild();
@@ -361,14 +363,13 @@ public class AudioPlayerFragment extends Fragment implements
             bottomPadding.setVisibility(View.GONE);
         }
 
-        // Important: ViewPager2 is inside a RelativeLayout, so remove the top/bottom rules and use MATCH_PARENT
-        RelativeLayout.LayoutParams pagerParams = (RelativeLayout.LayoutParams) pager.getLayoutParams();
-        pagerParams.removeRule(RelativeLayout.BELOW);
-        pagerParams.removeRule(RelativeLayout.ABOVE);
-        pagerParams.height = ViewGroup.LayoutParams.MATCH_PARENT;
-        pagerParams.setMargins(0, 0, 0, 0);
-        pager.setLayoutParams(pagerParams);
-        pager.requestLayout();
+        // The toolbar and the playtime bar are gone, so the weighted pager already fills the
+        // height; only the gap above the playtime bar has to be removed.
+        ViewGroup.MarginLayoutParams pagerParams =
+                (ViewGroup.MarginLayoutParams) pagerContainer.getLayoutParams();
+        pagerParams.bottomMargin = 0;
+        pagerContainer.setLayoutParams(pagerParams);
+        pagerContainer.requestLayout();
 
         // Hide the system status bar and navigation bar
         View decorView = getActivity().getWindow().getDecorView();
@@ -418,14 +419,12 @@ public class AudioPlayerFragment extends Fragment implements
             bottomPadding.setVisibility(View.VISIBLE);
         }
 
-        // Restore the original ViewPager2 layout parameters
-        RelativeLayout.LayoutParams pagerParams = (RelativeLayout.LayoutParams) pager.getLayoutParams();
-        pagerParams.addRule(RelativeLayout.BELOW, R.id.toolbar);
-        pagerParams.addRule(RelativeLayout.ABOVE, R.id.playtime_layout);
-        pagerParams.height = 0; // 0dp with top/bottom rules fills the middle area
-        pagerParams.setMargins(0, 0, 0, (int) (12 * getResources().getDisplayMetrics().density));
-        pager.setLayoutParams(pagerParams);
-        pager.requestLayout();
+        // Restore the gap above the playtime bar
+        ViewGroup.MarginLayoutParams pagerParams =
+                (ViewGroup.MarginLayoutParams) pagerContainer.getLayoutParams();
+        pagerParams.bottomMargin = (int) (12 * getResources().getDisplayMetrics().density);
+        pagerContainer.setLayoutParams(pagerParams);
+        pagerContainer.requestLayout();
 
         // Show the system status bar and navigation bar
         View decorView = getActivity().getWindow().getDecorView();
@@ -842,6 +841,7 @@ public class AudioPlayerFragment extends Fragment implements
             toggleFloatingTranscript();
             return true;
         } else if (itemId == R.id.transcript_menu_item) {
+            Log.d("AsrJitter", "toolbar transcript item, page=" + pager.getCurrentItem());
             if (pager.getCurrentItem() == POS_TRANSCRIPT) {
                 TranscriptPageFragment transcriptFragment = getTranscriptPageFragment();
                 if (transcriptFragment != null) {
@@ -920,6 +920,7 @@ public class AudioPlayerFragment extends Fragment implements
             return;
         }
 
+        Log.d("AsrJitter", "scrollToPage " + page + " smooth=" + smoothScroll);
         pager.setCurrentItem(page, smoothScroll);
 
         Fragment visibleChild = getChildFragmentManager().findFragmentByTag("f" + POS_DESCRIPTION);

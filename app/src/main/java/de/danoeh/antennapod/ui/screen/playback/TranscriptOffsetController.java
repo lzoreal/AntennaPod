@@ -1,6 +1,7 @@
 package de.danoeh.antennapod.ui.screen.playback;
 
 import android.content.Context;
+import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -99,6 +100,7 @@ final class TranscriptOffsetController {
             return;
         }
         boolean visible = binding.offsetControls.getVisibility() == View.VISIBLE;
+        Log.d("AsrJitter", "toggleOffsetBar open=" + !visible);
         if (visible) {
             setSyncPickMode(false);
         }
@@ -134,7 +136,10 @@ final class TranscriptOffsetController {
             return;
         }
         FeedMedia media = host.getMedia();
-        boolean hide = media == null || media.getTranscript() == null;
+        boolean hide = media == null || media.getTranscript() == null
+                || media.getTranscript().isGenerated();
+        Log.d("AsrJitter", "offset availability hide=" + hide + " media="
+                + (media == null ? "null" : media.getId()));
         binding.btnOffsetToggle.setVisibility(hide ? View.GONE : View.VISIBLE);
         if (hide) {
             setSyncPickMode(false);

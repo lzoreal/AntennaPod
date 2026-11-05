@@ -10,6 +10,7 @@ import android.text.style.BackgroundColorSpan;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
@@ -115,6 +116,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     }
 
     public void refreshLayout() {
+        Log.d("AsrJitter", "adapter refreshLayout");
         readLayoutSettings();
         layoutVersion++;
         notifyDataSetChanged();
@@ -261,6 +263,9 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         long offset = TranscriptTiming.offsetAt(((FeedMedia) media).getTranscript(),
                 ((FeedMedia) media).getId(), position);
         lastHighlightPositionMs = Math.max(0, position - offset);
+        Log.d("AsrJitter", "adapter setMedia id=" + ((FeedMedia) media).getId()
+                + " segments=" + (((FeedMedia) media).getTranscript() == null
+                    ? -1 : ((FeedMedia) media).getTranscript().getSegmentCount()));
         notifyDataSetChanged();
     }
 
@@ -278,14 +283,25 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         }
         if (transcript.getSegmentCount() == previousCount + 1
                 && transcript.getSegmentAt(previousCount) == segment) {
+            Log.d("AsrJitter", "adapter insert idx=" + previousCount
+                    + " count=" + transcript.getSegmentCount());
             notifyItemInserted(previousCount);
+            if (recyclerView != null) {
+                // Do not drop this: the reading-line gap is only added to the last row and
+                // RecyclerView caches decoration insets per child, so without the invalidation
+                // the row that stops being last keeps its old gap and a blank block appears.
+                recyclerView.invalidateItemDecorations();
+            }
         } else {
+            Log.d("AsrJitter", "adapter append bulk count=" + transcript.getSegmentCount()
+                    + " prev=" + previousCount);
             notifyDataSetChanged();
         }
         return true;
     }
 
     public void clear() {
+        Log.d("AsrJitter", "adapter clear");
         media = null;
         highlightPosition = -1;
         highlightedSentence = -1;
@@ -888,7 +904,8 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         if (positionMs < 0 || media == null || media.getTranscript() == null) {
             return;
         }
-        long offset = UserPreferences.getTranscriptTimeOffset(media.getId(), positionMs);
+        long offset = media.getTranscript().isGenerated()
+                ? 0 : UserPreferences.getTranscriptTimeOffset(media.getId(), positionMs);
         long position = positionMs - offset;
         int index = media.getTranscript().findSegmentIndexBefore(position);
         if (index < 0 || index >= media.getTranscript().getSegmentCount()) {
@@ -900,6 +917,9 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         boolean changed = false;
         if (index != highlightPosition) {
             final int previous = highlightPosition;
+            Log.d("AsrJitter", "adapter highlight " + previous + " -> " + index
+                    + " pos=" + position + " sentence=" + sentence + " word=" + word
+                    + " n=" + media.getTranscript().getSegmentCount());
             highlightPosition = index;
             highlightedSentence = sentence;
             highlightedWord = word;
@@ -967,6 +987,8 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         if (position < 0 || position == highlightPosition) {
             return;
         }
+        Log.d("AsrJitter", "adapter setHighlightPosition " + highlightPosition + " -> "
+                + position);
         final int previous = highlightPosition;
         highlightPosition = position;
         highlightedSentence = -1;

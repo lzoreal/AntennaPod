@@ -16,73 +16,81 @@
         android:background="?attr/colorSurfaceContainer"
         tools:layout_height="@dimen/external_player_height" />
 
-    <RelativeLayout
+    <!-- Vertical LinearLayout with a weighted pager instead of a RelativeLayout with
+         layout_height=0dp + above/below rules: RelativeLayout measured the pager (and every
+         page inside it) once at the full player height and once at the constrained height, so
+         each requestLayout inside a page relaid out its list twice at different sizes. -->
+    <LinearLayout
         android:id="@+id/playerContent"
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="match_parent"
+        android:orientation="vertical">
 
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_alignParentTop="true"
             android:minHeight="?attr/actionBarSize"
             app:navigationContentDescription="@string/toolbar_back_button_content_description"
             app:navigationIcon="@drawable/ic_arrow_down" />
 
-        <androidx.viewpager2.widget.ViewPager2
-            android:id="@+id/pager"
+        <FrameLayout
+            android:id="@+id/pagerContainer"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_above="@id/playtime_layout"
-            android:layout_below="@id/toolbar"
-            android:layout_marginBottom="12dp"
-            android:foreground="?android:windowContentOverlay"
-            android:orientation="horizontal" />
+            android:layout_weight="1"
+            android:layout_marginBottom="12dp">
 
-        <ImageView
-            android:layout_width="match_parent"
-            android:layout_height="8dp"
-            android:layout_alignBottom="@id/pager"
-            android:importantForAccessibility="no"
-            app:srcCompat="@drawable/bg_gradient"
-            app:tint="?android:attr/colorBackground" />
+            <androidx.viewpager2.widget.ViewPager2
+                android:id="@+id/pager"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:foreground="?android:windowContentOverlay"
+                android:orientation="horizontal" />
 
-        <androidx.cardview.widget.CardView
-            android:id="@+id/cardViewSeek"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_alignBottom="@+id/pager"
-            android:layout_centerHorizontal="true"
-            android:layout_marginLeft="16dp"
-            android:layout_marginRight="16dp"
-            android:layout_marginBottom="12dp"
-            android:alpha="0"
-            app:cardBackgroundColor="?attr/seek_background"
-            app:cardCornerRadius="8dp"
-            app:cardElevation="0dp"
-            tools:alpha="1">
+            <ImageView
+                android:layout_width="match_parent"
+                android:layout_height="8dp"
+                android:layout_gravity="bottom"
+                android:importantForAccessibility="no"
+                app:srcCompat="@drawable/bg_gradient"
+                app:tint="?android:attr/colorBackground" />
 
-            <TextView
-                android:id="@+id/txtvSeek"
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardViewSeek"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:gravity="center"
-                android:paddingLeft="24dp"
-                android:paddingTop="4dp"
-                android:paddingRight="24dp"
-                android:paddingBottom="4dp"
-                android:textColor="@color/white"
-                android:textSize="16sp"
-                tools:text="1:06:29" />
+                android:layout_gravity="bottom|center_horizontal"
+                android:layout_marginLeft="16dp"
+                android:layout_marginRight="16dp"
+                android:layout_marginBottom="12dp"
+                android:alpha="0"
+                app:cardBackgroundColor="?attr/seek_background"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="0dp"
+                tools:alpha="1">
 
-        </androidx.cardview.widget.CardView>
+                <TextView
+                    android:id="@+id/txtvSeek"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:paddingLeft="24dp"
+                    android:paddingTop="4dp"
+                    android:paddingRight="24dp"
+                    android:paddingBottom="4dp"
+                    android:textColor="@color/white"
+                    android:textSize="16sp"
+                    tools:text="1:06:29" />
+
+            </androidx.cardview.widget.CardView>
+
+        </FrameLayout>
 
         <LinearLayout
             android:id="@+id/playtime_layout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_alignParentBottom="true"
             android:layoutDirection="ltr"
             android:orientation="vertical">
 
@@ -281,6 +289,6 @@
 
         </LinearLayout>
 
-    </RelativeLayout>
+    </LinearLayout>
 
 </FrameLayout>
