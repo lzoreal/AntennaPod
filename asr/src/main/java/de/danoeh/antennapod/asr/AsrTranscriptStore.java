@@ -8,7 +8,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -162,9 +161,12 @@ public final class AsrTranscriptStore {
         }
         File temp = File.createTempFile("transcript-", ".tmp", parent);
         try {
-            try (OutputStream output = new FileOutputStream(temp)) {
+            try (FileOutputStream output = new FileOutputStream(temp)) {
                 output.write(content.getBytes(StandardCharsets.UTF_8));
                 output.flush();
+                // The journal is cleared right after this snapshot is installed; without the
+                // sync a power loss could leave a truncated snapshot and no journal to replay.
+                output.getFD().sync();
             }
             if (!temp.renameTo(target)) {
                 // Some file systems refuse to replace an existing target.

@@ -77,7 +77,9 @@ public final class ModelDownloader {
         }
         try {
             File archive = new File(tempDir, "model.tar.bz2");
-            downloadFile(url, archive, listener);
+            long expected = descriptor.getDownloadSizeBytes();
+            downloadFile(url, archive, expected > 0
+                    ? expected + 16L * 1024 * 1024 : 0, listener);
             extract(archive, tempDir, descriptor);
             verifyChecksums(tempDir, descriptor);
             install(tempDir, modelDir, descriptor);
@@ -96,13 +98,14 @@ public final class ModelDownloader {
         return true;
     }
 
-    private void downloadFile(String urlString, File target,
+    private void downloadFile(String urlString, File target, long maxBytes,
                               @Nullable ProgressListener listener) throws IOException {
         URL current = new URL(urlString);
-        if (!"https".equals(current.getProtocol()) && !"http".equals(current.getProtocol())) {
-            throw new IOException("unsupported URL: " + urlString);
-        }
         for (int redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
+            if (!"https".equals(current.getProtocol()) && !"http".equals(current.getProtocol())) {
+                // A redirect must not downgrade to file:/ftp: and break the connection cast.
+                throw new IOException("unsupported URL: " + current);
+            }
             HttpURLConnection connection = (HttpURLConnection) current.openConnection();
             connection.setInstanceFollowRedirects(false);
             connection.setConnectTimeout(connectTimeoutMs);
@@ -121,7 +124,8 @@ public final class ModelDownloader {
                 if (code != HttpURLConnection.HTTP_OK) {
                     throw new IOException("HTTP " + code + " for " + current);
                 }
-                copyWithProgress(connection, target, contentLength(connection), listener);
+                copyWithProgress(connection, target, contentLength(connection), maxBytes,
+                        listener);
                 return;
             } finally {
                 connection.disconnect();
@@ -131,7 +135,8 @@ public final class ModelDownloader {
     }
 
     private void copyWithProgress(HttpURLConnection connection, File target, long totalBytes,
-                                  @Nullable ProgressListener listener) throws IOException {
+                                  long maxBytes, @Nullable ProgressListener listener)
+            throws IOException {
         try (InputStream input = new BufferedInputStream(connection.getInputStream());
                 OutputStream output = new BufferedOutputStream(new FileOutputStream(target))) {
             byte[] buffer = new byte[BUFFER_SIZE];
@@ -141,8 +146,11 @@ public final class ModelDownloader {
                 if (cancelled) {
                     throw new IOException("download cancelled");
                 }
-                output.write(buffer, 0, read);
                 downloaded += read;
+                if (maxBytes > 0 && downloaded > maxBytes) {
+                    throw new IOException("model archive larger than expected");
+                }
+                output.write(buffer, 0, read);
                 if (listener != null) {
                     listener.onProgress(downloaded, totalBytes);
                 }

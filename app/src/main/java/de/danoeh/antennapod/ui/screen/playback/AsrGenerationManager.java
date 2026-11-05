@@ -233,7 +233,9 @@ public final class AsrGenerationManager {
         MAIN.removeCallbacks(mediaCheck);
         controller = null;
         Log.i(TAG, "finish media=" + finishedId + " type=" + type);
-        if (appContext != null) {
+        if (appContext != null && type == AsrGenerationEvent.Type.COMPLETED) {
+            // On failure, keep the scheduled finalizer so the unfinished episode can still be
+            // completed in the background.
             AsrFinalizeScheduler.cancel(appContext, finishedId);
         }
         post(new AsrGenerationEvent(type, finishedId, 0, error));

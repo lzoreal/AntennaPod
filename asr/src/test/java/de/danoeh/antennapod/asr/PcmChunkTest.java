@@ -4,6 +4,7 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class PcmChunkTest {
     @Test
@@ -27,5 +28,14 @@ public class PcmChunkTest {
         float[] samples = {0.25f, 0.5f, 0.75f, 99f};
         PcmChunk chunk = new PcmChunk(samples, 3, 0);
         assertArrayEquals(new float[]{0.25f, 0.5f, 0.75f}, chunk.toFloatArray(), 0f);
+    }
+
+    @Test
+    public void tailShorterThanOneMillisecondStillHasARange() {
+        PcmChunk chunk = new PcmChunk(new float[7], 7, 1000);
+
+        assertEquals(1000, chunk.startTimeMs());
+        assertEquals(1001, chunk.endTimeMs());
+        assertTrue(chunk.endTimeMs() > chunk.startTimeMs());
     }
 }

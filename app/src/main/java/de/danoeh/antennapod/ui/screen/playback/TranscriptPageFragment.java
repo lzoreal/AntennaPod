@@ -150,13 +150,14 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private long lastLoggedPosition = Long.MIN_VALUE;
     private int lastLoggedSegment = Integer.MIN_VALUE;
     private static final long WORD_HIGHLIGHT_UPDATE_INTERVAL_MS = 100;
-    private static final String STATE_SEARCH_ACTIVE = "transcript_search_active";
     private static final String STATE_SEARCH_QUERY = "transcript_search_query";
     private static final String STATE_SEARCH_HIT = "transcript_search_hit";
     private static final String STATE_SEGMENT_LOOPING = "transcript_segment_looping";
     private static final String STATE_SYNC_PICK_MODE = "transcript_sync_pick_mode";
     private static final String STATE_IMMERSIVE = "transcript_immersive";
     private static final String STATE_USER_SCROLLING = "transcript_user_scrolling";
+    private static final String STATE_SCROLL_POSITION = "transcript_scroll_position";
+    private static final String STATE_SCROLL_OFFSET = "transcript_scroll_offset";
     private boolean segmentLooping = false;
     private int loopSegmentIndex = -1;
     private Bundle restoredState;
@@ -760,13 +761,23 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     @Override
     public void onSaveInstanceState(@NonNull Bundle outState) {
         super.onSaveInstanceState(outState);
-        outState.putBoolean(STATE_SEARCH_ACTIVE, searchController.isActive());
         outState.putString(STATE_SEARCH_QUERY, searchController.getQuery());
         outState.putInt(STATE_SEARCH_HIT, adapter == null ? 0 : adapter.getCurrentSearchHit());
         outState.putBoolean(STATE_SEGMENT_LOOPING, segmentLooping);
         outState.putBoolean(STATE_SYNC_PICK_MODE, offsetController.isSyncPickMode());
         outState.putBoolean(STATE_IMMERSIVE, immersiveMode);
         outState.putBoolean(STATE_USER_SCROLLING, userScrolling);
+        if (viewBinding != null
+                && viewBinding.recyclerView.getLayoutManager() instanceof LinearLayoutManager) {
+            LinearLayoutManager layoutManager =
+                    (LinearLayoutManager) viewBinding.recyclerView.getLayoutManager();
+            int first = layoutManager.findFirstVisibleItemPosition();
+            View firstView = first == RecyclerView.NO_POSITION
+                    ? null : layoutManager.findViewByPosition(first);
+            outState.putInt(STATE_SCROLL_POSITION, first);
+            outState.putInt(STATE_SCROLL_OFFSET, firstView == null ? 0
+                    : firstView.getTop() - viewBinding.recyclerView.getPaddingTop());
+        }
     }
 
     private void loadTranscript() {
@@ -904,7 +915,12 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
         adapter.setMedia(currentMedia);
         offsetController.setSyncPickMode(false);
-        userScrolling = false;
+        // The list has no items while the transcript loads, so RecyclerView cannot restore the
+        // scroll position itself. Remember whether the reader was scrolled away before the
+        // recreation and do not pull them back to the highlighted row.
+        boolean restoredUserScroll = restoredState != null
+                && restoredState.getBoolean(STATE_USER_SCROLLING, false);
+        userScrolling = restoredUserScroll;
         lastScrolledPosition = -1;
         segmentLooping = false;
         loopSegmentIndex = -1;
@@ -920,9 +936,11 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         long offset = positionSource.offsetAt(lastPositionMs);
         int initialPosition = currentSegmentIndex(lastPositionMs - offset);
         adapter.setHighlightPosition(initialPosition);
-        followController.scrollToPosition(initialPosition);
-        pendingSnapToHighlight = true;
-        followController.scheduleFrame();
+        if (!restoredUserScroll) {
+            followController.scrollToPosition(initialPosition);
+            pendingSnapToHighlight = true;
+            followController.scheduleFrame();
+        }
         followController.updateBackToCurrentVisibility();
         offsetController.updateLabel();
         updateTranslationToggle();
@@ -950,6 +968,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             }
         }
         userScrolling = state.getBoolean(STATE_USER_SCROLLING, false);
+        if (userScrolling && state.getString(STATE_SEARCH_QUERY, "").isEmpty()) {
+            restoreScrollPosition(state);
+        }
         followController.updateBackToCurrentVisibility();
         if (!userScrolling) {
             pendingSnapToHighlight = true;
@@ -962,6 +983,21 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
                 viewBinding.recyclerView.post(parent::toggleImmersiveMode);
             }
         }
+    }
+
+    private void restoreScrollPosition(Bundle state) {
+        if (viewBinding == null || adapter == null) {
+            return;
+        }
+        int position = state.getInt(STATE_SCROLL_POSITION, RecyclerView.NO_POSITION);
+        RecyclerView.LayoutManager layoutManager = viewBinding.recyclerView.getLayoutManager();
+        if (position == RecyclerView.NO_POSITION || position >= adapter.getItemCount()
+                || !(layoutManager instanceof LinearLayoutManager)) {
+            return;
+        }
+        followController.stopFrame();
+        ((LinearLayoutManager) layoutManager).scrollToPositionWithOffset(position,
+                state.getInt(STATE_SCROLL_OFFSET, 0));
     }
 
     private void showEmptyState() {

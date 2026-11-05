@@ -59,6 +59,10 @@ final class TranscriptLayoutController {
 
     void attach(TranscriptPageFragmentBinding viewBinding) {
         binding = viewBinding;
+        // A recreated view has fresh padding and a fresh adapter, so the cached signature and
+        // width no longer describe what has been applied.
+        appliedLayoutSignature = Integer.MIN_VALUE;
+        appliedLayoutWidth = -1;
         pendingLayoutHeight = -1;
         setupSteppers();
     }

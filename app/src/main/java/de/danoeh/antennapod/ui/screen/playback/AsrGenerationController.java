@@ -227,8 +227,18 @@ public final class AsrGenerationController {
         }
 
         final LongSupplier sessionPlayhead = finalizeToEnd ? finalizePlayhead::get : playheadMs;
-        session = new AsrGenerationSession(pipeline, recognizer, sessionPlayhead,
-                new SessionListener(), IDLE_SLEEP_MS);
+        AsrGenerationSession newSession = new AsrGenerationSession(pipeline, recognizer,
+                sessionPlayhead, new SessionListener(), IDLE_SLEEP_MS);
+        if (stopRequested) {
+            // stop() landed while the decoder/model were still being prepared; do not start a
+            // worker that nobody is waiting for.
+            newSession.stop();
+            recognizer.close();
+            pipeline.close();
+            releaseLease();
+            return;
+        }
+        session = newSession;
         running = true;
         Log.i(TAG, "Generation started");
         new Thread(() -> {

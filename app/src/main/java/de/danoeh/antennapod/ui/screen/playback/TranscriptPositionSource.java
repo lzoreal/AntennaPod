@@ -8,15 +8,23 @@ import de.danoeh.antennapod.parser.media.Mp3DurationScanner;
 import de.danoeh.antennapod.ui.transcript.TranscriptSession;
 import de.danoeh.antennapod.ui.transcript.TranscriptTiming;
 import java.io.File;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /** Converts between player and transcript time, including MP3 duration-scale correction. */
 final class TranscriptPositionSource {
     private static final String TAG = "TranscriptPosition";
-    private static final Map<String, Double> SCALE_CACHE = new ConcurrentHashMap<>();
+    private static final int MAX_CACHED_SCALES = 32;
+    private static final Map<String, Double> SCALE_CACHE =
+            Collections.synchronizedMap(new LinkedHashMap<String, Double>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Double> eldest) {
+                    return size() > MAX_CACHED_SCALES;
+                }
+            });
 
     interface Host {
         boolean isAdded();

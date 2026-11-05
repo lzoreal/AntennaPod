@@ -257,7 +257,7 @@ public class TranscriptDialogFragment extends DialogFragment
     }
 
     public void scrollToPosition(int pos) {
-        if (pos < 0) {
+        if (pos < 0 || viewBinding == null) {
             return;
         }
         if (!viewBinding.followAudioCheckbox.isChecked()) {
@@ -295,6 +295,7 @@ public class TranscriptDialogFragment extends DialogFragment
     public void onDestroyView() {
         if (viewBinding != null) {
             viewBinding.transcriptList.setAdapter(null);
+            viewBinding = null;
         }
         super.onDestroyView();
     }

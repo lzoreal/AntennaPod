@@ -282,7 +282,14 @@ public class TranscriptFloatingWindowService extends Service {
             }
         });
 
-        windowManager.addView(floatingView, params);
+        try {
+            windowManager.addView(floatingView, params);
+        } catch (RuntimeException e) {
+            // The overlay permission can be revoked between the start() check and this call.
+            Log.e(TAG, "Unable to show floating transcript", e);
+            floatingView = null;
+            stopSelf();
+        }
     }
 
     private void togglePositionLock() {

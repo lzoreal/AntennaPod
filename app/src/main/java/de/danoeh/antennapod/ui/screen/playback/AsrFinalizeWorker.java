@@ -110,7 +110,7 @@ public class AsrFinalizeWorker extends Worker {
         boolean done = false;
         long deadline = SystemClock.elapsedRealtime() + MAX_RUN_MS;
         try {
-            while (!done && SystemClock.elapsedRealtime() < deadline) {
+            while (!done && !isStopped() && SystemClock.elapsedRealtime() < deadline) {
                 done = finished.await(5, TimeUnit.SECONDS);
                 if (!done && AsrGenerationManager.isRunning(mediaId)) {
                     // The user reopened the transcript page; two writers would corrupt it.
@@ -121,6 +121,11 @@ public class AsrFinalizeWorker extends Worker {
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            controller.stop();
+            return Result.retry();
+        }
+        if (isStopped()) {
+            Log.i(TAG, "stopped media=" + mediaId);
             controller.stop();
             return Result.retry();
         }

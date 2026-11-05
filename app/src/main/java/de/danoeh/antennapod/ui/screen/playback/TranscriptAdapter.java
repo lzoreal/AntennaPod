@@ -16,7 +16,6 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.appcompat.R;
-import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import de.danoeh.antennapod.databinding.TranscriptItemBinding;
 import de.danoeh.antennapod.event.playback.PlaybackPositionEvent;
@@ -31,6 +30,7 @@ import de.danoeh.antennapod.ui.transcript.TranscriptTextUtils;
 import de.danoeh.antennapod.ui.transcript.TranscriptTiming;
 import de.danoeh.antennapod.ui.transcript.TranscriptViewholder;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -127,6 +127,8 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
             return;
         }
         availableWidthPx = widthPx;
+        // Bound rows cache the applied layout version; without a bump they keep the old padding.
+        layoutVersion++;
         notifyDataSetChanged();
     }
 
@@ -277,12 +279,21 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         Transcript transcript = media.getTranscript();
         int previousCount = transcript.getSegmentCount();
         transcript.addSegment(segment);
-        searchTexts = null;
+        boolean appendedAtEnd = transcript.getSegmentCount() == previousCount + 1
+                && transcript.getSegmentAt(previousCount) == segment;
         if (!searchQuery.trim().isEmpty()) {
-            rebuildSearchHits();
+            if (appendedAtEnd && searchTexts != null && searchTexts.length == previousCount) {
+                // Keep existing hit indices stable while a running session appends at the end.
+                String[] grown = Arrays.copyOf(searchTexts, previousCount + 1);
+                grown[previousCount] = displayText(segment);
+                searchTexts = grown;
+                addSearchHits(previousCount, grown[previousCount]);
+            } else {
+                searchTexts = null;
+                rebuildSearchHits(true);
+            }
         }
-        if (transcript.getSegmentCount() == previousCount + 1
-                && transcript.getSegmentAt(previousCount) == segment) {
+        if (appendedAtEnd) {
             Log.d("AsrJitter", "adapter insert idx=" + previousCount
                     + " count=" + transcript.getSegmentCount());
             notifyItemInserted(previousCount);
@@ -742,22 +753,10 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         if (positions.isEmpty()) {
             return;
         }
-        RecyclerView.LayoutManager layoutManager =
-                recyclerView == null ? null : recyclerView.getLayoutManager();
-        if (!(layoutManager instanceof LinearLayoutManager)) {
-            notifyDataSetChanged();
-            return;
-        }
-        int first = ((LinearLayoutManager) layoutManager).findFirstVisibleItemPosition();
-        int last = ((LinearLayoutManager) layoutManager).findLastVisibleItemPosition();
-        if (first == RecyclerView.NO_POSITION || last == RecyclerView.NO_POSITION) {
-            notifyDataSetChanged();
-            return;
-        }
+        // Notify every hit row, not only the visible ones: rows parked in the view cache are
+        // re-attached without a bind and would keep the previous query's highlight.
         for (int position : positions) {
-            if (position >= first && position <= last) {
-                notifyItemChanged(position, SEARCH_PAYLOAD);
-            }
+            notifyItemChanged(position, SEARCH_PAYLOAD);
         }
     }
 
@@ -827,6 +826,13 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     }
 
     private void rebuildSearchHits() {
+        rebuildSearchHits(false);
+    }
+
+    private void rebuildSearchHits(boolean preserveCurrentHit) {
+        final int previousIndex = currentSearchHit;
+        final SearchHit previousHit = previousIndex >= 0 && previousIndex < searchHits.size()
+                ? searchHits.get(previousIndex) : null;
         searchHits.clear();
         searchHitsByPosition.clear();
         currentSearchHit = -1;
@@ -835,18 +841,43 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         }
         ensureSearchTexts();
         for (int i = 0; i < searchTexts.length; i++) {
-            for (TranscriptSearch.Match match : TranscriptSearch.findAll(searchTexts[i], searchQuery)) {
-                SearchHit hit = new SearchHit(i, match.start, match.end, searchHits.size());
-                searchHits.add(hit);
-                List<SearchHit> hits = searchHitsByPosition.get(i);
-                if (hits == null) {
-                    hits = new ArrayList<>();
-                    searchHitsByPosition.put(i, hits);
+            addSearchHits(i, searchTexts[i]);
+        }
+        if (searchHits.isEmpty()) {
+            return;
+        }
+        int restored = -1;
+        if (preserveCurrentHit && previousHit != null) {
+            for (int i = 0; i < searchHits.size(); i++) {
+                SearchHit hit = searchHits.get(i);
+                if (hit.position == previousHit.position && hit.start == previousHit.start
+                        && hit.end == previousHit.end) {
+                    restored = i;
+                    break;
                 }
-                hits.add(hit);
             }
         }
-        if (!searchHits.isEmpty()) {
+        if (restored >= 0) {
+            currentSearchHit = restored;
+        } else if (preserveCurrentHit && previousIndex > 0) {
+            currentSearchHit = Math.min(previousIndex, searchHits.size() - 1);
+        } else {
+            currentSearchHit = 0;
+        }
+    }
+
+    private void addSearchHits(int position, String text) {
+        for (TranscriptSearch.Match match : TranscriptSearch.findAll(text, searchQuery)) {
+            SearchHit hit = new SearchHit(position, match.start, match.end, searchHits.size());
+            searchHits.add(hit);
+            List<SearchHit> hits = searchHitsByPosition.get(position);
+            if (hits == null) {
+                hits = new ArrayList<>();
+                searchHitsByPosition.put(position, hits);
+            }
+            hits.add(hit);
+        }
+        if (currentSearchHit < 0 && !searchHits.isEmpty()) {
             currentSearchHit = 0;
         }
     }
@@ -858,23 +889,13 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         }
         searchTexts = new String[count];
         for (int i = 0; i < count; i++) {
-            searchTexts[i] = searchableText(media.getTranscript().getSegmentAt(i));
+            searchTexts[i] = displayText(media.getTranscript().getSegmentAt(i));
         }
     }
 
-    /** Text the user can see, without building the whole display layout for every segment. */
-    private String searchableText(TranscriptSegment segment) {
-        String text = segment.getWords();
-        int split = TranscriptTextUtils.languageSplitIndex(text);
-        if (split >= 0) {
-            if (languageMode == LANGUAGE_MODE_PRIMARY_ONLY) {
-                return text.substring(0, split);
-            }
-            if (languageMode == LANGUAGE_MODE_SECONDARY_ONLY) {
-                return text.substring(split + 1);
-            }
-        }
-        return text;
+    /** Must be the exact text the row draws: sentence-per-line reorders a bilingual cue. */
+    private String displayText(TranscriptSegment segment) {
+        return displayInfoBuilder.get(segment, languageMode, sentencePerLine).text;
     }
 
     public int getFontSizeStep() {
@@ -1009,7 +1030,14 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         highlightedSentence = -1;
         highlightedWord = -1;
         if (previous >= 0 && previous != position) {
-            notifyItemChanged(previous);
+            // Replacing the text would drop a selection the user is about to copy.
+            RecyclerView.ViewHolder holder = recyclerView == null ? null
+                    : recyclerView.findViewHolderForAdapterPosition(previous);
+            boolean selected = holder instanceof TranscriptViewholder
+                    && ((TranscriptViewholder) holder).viewContent.hasSelection();
+            if (!selected) {
+                notifyItemChanged(previous);
+            }
         }
         notifyItemChanged(position);
     }
@@ -1017,7 +1045,12 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     @Override
     public long getItemId(int position) {
         TranscriptSegment segment = segmentAt(position);
-        return segment == null ? RecyclerView.NO_ID : segment.getStartTime();
+        if (segment == null) {
+            return RecyclerView.NO_ID;
+        }
+        // Cues may share a start time; the position keeps the pair unique. 20 bits are well
+        // above the segment count reachable from the 5 MB transcript limit.
+        return (segment.getStartTime() << 20) + position;
     }
 
     @Override

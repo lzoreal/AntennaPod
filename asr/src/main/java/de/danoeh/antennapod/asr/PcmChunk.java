@@ -34,7 +34,9 @@ public final class PcmChunk {
     }
 
     public long endTimeMs() {
-        return startTimeMs + (samples.length * 1000L + SAMPLE_RATE_HZ / 2) / SAMPLE_RATE_HZ;
+        long durationMs = (samples.length * 1000L + SAMPLE_RATE_HZ / 2) / SAMPLE_RATE_HZ;
+        // A flushed tail can hold fewer than 8 samples; rounding would make the range empty.
+        return startTimeMs + Math.max(1, durationMs);
     }
 
     public int sampleRateHz() {

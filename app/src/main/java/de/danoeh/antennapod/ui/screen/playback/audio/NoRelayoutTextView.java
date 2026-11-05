@@ -42,7 +42,10 @@ public class NoRelayoutTextView extends AppCompatTextView {
         float textLength = getPaint().measureText(text.toString());
         if (textLength > maxTextLength) {
             maxTextLength = textLength;
-            requestLayoutEnabled = true;
+            // Request the layout directly. The one-shot flag below can already have been
+            // consumed by an unrelated request, which left the view measured for the previous
+            // (narrower) string and clipped its last character.
+            super.requestLayout();
         }
         super.setText(text, type);
     }
