@@ -103,7 +103,9 @@ public class HeadScanWorker extends Worker {
         return Result.success();
     }
 
-    /** Downloads and scans the first {@code seconds} of the episode; false if that failed. */
+    /**
+     * Downloads and scans the first {@code seconds} of the episode; false if that failed.
+     */
     private boolean scanAndStore(FeedMedia media, List<AdFingerprintRow> references, int seconds) {
         long started = SystemClock.elapsedRealtime();
         File head;

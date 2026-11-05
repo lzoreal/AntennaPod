@@ -109,7 +109,9 @@ public final class PreReadPcmPipeline implements AutoCloseable {
         return decodedEndMs;
     }
 
-    /** End of the last covered range, or {@code -1} when nothing is covered. */
+    /**
+     * End of the last covered range, or {@code -1} when nothing is covered.
+     */
     public long coverageEndMs() {
         List<MediaRange> ranges = coverage.ranges();
         return ranges.isEmpty() ? -1 : ranges.get(ranges.size() - 1).endMs();

@@ -71,7 +71,9 @@ public final class TranscriptScrollTimeline {
         return times[times.length - 1];
     }
 
-    /** Character offset (relative to the displayed sentence) at {@code time}. */
+    /**
+     * Character offset (relative to the displayed sentence) at {@code time}.
+     */
     public float charIndexAt(long time) {
         int last = times.length - 1;
         if (time <= times[0]) {

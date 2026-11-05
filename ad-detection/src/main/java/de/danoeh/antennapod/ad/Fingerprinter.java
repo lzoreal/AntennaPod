@@ -36,12 +36,12 @@ public final class Fingerprinter {
 
     private static final class Peak {
         final int frame;
-        final int fIdx;
+        final int freqIdx;
         final int mag;
 
-        Peak(int frame, int fIdx, int mag) {
+        Peak(int frame, int freqIdx, int mag) {
             this.frame = frame;
-            this.fIdx = fIdx;
+            this.freqIdx = freqIdx;
             this.mag = mag;
         }
     }
@@ -50,9 +50,9 @@ public final class Fingerprinter {
     }
 
     public static Hashes fingerprint(float[] pcm) {
-        int nFrames = 1 + Math.max(0, (pcm.length - FRAME) / HOP);
-        short[] lm = new short[nFrames * BIN_N];
-        float[] frameMean = new float[nFrames];
+        int frameCount = 1 + Math.max(0, (pcm.length - FRAME) / HOP);
+        short[] lm = new short[frameCount * BIN_N];
+        float[] frameMean = new float[frameCount];
         Fft fft = new Fft(FRAME);
         float[] re = new float[FRAME];
         float[] im = new float[FRAME];
@@ -60,7 +60,7 @@ public final class Fingerprinter {
         for (int i = 0; i < FRAME; i++) {
             win[i] = (float) (0.5 - 0.5 * Math.cos(2 * Math.PI * i / (FRAME - 1)));
         }
-        for (int f = 0; f < nFrames; f++) {
+        for (int f = 0; f < frameCount; f++) {
             int off = f * HOP;
             for (int i = 0; i < FRAME; i++) {
                 re[i] = pcm[off + i] * win[i];
@@ -80,7 +80,7 @@ public final class Fingerprinter {
         }
 
         List<Peak> candidates = new ArrayList<>();
-        for (int f = 2; f < nFrames - 2; f++) {
+        for (int f = 2; f < frameCount - 2; f++) {
             int base = f * BIN_N;
             for (int b = 1; b < BIN_N - 1; b++) {
                 int v = lm[base + b];
@@ -123,37 +123,37 @@ public final class Fingerprinter {
                 if (dt > DT_MAX) {
                     break;
                 }
-                if (dt <= 0 || Math.abs(t.fIdx - a.fIdx) > FREQ_SPAN) {
+                if (dt <= 0 || Math.abs(t.freqIdx - a.freqIdx) > FREQ_SPAN) {
                     continue;
                 }
-                hs.add((a.fIdx << 14) | (t.fIdx << 6) | (dt - 1));
+                hs.add((a.freqIdx << 14) | (t.freqIdx << 6) | (dt - 1));
                 ts.add(a.frame);
                 used++;
             }
         }
-        return new Hashes(hs.toArray(), ts.toArray(), nFrames, peaks.size());
+        return new Hashes(hs.toArray(), ts.toArray(), frameCount, peaks.size());
     }
 
     static final class IntList {
-        private int[] a;
-        private int n;
+        private int[] values;
+        private int size;
 
         IntList(int cap) {
-            a = new int[Math.max(8, cap)];
+            values = new int[Math.max(8, cap)];
         }
 
         void add(int v) {
-            if (n == a.length) {
-                int[] b = new int[a.length * 2];
-                System.arraycopy(a, 0, b, 0, n);
-                a = b;
+            if (size == values.length) {
+                int[] b = new int[values.length * 2];
+                System.arraycopy(values, 0, b, 0, size);
+                values = b;
             }
-            a[n++] = v;
+            values[size++] = v;
         }
 
         int[] toArray() {
-            int[] r = new int[n];
-            System.arraycopy(a, 0, r, 0, n);
+            int[] r = new int[size];
+            System.arraycopy(values, 0, r, 0, size);
             return r;
         }
     }

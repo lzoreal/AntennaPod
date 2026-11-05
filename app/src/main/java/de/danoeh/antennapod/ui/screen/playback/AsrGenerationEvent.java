@@ -24,7 +24,9 @@ public final class AsrGenerationEvent {
     /** String resource explaining a guard-triggered stop; 0 when none. */
     @StringRes
     public final int stopReason;
-    /** The finalized segment for {@link Type#SEGMENT}; null for other event types. */
+    /**
+     * The finalized segment for {@link Type#SEGMENT}; null for other event types.
+     */
     @Nullable
     public final AsrSegment segment;
 

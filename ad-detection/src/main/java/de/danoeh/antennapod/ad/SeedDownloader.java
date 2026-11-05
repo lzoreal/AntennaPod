@@ -30,7 +30,7 @@ final class SeedDownloader {
                 throw new IOException("HTTP " + code);
             }
             try (InputStream in = connection.getInputStream();
-                 FileOutputStream os = new FileOutputStream(out)) {
+                    FileOutputStream os = new FileOutputStream(out)) {
                 byte[] buf = new byte[64 * 1024];
                 int n;
                 while ((n = in.read(buf)) > 0) {
@@ -61,7 +61,7 @@ final class SeedDownloader {
                 throw new IOException("HTTP " + code);
             }
             try (InputStream in = connection.getInputStream();
-                 FileOutputStream os = new FileOutputStream(out)) {
+                    FileOutputStream os = new FileOutputStream(out)) {
                 byte[] buf = new byte[64 * 1024];
                 long total = 0;
                 int n;

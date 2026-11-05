@@ -69,7 +69,9 @@ public final class TranscriptTimeOffsets {
         return governing == null ? 0 : governing.offsetMs;
     }
 
-    /** Starts a new segment at {@code mediaPositionMs}, replacing any anchor measured there. */
+    /**
+     * Starts a new segment at {@code mediaPositionMs}, replacing any anchor measured there.
+     */
     public void setAnchor(long mediaPositionMs, long offsetMs) {
         long coverageStartMs = mediaPositionMs;
         if (governingIndex(mediaPositionMs) < 0

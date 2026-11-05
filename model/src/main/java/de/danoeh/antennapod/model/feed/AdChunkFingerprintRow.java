@@ -1,6 +1,8 @@
 package de.danoeh.antennapod.model.feed;
 
-/** Fingerprints of one playback chunk. Blob frame numbers are relative to {@link #startFrame}. */
+/**
+ * Fingerprints of one playback chunk. Blob frame numbers are relative to {@link #startFrame}.
+ */
 public class AdChunkFingerprintRow {
     private long mediaId;
     private int startFrame;

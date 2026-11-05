@@ -129,25 +129,25 @@ public final class PcmDecoder {
     }
 
     static final class FloatList {
-        private float[] a;
-        private int n;
+        private float[] values;
+        private int size;
 
         FloatList(int cap) {
-            a = new float[cap];
+            values = new float[cap];
         }
 
         void add(float v) {
-            if (n == a.length) {
-                float[] b = new float[a.length * 2];
-                System.arraycopy(a, 0, b, 0, n);
-                a = b;
+            if (size == values.length) {
+                float[] b = new float[values.length * 2];
+                System.arraycopy(values, 0, b, 0, size);
+                values = b;
             }
-            a[n++] = v;
+            values[size++] = v;
         }
 
         float[] toArray() {
-            float[] r = new float[n];
-            System.arraycopy(a, 0, r, 0, n);
+            float[] r = new float[size];
+            System.arraycopy(values, 0, r, 0, size);
             return r;
         }
     }

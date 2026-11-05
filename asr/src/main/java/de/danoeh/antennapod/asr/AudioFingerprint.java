@@ -1,6 +1,5 @@
 package de.danoeh.antennapod.asr;
 
-import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import java.io.File;

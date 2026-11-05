@@ -8,7 +8,6 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewTreeObserver;
-import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.lifecycle.Lifecycle;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -471,7 +470,7 @@ final class TranscriptFollowController {
      * @return the scroll offset distance that was actually applied
      */
     static int scrollWithoutNestedScroll(RecyclerView recyclerView, int dy) {
-        int before = recyclerView.computeVerticalScrollOffset();
+        final int before = recyclerView.computeVerticalScrollOffset();
         boolean nestedScrolling = recyclerView.isNestedScrollingEnabled();
         if (nestedScrolling) {
             recyclerView.setNestedScrollingEnabled(false);

@@ -2,7 +2,7 @@ package de.danoeh.antennapod.ad;
 
 /** Iterative radix-2 FFT, in place. */
 final class Fft {
-    private final int n;
+    private final int size;
     private final int[] rev;
     private final float[] cos;
     private final float[] sin;
@@ -11,7 +11,7 @@ final class Fft {
         if (Integer.bitCount(n) != 1) {
             throw new IllegalArgumentException("power of two required");
         }
-        this.n = n;
+        this.size = n;
         rev = new int[n];
         int bits = Integer.numberOfTrailingZeros(n);
         for (int i = 0; i < n; i++) {
@@ -27,7 +27,7 @@ final class Fft {
     }
 
     void transform(float[] re, float[] im) {
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < size; i++) {
             int j = rev[i];
             if (j > i) {
                 float t = re[i];
@@ -38,10 +38,10 @@ final class Fft {
                 im[j] = t;
             }
         }
-        for (int len = 2; len <= n; len <<= 1) {
+        for (int len = 2; len <= size; len <<= 1) {
             int half = len / 2;
-            int step = n / len;
-            for (int i = 0; i < n; i += len) {
+            int step = size / len;
+            for (int i = 0; i < size; i += len) {
                 for (int j = 0; j < half; j++) {
                     float wr = cos[j * step];
                     float wi = sin[j * step];

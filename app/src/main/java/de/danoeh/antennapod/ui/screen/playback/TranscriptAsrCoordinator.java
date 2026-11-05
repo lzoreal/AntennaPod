@@ -233,7 +233,7 @@ final class TranscriptAsrCoordinator {
         boolean hasSource = media != null
                 && (media.getLocalFileUrl() != null
                 || (media.getStreamUrl() != null && isCurrentPlaybackMedia(media)));
-        boolean support = hasSource
+        final boolean support = hasSource
                 && (media.getItem() == null || media.getItem().getTranscriptUrl() == null)
                 && AsrGenerationController.isSupported()
                 && !host.isCasting();
@@ -288,7 +288,7 @@ final class TranscriptAsrCoordinator {
                 + " continue=" + continueVisible + " empty="
                 + (binding.emptyState.getVisibility() == View.VISIBLE));
         boolean showStatus = busy || continueVisible || showCompleted;
-        boolean statusWasVisible = binding.statusChip.getVisibility() == View.VISIBLE;
+        final boolean statusWasVisible = binding.statusChip.getVisibility() == View.VISIBLE;
         boolean showContinue = !busy && !showCompleted && continueVisible;
         binding.statusChip.setSelected(showContinue);
         binding.statusChip.setVisibility(showStatus ? View.VISIBLE : View.GONE);

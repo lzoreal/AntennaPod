@@ -949,6 +949,7 @@ public abstract class UserPreferences {
     public static void setPrefFilterAllEpisodes(String filter) {
         prefs.edit().putString(PREF_FILTER_ALL_EPISODES, filter).apply();
     }
+
     public static boolean isFloatingTranscriptEnabled() {
         return prefs.getBoolean(PREF_FLOATING_TRANSCRIPT, false);
     }
@@ -988,13 +989,17 @@ public abstract class UserPreferences {
         return getStoredTranscriptTimeOffsets(mediaId).copy();
     }
 
-    /** Restores a snapshot taken by {@link #getTranscriptTimeOffsetsForMedia(long)}. */
+    /**
+     * Restores a snapshot taken by {@link #getTranscriptTimeOffsetsForMedia(long)}.
+     */
     public static synchronized void setTranscriptTimeOffsetsForMedia(
             long mediaId, TranscriptTimeOffsets offsets) {
         storeTranscriptTimeOffsets(mediaId, offsets.copy());
     }
 
-    /** Starts a new offset segment at {@code mediaPositionMs}, e.g. right after an inserted ad. */
+    /**
+     * Starts a new offset segment at {@code mediaPositionMs}, e.g. right after an inserted ad.
+     */
     public static synchronized void setTranscriptTimeOffset(
             long mediaId, long mediaPositionMs, long offsetMs) {
         TranscriptTimeOffsets offsets = readTranscriptTimeOffsets(mediaId);
@@ -1002,14 +1007,18 @@ public abstract class UserPreferences {
         storeTranscriptTimeOffsets(mediaId, offsets);
     }
 
-    /** Re-aligns the whole episode: the transcript's first line starts at the episode start. */
+    /**
+     * Re-aligns the whole episode: the transcript's first line starts at the episode start.
+     */
     public static synchronized void setTranscriptStartOffset(long mediaId, long offsetMs) {
         TranscriptTimeOffsets offsets = new TranscriptTimeOffsets();
         offsets.setAnchor(0, offsetMs);
         storeTranscriptTimeOffsets(mediaId, offsets);
     }
 
-    /** Changes only the segment playing at {@code mediaPositionMs}. */
+    /**
+     * Changes only the segment playing at {@code mediaPositionMs}.
+     */
     public static synchronized void updateTranscriptTimeOffset(
             long mediaId, long mediaPositionMs, long offsetMs) {
         TranscriptTimeOffsets offsets = readTranscriptTimeOffsets(mediaId);

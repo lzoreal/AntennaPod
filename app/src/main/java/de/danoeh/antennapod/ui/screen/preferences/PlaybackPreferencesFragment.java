@@ -57,6 +57,7 @@ public class PlaybackPreferencesFragment extends AnimatedPreferenceFragment {
 
         buildEnqueueLocationPreference();
     }
+
     private void buildEnqueueLocationPreference() {
         final Resources res = requireActivity().getResources();
         final Map<String, String> options = new ArrayMap<>();

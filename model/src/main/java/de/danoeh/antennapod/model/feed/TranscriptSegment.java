@@ -23,9 +23,11 @@ public class TranscriptSegment {
         this.wordTimings = wordTimings == null ? Collections.emptyList() : wordTimings;
     }
 
-    /** @return true when appended text invalidated the previous word timings */
+    /**
+     * @return true when appended text invalidated the previous word timings
+     */
     public boolean append(long newEndTime, String wordsToAppend) {
-        boolean hadWordTimings = !wordTimings.isEmpty();
+        final boolean hadWordTimings = !wordTimings.isEmpty();
         endTime = Math.max(endTime, newEndTime);
         words += " " + wordsToAppend;
         wordTimings = Collections.emptyList();
@@ -56,7 +58,9 @@ public class TranscriptSegment {
         return !wordTimings.isEmpty();
     }
 
-    /** Last word that started at or before {@code time}; -1 before the first word. */
+    /**
+     * Last word that started at or before {@code time}; -1 before the first word.
+     */
     public int getWordIndexAt(long time) {
         int low = 0;
         int high = wordTimings.size() - 1;

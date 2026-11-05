@@ -590,25 +590,25 @@ public class AudioPlayerFragment extends Fragment implements
             disposable.dispose();
         }
         disposable = Maybe.<FeedMedia>create(emitter -> {
-                    FeedMedia media = DBReader.getFeedMedia(PlaybackPreferences.getCurrentlyPlayingFeedMediaId());
-                    if (media != null) {
-                        if (includingChapters) {
-                            ChapterUtils.loadChapters(media, getContext(), false);
-                        }
-                        emitter.onSuccess(media);
-                    } else {
-                        emitter.onComplete();
-                    }
-                })
-                .subscribeOn(Schedulers.computation())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(media -> {
-                    currentMedia = media;
-                    updateUi();
-                    if (media.getChapters() == null && !includingChapters) {
-                        loadMediaInfo(true);
-                    }
-                }, error -> Log.e(TAG, Log.getStackTraceString(error)));
+            FeedMedia media = DBReader.getFeedMedia(PlaybackPreferences.getCurrentlyPlayingFeedMediaId());
+            if (media != null) {
+                if (includingChapters) {
+                    ChapterUtils.loadChapters(media, getContext(), false);
+                }
+                emitter.onSuccess(media);
+            } else {
+                emitter.onComplete();
+            }
+        })
+        .subscribeOn(Schedulers.computation())
+        .observeOn(AndroidSchedulers.mainThread())
+        .subscribe(media -> {
+            currentMedia = media;
+            updateUi();
+            if (media.getChapters() == null && !includingChapters) {
+                loadMediaInfo(true);
+            }
+        }, error -> Log.e(TAG, Log.getStackTraceString(error)));
     }
 
     private void updateUi() {
