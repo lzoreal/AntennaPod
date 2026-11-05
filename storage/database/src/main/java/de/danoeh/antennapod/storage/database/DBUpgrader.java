@@ -364,10 +364,25 @@ class DBUpgrader {
         if (oldVersion < 3130000) {
             db.execSQL(PodDBAdapter.CREATE_TABLE_AD_CHUNK_FINGERPRINTS);
         }
-        if (oldVersion < 3130100) {
+        if (oldVersion < 3130100
+                && !hasColumn(db, PodDBAdapter.TABLE_NAME_AD_FEED_SETTINGS, "aggressive")) {
+            // The table is created by the 3120000 step with the column already in it, so the
+            // ALTER only applies to databases that were created before that step gained it.
             db.execSQL("ALTER TABLE " + PodDBAdapter.TABLE_NAME_AD_FEED_SETTINGS
                     + " ADD COLUMN aggressive INTEGER NOT NULL DEFAULT 0");
         }
+    }
+
+    private static boolean hasColumn(SQLiteDatabase db, String table, String column) {
+        try (Cursor cursor = db.rawQuery("PRAGMA table_info(" + table + ")", null)) {
+            int nameIndex = cursor.getColumnIndexOrThrow("name");
+            while (cursor.moveToNext()) {
+                if (column.equals(cursor.getString(nameIndex))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
 }
