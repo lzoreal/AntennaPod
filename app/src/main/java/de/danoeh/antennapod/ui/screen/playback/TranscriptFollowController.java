@@ -70,7 +70,9 @@ final class TranscriptFollowController {
     private long lastLayoutRecoveryMs;
     private long lastFollowSkipLogMs;
     private ViewTreeObserver followObserver;
+    private boolean frameRequested;
     private final ViewTreeObserver.OnPreDrawListener followPreDrawListener = () -> {
+        frameRequested = false;
         if (!canAutoFollow()) {
             stopFrame();
             return true;
@@ -108,6 +110,9 @@ final class TranscriptFollowController {
                 followClockActive = false;
                 return;
             }
+            // The clock is the guaranteed frame source; let it request one invalidation per tick
+            // even if the previous frame never arrived.
+            frameRequested = false;
             scheduleFrame();
             recyclerView.postDelayed(this, FOLLOW_CLOCK_INTERVAL_MS);
         }
@@ -125,6 +130,7 @@ final class TranscriptFollowController {
 
     void attach(TranscriptPageFragmentBinding viewBinding) {
         binding = viewBinding;
+        frameRequested = false;
         invalidateReadingLine();
         Context context = host.getContext();
         followDensity = context == null ? 1f
@@ -153,6 +159,7 @@ final class TranscriptFollowController {
 
     void stopClock() {
         followClockActive = false;
+        frameRequested = false;
         if (binding != null) {
             binding.recyclerView.removeCallbacks(followClock);
         }
@@ -181,7 +188,10 @@ final class TranscriptFollowController {
             followObserver = observer;
             followListenerRegistered = true;
         }
-        binding.recyclerView.postInvalidateOnAnimation();
+        if (!frameRequested) {
+            frameRequested = true;
+            binding.recyclerView.postInvalidateOnAnimation();
+        }
         if (!followClockActive) {
             // Self-heal: the clock stops itself when the page goes off screen, so restart it
             // whenever a new follow target needs it.
@@ -191,6 +201,7 @@ final class TranscriptFollowController {
 
     void stopFrame() {
         followAnimating = false;
+        frameRequested = false;
         if (!followListenerRegistered) {
             return;
         }
