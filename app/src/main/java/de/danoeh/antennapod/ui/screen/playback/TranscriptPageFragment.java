@@ -26,6 +26,10 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
+
+import java.io.File;
+
+import de.danoeh.antennapod.BuildConfig;
 import de.danoeh.antennapod.R;
 import de.danoeh.antennapod.databinding.TranscriptPageFragmentBinding;
 import de.danoeh.antennapod.event.FeedItemEvent;
@@ -141,6 +145,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private static final long HIGHLIGHT_UPDATE_INTERVAL_MS = 250;
     private static final long TICKER_STALE_MS = 1500;
     private static final long POSITION_BACKSTEP_TOLERANCE_MS = 1200;
+    private static final boolean DEBUG = BuildConfig.DEBUG;
     private long lastBackstepLogMs;
     private long lastTickLogMs;
     private long lastLoggedPosition = Long.MIN_VALUE;
@@ -156,6 +161,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private static final String STATE_SCROLL_OFFSET = "transcript_scroll_offset";
     private boolean segmentLooping = false;
     private int loopSegmentIndex = -1;
+    private boolean loopSeekPending;
+    private long loopSeekRequestedMs;
+    private long loadedGeneratedFileStamp = Long.MIN_VALUE;
     private Bundle restoredState;
     private final Handler highlightHandler = new Handler(Looper.getMainLooper());
     private ListenableFuture<MediaController> controllerFuture;
@@ -387,13 +395,15 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             if (SystemClock.elapsedRealtime() - lastTickLogMs >= 1000) {
                 lastTickLogMs = SystemClock.elapsedRealtime();
                 jitterMonitor.onSecondTick(lastTickLogMs);
-                Log.d("AsrJitter", "tick playing=" + playing
-                        + " rawLast=" + lastRawPlayerPosition
-                        + " last=" + lastPositionMs
-                        + " pos=" + (adapter == null ? -1 : adapter.getHighlightPosition())
-                        + " userScrolling=" + userScrolling
-                        + " tickerDriving=" + highlightTickerDriving
-                        + " pageVisible=" + isResumed());
+                if (DEBUG) {
+                    Log.d("AsrJitter", "tick playing=" + playing
+                            + " rawLast=" + lastRawPlayerPosition
+                            + " last=" + lastPositionMs
+                            + " pos=" + (adapter == null ? -1 : adapter.getHighlightPosition())
+                            + " userScrolling=" + userScrolling
+                            + " tickerDriving=" + highlightTickerDriving
+                            + " pageVisible=" + isResumed());
+                }
             }
             if (playing) {
                 long rawPosition = smoothPlayingPosition(controller.getCurrentPosition());
@@ -601,6 +611,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         viewBinding.btnImmersive.setAlpha(0.5f);
         viewBinding.recyclerView.addOnLayoutChangeListener((v, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> {
+            followController.invalidateReadingLine();
             // A header (controls bar, search bar) or the whole page (immersive mode) moving
             // shifts the text on screen. Scroll by the same distance so the current line stays
             // where it is instead of being re-centred by the follow.
@@ -628,6 +639,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         followController.updateBackToCurrentVisibility();
 
         ViewCompat.setOnApplyWindowInsetsListener(viewBinding.getRoot(), (v, insets) -> {
+            followController.invalidateReadingLine();
             immersiveTopInset = Math.max(immersiveTopInset, Math.max(
                     insets.getInsets(WindowInsetsCompat.Type.displayCutout()).top,
                     insets.getInsets(WindowInsetsCompat.Type.statusBars()).top));
@@ -791,11 +803,18 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
 
         long currentMediaId = PlaybackPreferences.getCurrentlyPlayingFeedMediaId();
+        boolean generated = currentMedia != null && currentMedia.getTranscript() != null
+                && currentMedia.getTranscript().isGenerated();
+        boolean generatedUnchanged = !generated
+                || generatedTranscriptStamp(currentMedia) == loadedGeneratedFileStamp;
+        FeedItem loadedItem = currentMedia == null ? null : currentMedia.getItem();
+        boolean sourceUnchanged = loadedItem != null
+                && Objects.equals(loadedItem.getTranscriptUrl(), loadedTranscriptUrl)
+                && Objects.equals(loadedItem.getTranscriptType(), loadedTranscriptType);
         if (!forceReload && viewBinding != null && currentMedia != null
                 && currentMedia.getId() == currentMediaId
                 && adapter != null && adapter.getItemCount() > 0
-                && (currentMedia.getTranscript() == null
-                    || !currentMedia.getTranscript().isGenerated())) {
+                && sourceUnchanged && generatedUnchanged) {
             Log.d("AsrJitter", "loadTranscript early return media=" + currentMediaId
                     + " last=" + lastPositionMs + " userScrolling=" + userScrolling);
             viewBinding.progLoading.setVisibility(View.GONE);
@@ -889,6 +908,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             adapter.updatePlaybackPosition(lastPositionMs);
             asrCoordinator.syncRunningState();
             updateLoadedTranscriptSource(media);
+            loadedGeneratedFileStamp = generatedTranscriptStamp(media);
             viewBinding.progLoading.setVisibility(View.GONE);
             offsetController.updateAvailability();
             asrCoordinator.updateVisibility();
@@ -902,6 +922,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         asrCoordinator.syncRunningState();
         positionSource.load(media);
         updateLoadedTranscriptSource(media);
+        loadedGeneratedFileStamp = generatedTranscriptStamp(media);
         offsetController.updateAvailability();
         asrCoordinator.updateVisibility();
         viewBinding.progLoading.setVisibility(View.GONE);
@@ -1163,6 +1184,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     }
 
     private void logSyncState(long position, int pos) {
+        if (!DEBUG) {
+            return;
+        }
         long now = SystemClock.elapsedRealtime();
         if (pos == lastSyncLogSegment && now - lastSyncLogMs < 2000) {
             return;
@@ -1222,11 +1246,13 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         if (position != lastLoggedPosition || pos != lastLoggedSegment) {
             lastLoggedPosition = position;
             lastLoggedSegment = pos;
-            Log.d("AsrJitter", "handlePos pos=" + position + " seg=" + pos
-                    + " lastScrolled=" + lastScrolledPosition
-                    + " userScrolling=" + userScrolling
-                    + " pendingSnap=" + pendingSnapToHighlight
-                    + " adapterPos=" + (adapter == null ? -1 : adapter.getHighlightPosition()));
+            if (DEBUG) {
+                Log.d("AsrJitter", "handlePos pos=" + position + " seg=" + pos
+                        + " lastScrolled=" + lastScrolledPosition
+                        + " userScrolling=" + userScrolling
+                        + " pendingSnap=" + pendingSnapToHighlight
+                        + " adapterPos=" + (adapter == null ? -1 : adapter.getHighlightPosition()));
+            }
         }
         if (pos < 0) {
             return;
@@ -1285,6 +1311,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         followController.updateBackToCurrentVisibility();
         if (segmentLooping) {
             loopSegmentIndex = position;
+            loopSeekPending = false;
         }
     }
 
@@ -1312,6 +1339,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         }
         segmentLooping = true;
         loopSegmentIndex = pos;
+        loopSeekPending = false;
         updateSegmentLoopToggle();
         if (getContext() != null) {
             Toast.makeText(getContext(), R.string.transcript_segment_loop_message,
@@ -1323,6 +1351,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private void stopSegmentLoop() {
         segmentLooping = false;
         loopSegmentIndex = -1;
+        loopSeekPending = false;
         updateSegmentLoopToggle();
         if (getContext() != null) {
             Toast.makeText(getContext(), R.string.transcript_segment_loop_disabled_message,
@@ -1363,10 +1392,31 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         if (position >= endTime) {
+            long now = SystemClock.elapsedRealtime();
+            if (loopSeekPending && now - loopSeekRequestedMs < 1000) {
+                return;
+            }
+            loopSeekPending = true;
+            loopSeekRequestedMs = now;
             acceptNextBackstep = true;
             PlaybackController.bindToMedia3Service(getContext(), controller ->
                     controller.seekTo((int) positionSource.toPlayerTime(startTime)));
+        } else {
+            loopSeekPending = false;
         }
+    }
+
+    private static long generatedTranscriptStamp(FeedMedia media) {
+        String path = media.getGeneratedTranscriptFileUrl();
+        if (path == null) {
+            return 0;
+        }
+        File file = new File(path);
+        long stamp = file.isFile() ? file.lastModified() * 31 + file.length() : 0;
+        File journal = new File(path + ".journal");
+        stamp = stamp * 31 + (journal.isFile()
+                ? journal.lastModified() * 31 + journal.length() : 0);
+        return stamp;
     }
 
     private void refreshPositionForTimeScale() {

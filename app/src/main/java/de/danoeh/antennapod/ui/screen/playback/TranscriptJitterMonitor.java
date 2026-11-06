@@ -3,6 +3,8 @@ package de.danoeh.antennapod.ui.screen.playback;
 import android.util.Log;
 import java.util.ArrayDeque;
 
+import de.danoeh.antennapod.BuildConfig;
+
 /**
  * Flags a transcript list that oscillates instead of settling. A healthy follow moves in one
  * direction per sentence; two writers fighting over the scroll offset show up as many direction
@@ -17,6 +19,8 @@ final class TranscriptJitterMonitor {
     private static final int MIN_LARGE_MOVES = 4;
     private static final int LARGE_MOVE_PX = 200;
     private static final long REPORT_INTERVAL_MS = 3000;
+    private static final long EVALUATE_INTERVAL_MS = 100;
+    private static final boolean DEBUG = BuildConfig.DEBUG;
 
     interface Host {
         String describeJitterState();
@@ -35,6 +39,7 @@ final class TranscriptJitterMonitor {
     private final Host host;
     private final ArrayDeque<Move> moves = new ArrayDeque<>();
     private long lastReportMs;
+    private long lastEvaluateMs;
     private int scrollCount;
     private int snapCount;
     private int lastSecondScrollCount;
@@ -49,8 +54,11 @@ final class TranscriptJitterMonitor {
         if (dy == 0) {
             return;
         }
-        moves.addLast(new Move(nowMs, dy));
         scrollCount++;
+        if (!DEBUG) {
+            return;
+        }
+        moves.addLast(new Move(nowMs, dy));
         while (!moves.isEmpty() && nowMs - moves.peekFirst().timeMs > WINDOW_MS) {
             moves.removeFirst();
         }
@@ -63,7 +71,7 @@ final class TranscriptJitterMonitor {
 
     /** Logs the movement rate once per second so a quiet page can be told from a shaking one. */
     void onSecondTick(long nowMs) {
-        if (nowMs - lastRateBucketMs < 1000) {
+        if (!DEBUG || nowMs - lastRateBucketMs < 1000) {
             return;
         }
         lastRateBucketMs = nowMs;
@@ -76,9 +84,10 @@ final class TranscriptJitterMonitor {
     }
 
     private void evaluate(long nowMs) {
-        if (moves.size() < 2) {
+        if (moves.size() < 2 || nowMs - lastEvaluateMs < EVALUATE_INTERVAL_MS) {
             return;
         }
+        lastEvaluateMs = nowMs;
         int flips = 0;
         int total = 0;
         int max = 0;

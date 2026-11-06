@@ -11,6 +11,7 @@ import java.util.function.LongSupplier;
  */
 public final class AsrGenerationSession {
     private static final long DEFAULT_IDLE_SLEEP_MS = 50;
+    private static final long CAUGHT_UP_SLEEP_MS = 200;
     private static final int MAX_CONSECUTIVE_RETRIES = 12;
     private static final long RETRY_BACKOFF_MS = 500;
     private static final long MAX_RETRY_BACKOFF_MS = 4000;
@@ -98,7 +99,7 @@ public final class AsrGenerationSession {
                     break;
                 }
                 reportCaughtUp();
-                if (!sleepQuietly()) {
+                if (!sleepQuietly(Math.max(idleSleepMs, CAUGHT_UP_SLEEP_MS))) {
                     break;
                 }
             }
@@ -159,9 +160,9 @@ public final class AsrGenerationSession {
         }
     }
 
-    private boolean sleepQuietly() {
+    private boolean sleepQuietly(long millis) {
         try {
-            Thread.sleep(idleSleepMs);
+            Thread.sleep(millis);
             return running;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

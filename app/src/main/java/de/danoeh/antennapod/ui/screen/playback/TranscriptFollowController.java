@@ -12,6 +12,8 @@ import androidx.annotation.Nullable;
 import androidx.lifecycle.Lifecycle;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+
+import de.danoeh.antennapod.BuildConfig;
 import de.danoeh.antennapod.databinding.TranscriptPageFragmentBinding;
 import de.danoeh.antennapod.ui.transcript.TranscriptViewholder;
 
@@ -20,6 +22,7 @@ final class TranscriptFollowController {
     private static final String TAG = "AsrJitter";
     private static final long FOLLOW_CLOCK_INTERVAL_MS = 250;
     private static final int MAX_NO_PROGRESS_FRAMES = 3;
+    private static final boolean DEBUG = BuildConfig.DEBUG;
 
     interface Host {
         @Nullable
@@ -74,7 +77,7 @@ final class TranscriptFollowController {
         }
         long frameNow = SystemClock.elapsedRealtime();
         frameCount++;
-        if (frameNow - lastFrameLogMs >= 1000) {
+        if (DEBUG && frameNow - lastFrameLogMs >= 1000) {
             Log.d(TAG, "follow frames/s=" + frameCount + " animating=" + followAnimating
                     + " target=" + followTargetPosition + " scrolled=" + followScrolled);
             frameCount = 0;
@@ -112,6 +115,9 @@ final class TranscriptFollowController {
 
     private final int[] rootLocation = new int[2];
     private final int[] listLocation = new int[2];
+    private int cachedReadingLinePx = Integer.MIN_VALUE;
+    private int cachedReadingLineHeight = -1;
+    private int cachedReadingLineRootHeight = -1;
 
     TranscriptFollowController(Host host) {
         this.host = host;
@@ -119,6 +125,7 @@ final class TranscriptFollowController {
 
     void attach(TranscriptPageFragmentBinding viewBinding) {
         binding = viewBinding;
+        invalidateReadingLine();
         Context context = host.getContext();
         followDensity = context == null ? 1f
                 : context.getResources().getDisplayMetrics().density;
@@ -127,7 +134,13 @@ final class TranscriptFollowController {
     void detach() {
         stopFrame();
         stopClock();
+        invalidateReadingLine();
         binding = null;
+    }
+
+    /** The list/root moved; the cached reading-line offset is no longer valid. */
+    void invalidateReadingLine() {
+        cachedReadingLinePx = Integer.MIN_VALUE;
     }
 
     void startClock() {
@@ -149,24 +162,25 @@ final class TranscriptFollowController {
         if (binding == null || !canAutoFollow()) {
             return;
         }
-        Log.d(TAG, "scheduleFrame clock=" + followClockActive
-                + " pendingSnap=" + host.isPendingSnapToHighlight()
-                + " scrollState=" + binding.recyclerView.getScrollState());
+        if (DEBUG) {
+            Log.d(TAG, "scheduleFrame clock=" + followClockActive
+                    + " pendingSnap=" + host.isPendingSnapToHighlight()
+                    + " scrollState=" + binding.recyclerView.getScrollState());
+        }
         ViewTreeObserver observer = binding.recyclerView.getViewTreeObserver();
         if (!observer.isAlive()) {
             return;
         }
-        if (followListenerRegistered) {
-            // Re-register every time: a re-attached view can hand out a new observer without
-            // the old listener following, and there is no way to query the observer for it.
-            if (followObserver != null && followObserver.isAlive()) {
+        if (!followListenerRegistered || observer != followObserver) {
+            // A re-attached view can hand out a new observer without carrying the old
+            // listener; only re-register when the observer instance actually changed.
+            if (followListenerRegistered && followObserver != null && followObserver.isAlive()) {
                 followObserver.removeOnPreDrawListener(followPreDrawListener);
             }
-            followListenerRegistered = false;
+            observer.addOnPreDrawListener(followPreDrawListener);
+            followObserver = observer;
+            followListenerRegistered = true;
         }
-        observer.addOnPreDrawListener(followPreDrawListener);
-        followObserver = observer;
-        followListenerRegistered = true;
         binding.recyclerView.postInvalidateOnAnimation();
         if (!followClockActive) {
             // Self-heal: the clock stops itself when the page goes off screen, so restart it
@@ -249,11 +263,22 @@ final class TranscriptFollowController {
 
     /** Vertical centre of the window, expressed in RecyclerView coordinates. */
     int readingLinePx(RecyclerView recyclerView) {
+        int listHeight = recyclerView.getHeight();
         View root = recyclerView.getRootView();
+        int rootHeight = root.getHeight();
+        if (cachedReadingLinePx != Integer.MIN_VALUE
+                && listHeight == cachedReadingLineHeight
+                && rootHeight == cachedReadingLineRootHeight) {
+            return cachedReadingLinePx;
+        }
         root.getLocationOnScreen(rootLocation);
         recyclerView.getLocationOnScreen(listLocation);
-        return rootLocation[1] + Math.round(
+        int readingLine = rootLocation[1] + Math.round(
                 root.getHeight() * TranscriptFollowMotion.ANCHOR_RATIO) - listLocation[1];
+        cachedReadingLinePx = readingLine;
+        cachedReadingLineHeight = listHeight;
+        cachedReadingLineRootHeight = rootHeight;
+        return readingLine;
     }
 
     private boolean canAutoFollow() {

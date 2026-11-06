@@ -223,11 +223,29 @@ final class TranscriptSearchController {
             updateControls();
             return;
         }
-        int count = adapter.setSearchQuery(query);
-        updateControls();
-        if (count > 0) {
-            jumpToHit(adapter.getCurrentSearchHit());
+        search(query, true);
+    }
+
+    private void search(String query, boolean allowRetry) {
+        TranscriptAdapter adapter = host.getAdapter();
+        if (adapter == null) {
+            return;
         }
+        adapter.searchAsync(query, count -> {
+            if (binding == null || !query.equals(getQuery())) {
+                return;
+            }
+            if (count < 0) {
+                if (allowRetry) {
+                    search(query, false);
+                }
+                return;
+            }
+            updateControls();
+            if (count > 0) {
+                jumpToHit(adapter.getCurrentSearchHit());
+            }
+        });
     }
 
     private void updateControls() {

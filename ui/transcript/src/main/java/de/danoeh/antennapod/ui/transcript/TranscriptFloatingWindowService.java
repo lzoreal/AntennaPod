@@ -38,6 +38,7 @@ import de.danoeh.antennapod.event.playback.PlaybackPositionEvent;
 import de.danoeh.antennapod.model.feed.FeedMedia;
 import de.danoeh.antennapod.model.feed.Transcript;
 import de.danoeh.antennapod.model.feed.TranscriptSegment;
+import de.danoeh.antennapod.parser.transcript.TranscriptJournal;
 import de.danoeh.antennapod.storage.database.DBReader;
 import de.danoeh.antennapod.storage.preferences.PlaybackPreferences;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
@@ -55,7 +56,7 @@ public class TranscriptFloatingWindowService extends Service {
     /** The playback service only posts a position event once per second; poll in between so the
      *  floating window keeps up with the transcript page, which refreshes every 100-250 ms. */
     private static final long POSITION_TICK_INTERVAL_MS = 100;
-    private static final long GENERATED_RELOAD_INTERVAL_MS = 5000;
+    private static final long GENERATED_RELOAD_INTERVAL_MS = 15000;
 
     private WindowManager windowManager;
     private View floatingView;
@@ -74,7 +75,9 @@ public class TranscriptFloatingWindowService extends Service {
     private long lastSentenceSegmentStart = -1;
     private int lastSentenceIndex = -1;
     private String transcriptFilePath;
-    private long transcriptFileStamp;
+    private long transcriptSnapshotStamp;
+    private long transcriptJournalStamp;
+    private long transcriptDurationMs;
     private long lastGeneratedCheckMs;
     private TranscriptSegment sentenceCacheSegment;
     private String sentenceCacheWords;
@@ -469,7 +472,9 @@ public class TranscriptFloatingWindowService extends Service {
                     }
                     this.transcript = loaded;
                     transcriptFilePath = media.getGeneratedTranscriptFileUrl();
-                    transcriptFileStamp = generatedFileStamp(transcriptFilePath);
+                    transcriptSnapshotStamp = snapshotStamp(transcriptFilePath);
+                    transcriptJournalStamp = journalStamp(transcriptFilePath);
+                    transcriptDurationMs = media.getDuration();
                     session = new TranscriptSession(mediaId, loaded);
                     session.setDuration(media.getDuration());
                     updateTranscript(true);
@@ -565,9 +570,17 @@ public class TranscriptFloatingWindowService extends Service {
             long now = SystemClock.elapsedRealtime();
             if (now - lastGeneratedCheckMs >= GENERATED_RELOAD_INTERVAL_MS) {
                 lastGeneratedCheckMs = now;
-                if (generatedFileStamp(transcriptFilePath) != transcriptFileStamp) {
-                    // Generation appends to the file while this window stays open.
+                long snapshot = snapshotStamp(transcriptFilePath);
+                if (snapshot != transcriptSnapshotStamp) {
+                    // A compaction replaced the snapshot; a full load is unavoidable.
                     loadTranscript(currentMediaId, true);
+                    return;
+                }
+                long journal = journalStamp(transcriptFilePath);
+                if (journal != transcriptJournalStamp) {
+                    if (!appendJournal(journal)) {
+                        loadTranscript(currentMediaId, true);
+                    }
                     return;
                 }
             }
@@ -738,16 +751,51 @@ public class TranscriptFloatingWindowService extends Service {
         tvTranscript.startTimedScroll(timeline, position, windowWidth, playbackSpeed);
     }
 
-    private static long generatedFileStamp(String path) {
+    private boolean appendJournal(long journalStamp) {
+        if (transcript == null || transcriptFilePath == null) {
+            return false;
+        }
+        File journal = TranscriptJournal.fileFor(new File(transcriptFilePath));
+        if (!journal.isFile() || journal.length() == 0) {
+            return false;
+        }
+        Transcript copy = TranscriptUtils.copyTranscript(transcript);
+        if (copy == null) {
+            return false;
+        }
+        TranscriptJournal.applyTo(copy, new File(transcriptFilePath));
+        transcriptJournalStamp = journalStamp;
+        if (copy.getSegmentCount() == transcript.getSegmentCount()) {
+            return true;
+        }
+        transcript = copy;
+        session = new TranscriptSession(currentMediaId, copy);
+        session.setDuration(transcriptDurationMs);
+        lastSentenceSegmentStart = -1;
+        lastSentenceIndex = -1;
+        sentenceCacheSegment = null;
+        sentenceCacheWords = null;
+        sentenceCacheSplit = -1;
+        sentenceCacheStarts = null;
+        translationCacheStarts = null;
+        updateTranscript(true);
+        return true;
+    }
+
+    private static long snapshotStamp(String path) {
         if (path == null) {
             return 0;
         }
         File file = new File(path);
-        long stamp = file.isFile() ? file.lastModified() * 31 + file.length() : 0;
+        return file.isFile() ? file.lastModified() * 31 + file.length() : 0;
+    }
+
+    private static long journalStamp(String path) {
+        if (path == null) {
+            return 0;
+        }
         File journal = new File(path + ".journal");
-        stamp = stamp * 31 + (journal.isFile()
-                ? journal.lastModified() * 31 + journal.length() : 0);
-        return stamp;
+        return journal.isFile() ? journal.lastModified() * 31 + journal.length() : 0;
     }
 
     private void hideTranscript() {

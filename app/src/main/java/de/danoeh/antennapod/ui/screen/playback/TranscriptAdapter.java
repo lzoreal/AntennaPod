@@ -3,6 +3,8 @@ package de.danoeh.antennapod.ui.screen.playback;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Typeface;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.text.Layout;
 import android.text.Spannable;
@@ -38,6 +40,9 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.IntConsumer;
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
@@ -84,6 +89,14 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
     private String searchQuery = "";
     private int currentSearchHit = -1;
     private int renderVersion;
+    private int searchGeneration;
+    private static final ExecutorService SEARCH_EXECUTOR =
+            Executors.newSingleThreadExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "transcript-search");
+                thread.setDaemon(true);
+                return thread;
+            });
+    private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
     private int layoutVersion;
 
     public TranscriptAdapter(Context context, SegmentClickListener segmentClickListener) {
@@ -181,6 +194,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         this.languageMode = mode;
         UserPreferences.setTranscriptLanguageMode(mode);
         renderVersion++;
+        searchGeneration++;
         searchTexts = null;
         displayInfoBuilder.clear();
         rebuildSearchHits();
@@ -195,6 +209,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         this.sentencePerLine = split;
         UserPreferences.setTranscriptSentencePerLine(split);
         renderVersion++;
+        searchGeneration++;
         searchTexts = null;
         displayInfoBuilder.clear();
         rebuildSearchHits();
@@ -706,6 +721,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
 
     public int setSearchQuery(String query) {
         String next = query == null ? "" : query;
+        searchGeneration++;
         if (next.equals(searchQuery)) {
             return searchHits.size();
         }
@@ -718,7 +734,73 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         return searchHits.size();
     }
 
+    /**
+     * Computes hits on a worker thread. The callback runs on the main thread with the hit count,
+     * or {@code -1} when the adapter changed while the search was running.
+     */
+    public void searchAsync(String query, IntConsumer callback) {
+        String next = query == null ? "" : query;
+        final int generation = ++searchGeneration;
+        if (next.equals(searchQuery)) {
+            callback.accept(searchHits.size());
+            return;
+        }
+        if (next.trim().isEmpty() || media == null || media.getTranscript() == null) {
+            clearSearch();
+            callback.accept(0);
+            return;
+        }
+        ensureSearchTexts();
+        final String[] texts = searchTexts;
+        final int version = renderVersion;
+        final int segmentCount = media.getTranscript().getSegmentCount();
+        SEARCH_EXECUTOR.execute(() -> {
+            List<SearchHit> hits = findHits(texts, next);
+            MAIN_HANDLER.post(() -> {
+                if (generation != searchGeneration || version != renderVersion
+                        || media == null || media.getTranscript() == null
+                        || media.getTranscript().getSegmentCount() != segmentCount) {
+                    callback.accept(-1);
+                    return;
+                }
+                applySearchHits(next, hits);
+                callback.accept(hits.size());
+            });
+        });
+    }
+
+    private static List<SearchHit> findHits(String[] texts, String query) {
+        List<SearchHit> hits = new ArrayList<>();
+        for (int i = 0; i < texts.length; i++) {
+            for (TranscriptSearch.Match match : TranscriptSearch.findAll(texts[i], query)) {
+                hits.add(new SearchHit(i, match.start, match.end, hits.size()));
+            }
+        }
+        return hits;
+    }
+
+    private void applySearchHits(String query, List<SearchHit> hits) {
+        final Set<Integer> affected = hitPositions();
+        searchQuery = query;
+        searchHits.clear();
+        searchHits.addAll(hits);
+        searchHitsByPosition.clear();
+        for (SearchHit hit : hits) {
+            List<SearchHit> rowHits = searchHitsByPosition.get(hit.position);
+            if (rowHits == null) {
+                rowHits = new ArrayList<>();
+                searchHitsByPosition.put(hit.position, rowHits);
+            }
+            rowHits.add(hit);
+        }
+        currentSearchHit = hits.isEmpty() ? -1 : 0;
+        renderVersion++;
+        affected.addAll(hitPositions());
+        notifySearchRowsChanged(affected);
+    }
+
     public void clearSearch() {
+        searchGeneration++;
         if (searchHits.isEmpty() && searchQuery.isEmpty()) {
             return;
         }

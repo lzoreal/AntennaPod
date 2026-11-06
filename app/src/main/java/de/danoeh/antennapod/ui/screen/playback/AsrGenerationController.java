@@ -18,12 +18,14 @@ import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
+import de.danoeh.antennapod.BuildConfig;
 import de.danoeh.antennapod.asr.AsrGenerationSession;
 import de.danoeh.antennapod.asr.CacheAudioSource;
 import de.danoeh.antennapod.asr.AsrModelCatalog;
 import de.danoeh.antennapod.asr.AsrModelStore;
 import de.danoeh.antennapod.asr.AsrSegment;
 import de.danoeh.antennapod.asr.AsrTranscriptStore;
+import de.danoeh.antennapod.asr.AsrWord;
 import de.danoeh.antennapod.asr.AudioFingerprint;
 import de.danoeh.antennapod.asr.FileAudioSource;
 import de.danoeh.antennapod.asr.GeneratedTranscriptCheckpoint;
@@ -48,6 +50,8 @@ public final class AsrGenerationController {
     private static final long IDLE_SLEEP_MS = 50;
     private static final int COMPACT_SEGMENT_COUNT = 20;
     private static final long COMPACT_INTERVAL_MS = 30_000;
+    private static final long COVERAGE_MERGE_GAP_MS = 2000;
+    private static final boolean DEBUG = BuildConfig.DEBUG;
 
     public interface Listener {
         void onSegment(@NonNull AsrSegment segment);
@@ -71,6 +75,7 @@ public final class AsrGenerationController {
     private long audioBytes;
     private String audioFingerprint;
     private final List<AsrSegment> segments = new ArrayList<>();
+    private final List<MediaRange> publishedCoverage = new ArrayList<>();
     private int pendingJournalSegments;
     private long lastCompactionMs;
     private long lastPersistedWordEndMs = -1;
@@ -193,6 +198,7 @@ public final class AsrGenerationController {
             }
         }
 
+        rebuildPublishedCoverage();
         pipeline = new PreReadPcmPipeline(new MediaCodecPcmDecoder(),
                 new LookaheadPlanner(UserPreferences.getAsrLookaheadSeconds() * 1000L, CUSHION_MS),
                 SEEK_THRESHOLD_MS, coverage);
@@ -274,17 +280,20 @@ public final class AsrGenerationController {
     private final class SessionListener implements AsrGenerationSession.Listener {
         @Override
         public void onSegment(@NonNull AsrSegment segment) {
-            long segmentStart = segment.getWords().isEmpty() ? -1
-                    : segment.getWords().get(0).getStartTime();
-            long segmentEnd = segment.getWords().isEmpty() ? -1
-                    : segment.getWords().get(segment.getWords().size() - 1).getEndTime();
-            Log.d(TAG, "segment start=" + segmentStart + " end=" + segmentEnd
-                    + " words=" + segment.getWords().size()
-                    + " playhead=" + playheadMs.getAsLong()
-                    + " decoded=" + pipeline.decodedEndMs()
-                    + " coverage=" + pipeline.coverageRanges());
+            if (DEBUG) {
+                long segmentStart = segment.getWords().isEmpty() ? -1
+                        : segment.getWords().get(0).getStartTime();
+                long segmentEnd = segment.getWords().isEmpty() ? -1
+                        : segment.getWords().get(segment.getWords().size() - 1).getEndTime();
+                Log.d(TAG, "segment start=" + segmentStart + " end=" + segmentEnd
+                        + " words=" + segment.getWords().size()
+                        + " playhead=" + playheadMs.getAsLong()
+                        + " decoded=" + pipeline.decodedEndMs()
+                        + " coverage=" + pipeline.coverageRanges());
+            }
             synchronized (segments) {
                 segments.add(segment);
+                addPublishedCoverage(segment);
                 if (appendOrCompact(segment) && !segment.getWords().isEmpty()) {
                     lastPersistedWordEndMs = Math.max(lastPersistedWordEndMs,
                             segment.getWords().get(segment.getWords().size() - 1).getEndTime());
@@ -306,9 +315,11 @@ public final class AsrGenerationController {
                     finalizePlayhead.set(next);
                 }
             }
-            Log.d(TAG, "caughtUp playhead=" + playheadMs.getAsLong()
-                    + " decoded=" + decodedEndMs
-                    + " coverage=" + pipeline.coverageRanges());
+            if (DEBUG) {
+                Log.d(TAG, "caughtUp playhead=" + playheadMs.getAsLong()
+                        + " decoded=" + decodedEndMs
+                        + " coverage=" + pipeline.coverageRanges());
+            }
             listener.onProgress(decodedEndMs);
         }
 
@@ -375,20 +386,51 @@ public final class AsrGenerationController {
         }
         List<MediaRange> coverage;
         synchronized (segments) {
-            coverage = AsrTranscriptStore.coverageOf(segments);
+            coverage = new ArrayList<>(publishedCoverage);
         }
         try {
             transcriptStore.save(segments, durationMs, coverage, modelId,
                     audioBytes, audioFingerprint, scannedRanges(complete));
             pendingJournalSegments = 0;
             lastCompactionMs = SystemClock.elapsedRealtime();
-            Log.i(TAG, "saved segments=" + segments.size()
-                    + " coverage=" + coverage);
+            Log.i(TAG, "saved segments=" + segments.size());
             return true;
         } catch (IOException e) {
             Log.e(TAG, "Unable to save generated transcript", e);
             return false;
         }
+    }
+
+    private void rebuildPublishedCoverage() {
+        synchronized (segments) {
+            publishedCoverage.clear();
+            publishedCoverage.addAll(AsrTranscriptStore.coverageOf(segments));
+        }
+    }
+
+    private void addPublishedCoverage(AsrSegment segment) {
+        for (AsrWord word : segment.getWords()) {
+            if (word.getEndTime() > word.getStartTime()) {
+                addPublishedRange(word.getStartTime(), word.getEndTime());
+            }
+        }
+    }
+
+    private void addPublishedRange(long start, long end) {
+        int index = 0;
+        while (index < publishedCoverage.size()
+                && publishedCoverage.get(index).endMs() + COVERAGE_MERGE_GAP_MS < start) {
+            index++;
+        }
+        long mergedStart = start;
+        long mergedEnd = end;
+        while (index < publishedCoverage.size()
+                && publishedCoverage.get(index).startMs() <= mergedEnd + COVERAGE_MERGE_GAP_MS) {
+            MediaRange range = publishedCoverage.remove(index);
+            mergedStart = Math.min(mergedStart, range.startMs());
+            mergedEnd = Math.max(mergedEnd, range.endMs());
+        }
+        publishedCoverage.add(index, new MediaRange(mergedStart, mergedEnd));
     }
 
     /**

@@ -101,6 +101,22 @@ public class TranscriptUtils {
         }
     }
 
+    /** Snapshot used when a consumer appends journal segments without mutating the cache. */
+    public static Transcript copyTranscript(Transcript source) {
+        if (source == null) {
+            return null;
+        }
+        Transcript copy = new Transcript();
+        for (int i = 0; i < source.getSegmentCount(); i++) {
+            copy.addSegment(source.getSegmentAt(i));
+        }
+        copy.setSpeakers(source.getSpeakers());
+        copy.setBilingual(source.isBilingual());
+        copy.setGenerated(source.isGenerated());
+        copy.setAudioDurationMs(source.getAudioDurationMs());
+        return copy;
+    }
+
     private static Object loadLock(FeedMedia media) {
         String key = media.getId() + "|" + media.getItem().getTranscriptType() + "|"
                 + media.getItem().getTranscriptUrl();
