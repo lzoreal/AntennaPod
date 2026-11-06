@@ -1,12 +1,15 @@
 package de.danoeh.antennapod.ad;
 
+import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.util.zip.Deflater;
-import java.util.zip.Inflater;
+import java.util.zip.InflaterInputStream;
+import java.util.zip.ZipException;
 
 /** Sparse fingerprint blob: header + (hash, frame) pairs, zlib-compressed. */
 public final class FingerprintCodec {
@@ -71,24 +74,8 @@ public final class FingerprintCodec {
     }
 
     public static Decoded decode(byte[] blob) throws IOException {
-        Inflater inflater = new Inflater();
-        inflater.setInput(blob);
-        ByteArrayOutputStream raw = new ByteArrayOutputStream(blob.length * 2);
-        byte[] buf = new byte[8192];
-        try {
-            while (!inflater.finished()) {
-                int n = inflater.inflate(buf);
-                if (n == 0 && inflater.needsInput()) {
-                    throw new IOException("truncated blob");
-                }
-                raw.write(buf, 0, n);
-            }
-        } catch (java.util.zip.DataFormatException e) {
-            throw new IOException("corrupt blob", e);
-        } finally {
-            inflater.end();
-        }
-        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(raw.toByteArray()))) {
+        try (DataInputStream in = new DataInputStream(
+                new BufferedInputStream(new InflaterInputStream(new ByteArrayInputStream(blob))))) {
             if (in.readInt() != MAGIC) {
                 throw new IOException("bad magic");
             }
@@ -108,6 +95,10 @@ public final class FingerprintCodec {
             }
             return new Decoded(version, stride, frames, sampleRate,
                     new Fingerprinter.Hashes(hash, frame, frames, 0));
+        } catch (EOFException e) {
+            throw new IOException("truncated blob", e);
+        } catch (ZipException e) {
+            throw new IOException("corrupt blob", e);
         }
     }
 }

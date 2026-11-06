@@ -44,4 +44,36 @@ public class HeadScanEngineTest {
         float[] head = Synth.speechLike(180, 2);
         assertTrue(HeadScanEngine.scan(Fingerprinter.fingerprint(head), 3000, List.of()).isEmpty());
     }
+
+    @Test
+    public void scanIgnoresTheEpisodesOwnFingerprint() {
+        float[] audio = Synth.speechLike(180, 4);
+        HeadScanEngine.ReferenceSet references =
+                HeadScanEngine.ReferenceSet.load(List.of(row(11127, audio)));
+        Fingerprinter.Hashes hashes = Fingerprinter.fingerprint(audio);
+
+        assertTrue(HeadScanEngine.scan(hashes, 3000, references, 11127).isEmpty());
+        assertEquals(1, HeadScanEngine.scan(hashes, 3000, references, 99).size());
+    }
+
+    @Test
+    public void referenceSetIsReusableAcrossScans() {
+        float[] ad = Synth.speechLike(15, 3);
+        float[] reference = Synth.speechLike(300, 1);
+        Synth.insert(reference, ad, 40);
+        float[] head = Synth.speechLike(180, 2);
+        Synth.insert(head, ad, 10);
+        HeadScanEngine.ReferenceSet references =
+                HeadScanEngine.ReferenceSet.load(List.of(row(11127, reference)));
+
+        List<AdScanEngine.Segment> first =
+                HeadScanEngine.scan(Fingerprinter.fingerprint(head), 3000, references);
+        List<AdScanEngine.Segment> second =
+                HeadScanEngine.scan(Fingerprinter.fingerprint(head), 3000, references);
+
+        assertEquals(1, first.size());
+        assertEquals(first.size(), second.size());
+        assertEquals(first.get(0).startSec, second.get(0).startSec, 0.001);
+        assertEquals(first.get(0).endSec, second.get(0).endSec, 0.001);
+    }
 }

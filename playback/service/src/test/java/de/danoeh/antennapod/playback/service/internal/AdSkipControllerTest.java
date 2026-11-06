@@ -15,9 +15,9 @@ public class AdSkipControllerTest {
     }
 
     @Test
-    public void aggressiveModeAlsoSkipsMarkedSegmentsButNotOutro() {
+    public void aggressiveModeAlsoSkipsMarkedSegments() {
         assertTrue(AdSkipController.isSkippable(segment(AdSegment.KIND_MIDROLL, AdSegment.TIER_MARKED), true));
-        assertFalse(AdSkipController.isSkippable(segment(AdSegment.KIND_OUTRO, AdSegment.TIER_MARKED), true));
+        assertTrue(AdSkipController.isSkippable(segment(AdSegment.KIND_OUTRO, AdSegment.TIER_MARKED), true));
     }
 
     @Test

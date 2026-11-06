@@ -33,7 +33,7 @@ public final class StreamingAdScanner {
         }
     }
 
-    private static final int DEFAULT_CHUNK_SECONDS = 300;
+    private static final int DEFAULT_CHUNK_SECONDS = 60;
     private static final int MIN_CHUNK_SAMPLES = Fingerprinter.SAMPLE_RATE;
     private static final long CONTINUITY_TOLERANCE_MS = 1500;
     private static final Object END = new Object();

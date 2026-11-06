@@ -41,6 +41,8 @@ public class AdScanWorker extends Worker {
     private static final String TAG = "AdScanWorker";
     private static final int NOTIFICATION_ID = 0xAD00;
     private static final int STRIDE = 4;
+    private static final int MAX_ATTEMPTS = 3;
+    private static final long MAX_SEED_BYTES = 200L * 1024 * 1024;
 
     public AdScanWorker(@NonNull Context context, @NonNull WorkerParameters params) {
         super(context, params);
@@ -67,6 +69,9 @@ public class AdScanWorker extends Worker {
         }
 
         List<FeedMedia> media = DBReader.getLatestMediaForAdScan(feedId, settings.getWindowSize());
+        if (media.size() < 2) {
+            return Result.success();
+        }
         publishProgress(0, media.size());
         try {
             setForegroundAsync(preparingInfo(media.size())).get();
@@ -75,8 +80,7 @@ public class AdScanWorker extends Worker {
         }
         seedMissingAudio(media);
         if (countWithAudio(media) < 2) {
-            NotificationUtils.showAdScanFailed(getApplicationContext());
-            return Result.retry();
+            return retryOrGiveUp();
         }
 
         Map<Long, AdFingerprintRow> existing = new HashMap<>();
@@ -85,7 +89,6 @@ public class AdScanWorker extends Worker {
         }
 
         List<AdScanEngine.EpisodeData> data = new ArrayList<>();
-        List<File> tempFiles = new ArrayList<>();
         for (int i = 0; i < media.size(); i++) {
             FeedMedia m = media.get(i);
             try {
@@ -95,14 +98,12 @@ public class AdScanWorker extends Worker {
                 if (audio == null) {
                     continue;
                 }
-                if (audio.getAbsolutePath().contains("/ad-analysis/")) {
-                    tempFiles.add(audio);
-                }
                 AdFingerprintRow old = existing.get(m.getId());
                 if (old != null && old.getAlgoVersion() == FingerprintCodec.ALGO_VERSION
                         && old.getStride() == STRIDE
                         && old.getAudioSize() == audio.length()
-                        && old.getAudioModified() == audio.lastModified()) {
+                        && old.getAudioModified() == audio.lastModified()
+                        && old.getDurationMs() == m.getDuration()) {
                     FingerprintCodec.Decoded decoded = FingerprintCodec.decode(old.getBlob());
                     data.add(new AdScanEngine.EpisodeData(m.getId(), m.getDuration() / 1000.0, decoded.hashes));
                     continue;
@@ -138,13 +139,8 @@ public class AdScanWorker extends Worker {
                 Log.w(TAG, "Skipping media " + m.getId() + ": " + e);
             }
         }
-        for (File file : tempFiles) {
-            //noinspection ResultOfMethodCallIgnored
-            file.delete();
-        }
         if (data.size() < 2) {
-            NotificationUtils.showAdScanFailed(getApplicationContext());
-            return Result.retry();
+            return retryOrGiveUp();
         }
 
         AdScanEngine.Result result = new AdScanEngine().scan(data);
@@ -160,6 +156,7 @@ public class AdScanWorker extends Worker {
                 segment.setTier(s.tier);
                 segment.setMatchRatio((float) s.matchRatio);
                 segment.setSupport(s.support);
+                segment.setSourceMediaIds(s.sourceMediaIds);
                 segments.add(segment);
             }
             segmentCount += segments.size();
@@ -176,6 +173,14 @@ public class AdScanWorker extends Worker {
                 .putInt(AdScanScheduler.KEY_RESULT_EPISODES, data.size())
                 .putInt(AdScanScheduler.KEY_RESULT_SEGMENTS, segmentCount)
                 .build());
+    }
+
+    private Result retryOrGiveUp() {
+        if (getRunAttemptCount() + 1 < MAX_ATTEMPTS) {
+            return Result.retry();
+        }
+        NotificationUtils.showAdScanFailed(getApplicationContext());
+        return Result.failure();
     }
 
     private void publishProgress(int episode, int total) {
@@ -212,6 +217,7 @@ public class AdScanWorker extends Worker {
             cacheRoot = getApplicationContext().getCacheDir();
         }
         File dir = new File(cacheRoot, "ad-analysis");
+        purgeOldSeeds(dir);
         for (FeedMedia m : media) {
             if (countWithAudio(media) >= 2) {
                 return;
@@ -219,12 +225,33 @@ public class AdScanWorker extends Worker {
             if (resolveAudio(m) != null || m.getDownloadUrl() == null) {
                 continue;
             }
+            String name = fileName(m.getId(), m.getDownloadUrl());
+            File cached = new File(dir, name);
+            if (cached.length() > 0) {
+                m.setLocalFileUrl(cached.getAbsolutePath());
+                Log.d(TAG, "Reused seed " + m.getId());
+                continue;
+            }
             try {
-                File file = SeedDownloader.download(m.getDownloadUrl(), dir, fileName(m.getId(), m.getDownloadUrl()));
+                File file = SeedDownloader.download(m.getDownloadUrl(), dir, name, MAX_SEED_BYTES);
                 m.setLocalFileUrl(file.getAbsolutePath());
                 Log.d(TAG, "Seeded media " + m.getId());
             } catch (IOException e) {
                 Log.w(TAG, "Seed failed for media " + m.getId() + ": " + e);
+            }
+        }
+    }
+
+    private static void purgeOldSeeds(File dir) {
+        File[] files = dir.listFiles();
+        if (files == null) {
+            return;
+        }
+        long cutoff = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000;
+        for (File file : files) {
+            if (file.isFile() && file.lastModified() < cutoff) {
+                //noinspection ResultOfMethodCallIgnored
+                file.delete();
             }
         }
     }

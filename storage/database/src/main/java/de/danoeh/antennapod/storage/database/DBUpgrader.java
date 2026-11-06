@@ -371,6 +371,11 @@ class DBUpgrader {
             db.execSQL("ALTER TABLE " + PodDBAdapter.TABLE_NAME_AD_FEED_SETTINGS
                     + " ADD COLUMN aggressive INTEGER NOT NULL DEFAULT 0");
         }
+        if (oldVersion < 3130200
+                && !hasColumn(db, PodDBAdapter.TABLE_NAME_AD_SEGMENTS, "sources")) {
+            db.execSQL("ALTER TABLE " + PodDBAdapter.TABLE_NAME_AD_SEGMENTS
+                    + " ADD COLUMN sources TEXT");
+        }
     }
 
     private static boolean hasColumn(SQLiteDatabase db, String table, String column) {

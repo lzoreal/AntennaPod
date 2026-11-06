@@ -28,14 +28,21 @@ public final class AdScanEngine {
         public final int tier;
         public final double matchRatio;
         public final int support;
+        public final long[] sourceMediaIds;
 
         Segment(double startSec, double endSec, int kind, int tier, double matchRatio, int support) {
+            this(startSec, endSec, kind, tier, matchRatio, support, new long[0]);
+        }
+
+        Segment(double startSec, double endSec, int kind, int tier, double matchRatio, int support,
+                long[] sourceMediaIds) {
             this.startSec = startSec;
             this.endSec = endSec;
             this.kind = kind;
             this.tier = tier;
             this.matchRatio = matchRatio;
             this.support = support;
+            this.sourceMediaIds = sourceMediaIds;
         }
     }
 
@@ -49,24 +56,29 @@ public final class AdScanEngine {
 
     public Result scan(List<EpisodeData> episodes) {
         Result result = new Result();
-        for (EpisodeData query : episodes) {
-            List<Fingerprinter.Hashes> db = new ArrayList<>();
-            int[] dbMax = new int[episodes.size() - 1];
-            int k = 0;
-            for (EpisodeData e : episodes) {
-                if (e.mediaId != query.mediaId) {
-                    db.add(e.hashes);
-                    dbMax[k++] = e.hashes.frames;
-                }
-            }
-            Index index = Index.build(db, STRIDE);
-            List<Matcher.Detection> dets = Matcher.detect(index, db.size(), dbMax, query.hashes, STRIDE);
+        if (episodes.size() < 2) {
+            return result;
+        }
+        List<Fingerprinter.Hashes> db = new ArrayList<>(episodes.size());
+        int[] dbMax = new int[episodes.size()];
+        for (int i = 0; i < episodes.size(); i++) {
+            db.add(episodes.get(i).hashes);
+            dbMax[i] = episodes.get(i).hashes.frames;
+        }
+        Index index = Index.build(db, STRIDE);
+        for (int i = 0; i < episodes.size(); i++) {
+            EpisodeData query = episodes.get(i);
+            List<Matcher.Detection> dets = Matcher.detect(index, db.size(), dbMax, i, query.hashes, STRIDE);
             List<SegmentMerger.MergedSegment> merged = SegmentMerger.merge(dets);
 
             List<Segment> out = new ArrayList<>();
             for (SegmentMerger.MergedSegment m : merged) {
                 SegmentClassifier.Classified c = SegmentClassifier.classify(m, query.durationSec);
-                out.add(new Segment(m.startSec, m.endSec, c.kind, c.tier, m.matchRatio, m.support));
+                long[] sources = new long[m.sourceEpisodes.length];
+                for (int s = 0; s < sources.length; s++) {
+                    sources[s] = episodes.get(m.sourceEpisodes[s]).mediaId;
+                }
+                out.add(new Segment(m.startSec, m.endSec, c.kind, c.tier, m.matchRatio, m.support, sources));
             }
             result.byMedia.put(query.mediaId, out);
         }

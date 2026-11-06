@@ -36,8 +36,7 @@ public final class SegmentClassifier {
             kind = KIND_MIDROLL;
         }
         double len = s.endSec - s.startSec;
-        boolean auto = kind != KIND_OUTRO
-                && s.support >= 1
+        boolean auto = s.support >= 1
                 && len >= MIN_SEC
                 && len <= MAX_SEC
                 && s.matchRatio >= MIN_RATIO;

@@ -29,6 +29,15 @@ else
   record "FAIL feed not subscribed"
   exit 1
 fi
+FEED_ID="$(db_query "select id from Feeds where download_url like '%feed.xml%' order by id desc limit 1")"
+if [ -z "$FEED_ID" ]; then
+  record "FAIL feed id not found"
+  exit 1
+fi
+feed_segments() {
+  local where="${2:-1 = 1}"
+  db_query "select $1 from ad_segments where $where and media_id in (select m.id from FeedMedia m join FeedItems i on m.feeditem = i.id where i.feed = $FEED_ID)"
+}
 
 say "请完成以下两步（脚本随后自动断言）："
 say "  1. 打开该 feed 的下载，确保两集都已下载"
@@ -36,7 +45,7 @@ say "  2. 在 feed 设置中打开 '检测并跳过广告'，保持屏幕常亮"
 say "等待 AdScanWorker 完成（最多 10 分钟）..."
 
 has_segments() {
-  db_query "select count(*) from ad_segments where tier = 0" | grep -q '^[1-9]'
+  feed_segments "count(*)" "tier = 0" | grep -q '^[1-9]'
 }
 if wait_until 600 has_segments; then
   record "PASS ad segments stored"
@@ -45,11 +54,11 @@ else
   exit 1
 fi
 
-rows=$(db_query "select media_id, start_ms, end_ms, kind, tier from ad_segments order by start_ms")
+rows=$(feed_segments "media_id, start_ms, end_ms, kind, tier")
 say "$rows"
 record "INFO segments: $(echo "$rows" | tr '\n' ';')"
 
-preroll=$(db_query "select count(*) from ad_segments where start_ms < 90000 and tier = 0")
+preroll=$(feed_segments "count(*)" "start_ms < 90000 and tier = 0")
 if [ "$preroll" -ge 1 ]; then
   record "PASS preroll segment present"
 else
@@ -57,9 +66,9 @@ else
   exit 1
 fi
 
-say "手动步骤：播放第二集，等待出现 '已跳过 ... 秒广告' 提示条，然后点击 '撤销'。"
+say "手动步骤：播放 Episode A（片头 30s 处广告），等待出现 '已跳过 ... 秒广告' 提示条。"
 adb logcat -c
-if wait_until 300 bash -c "adb logcat -d | grep -q 'Skipped ad to'"; then
+if wait_until 300 bash -c "adb logcat -d | grep -qE 'skip media=|Skipped ad to'"; then
   record "PASS playback skip observed in logcat"
 else
   record "FAIL playback skip not observed"
@@ -68,7 +77,7 @@ fi
 
 say "再手动点击一次提示条的 '撤销'，脚本会检查 DB state。"
 state() {
-  db_query "select count(*) from ad_segments where state = 1" | grep -q '^[1-9]'
+  feed_segments "count(*)" "state = 1" | grep -q '^[1-9]'
 }
 if wait_until 120 state; then
   record "PASS undo persisted (state=1)"

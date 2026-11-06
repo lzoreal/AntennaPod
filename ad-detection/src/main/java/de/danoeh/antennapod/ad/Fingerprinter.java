@@ -71,7 +71,7 @@ public final class Fingerprinter {
             int base = f * BIN_N;
             for (int b = 0; b < BIN_N; b++) {
                 int bin = BIN_LO + b;
-                double mag = Math.hypot(re[bin], im[bin]);
+                double mag = Math.sqrt(re[bin] * re[bin] + im[bin] * im[bin]);
                 short q = (short) Math.round(20 * Math.log10(mag + 1e-6) * 10);
                 lm[base + b] = q;
                 sum += q;

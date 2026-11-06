@@ -55,7 +55,7 @@ public class PodDBAdapter {
 
     private static final String TAG = "PodDBAdapter";
     public static final String DATABASE_NAME = "Antennapod.db";
-    public static final int VERSION = 3130100;
+    public static final int VERSION = 3130200;
 
     /**
      * Maximum number of arguments for IN-operator.
@@ -268,7 +268,8 @@ public class PodDBAdapter {
     static final String CREATE_TABLE_AD_SEGMENTS = "CREATE TABLE " + TABLE_NAME_AD_SEGMENTS
             + " (id INTEGER PRIMARY KEY AUTOINCREMENT, media_id INTEGER NOT NULL, start_ms INTEGER NOT NULL,"
             + " end_ms INTEGER NOT NULL, kind INTEGER NOT NULL, tier INTEGER NOT NULL, match_ratio REAL NOT NULL,"
-            + " support INTEGER NOT NULL, state INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)";
+            + " support INTEGER NOT NULL, state INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,"
+            + " sources TEXT)";
 
     static final String CREATE_TABLE_AD_FEED_SETTINGS = "CREATE TABLE " + TABLE_NAME_AD_FEED_SETTINGS
             + " (feed_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0,"

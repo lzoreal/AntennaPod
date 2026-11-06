@@ -39,12 +39,10 @@ import com.google.common.util.concurrent.ListenableFuture;
 import de.danoeh.antennapod.event.MessageEvent;
 import de.danoeh.antennapod.model.feed.AdSegment;
 import de.danoeh.antennapod.ad.AdScanScheduler;
-import de.danoeh.antennapod.ad.FingerprintCodec;
-import de.danoeh.antennapod.ad.Fingerprinter;
+import de.danoeh.antennapod.ad.HeadScanEngine;
 import de.danoeh.antennapod.ad.StreamingAdMatcher;
 import de.danoeh.antennapod.ad.StreamingAdScanner;
 import de.danoeh.antennapod.event.AdScanEvent;
-import de.danoeh.antennapod.model.feed.AdChunkFingerprintRow;
 import de.danoeh.antennapod.model.feed.AdFeedSettings;
 import de.danoeh.antennapod.model.feed.AdFingerprintRow;
 import de.danoeh.antennapod.playback.service.internal.AdSkipCommand;
@@ -129,10 +127,12 @@ public class Media3PlaybackService extends MediaLibraryService {
     private float volumeAdaptionFactor = 1.0f;
     private final Handler adSkipHandler = new Handler(Looper.getMainLooper());
     private AdSkipController adSkipController;
+    private boolean programmaticSeek;
     private long adSkipMediaId = -1;
     private TranscriptSync.Shift lastTranscriptShift;
-    private static final int AD_FINGERPRINT_STRIDE = 4;
     private volatile long adStreamMediaId = -1;
+    private HeadScanEngine.ReferenceSet adReferences;
+    private String adReferencesKey;
     private StreamingAdScanner adStreamScanner;
     private volatile long lastPlayerPositionMs;
     private final Runnable adSkipTick = new Runnable() {
@@ -144,6 +144,7 @@ public class Media3PlaybackService extends MediaLibraryService {
                 PlaybackServiceInterface.currentPositionMs = position;
                 Long target = adSkipController.skipAt(position);
                 if (target != null) {
+                    programmaticSeek = true;
                     exoPlayer.seekTo(target);
                     AdSegment skipped = adSkipController.lastSkipped();
                     Log.i(TAG, "skip media=" + adSkipMediaId + " from=" + position
@@ -507,7 +508,12 @@ public class Media3PlaybackService extends MediaLibraryService {
             playedDurationCountedUntil = (int) newPosition.positionMs;
             PlaybackServiceInterface.currentPositionMs = newPosition.positionMs;
             if (adSkipController != null) {
-                adSkipController.onUserSeek(newPosition.positionMs);
+                if (programmaticSeek) {
+                    programmaticSeek = false;
+                    adSkipController.onProgrammaticSeek(newPosition.positionMs);
+                } else {
+                    adSkipController.onUserSeek(newPosition.positionMs);
+                }
             }
             if (adStreamScanner != null) {
                 adStreamScanner.jumpTo(newPosition.positionMs);
@@ -695,6 +701,7 @@ public class Media3PlaybackService extends MediaLibraryService {
         }
         Log.d(TAG, "Undid ad skip to " + skipped.getStartMs());
         if (exoPlayer != null) {
+            programmaticSeek = true;
             exoPlayer.seekTo(skipped.getStartMs());
         }
         adSkipController.undoLast();
@@ -843,9 +850,7 @@ public class Media3PlaybackService extends MediaLibraryService {
             adSkipMediaId = media.getId();
             adSkipHandler.removeCallbacks(adSkipTick);
             adSkipController = new AdSkipController(media.getId());
-            if (media.getLocalFileUrl() == null && media.getDownloadUrl() != null) {
-                AdScanScheduler.scanMediaNow(getApplicationContext(), media.getId());
-            }
+            AdScanScheduler.scanMediaNow(getApplicationContext(), media.getId());
         }
         adSkipHandler.postDelayed(adSkipTick, 250);
         playbackStartPosition = Math.max(currentPlayable.getPosition(), 0);
@@ -1201,14 +1206,20 @@ public class Media3PlaybackService extends MediaLibraryService {
         if (!settings.isEnabled()) {
             return;
         }
-        saveStreamedFingerprint(mediaId, chunk);
         List<AdFingerprintRow> references = DBReader.getAdFingerprints(feedId, settings.getWindowSize());
         if (references.isEmpty()) {
             return;
         }
+        String referenceKey = HeadScanEngine.ReferenceSet.keyOf(references);
+        HeadScanEngine.ReferenceSet refs = adReferences;
+        if (refs == null || !referenceKey.equals(adReferencesKey)) {
+            refs = HeadScanEngine.ReferenceSet.load(references);
+            adReferences = refs;
+            adReferencesKey = referenceKey;
+        }
         double durationSec = Math.max(media.getDuration() / 1000.0,
                 (chunk.segmentStartMs + chunk.frames * 1000.0 / 62.5) / 1000.0);
-        List<AdSegment> found = StreamingAdMatcher.match(mediaId, chunk, durationSec, references);
+        List<AdSegment> found = StreamingAdMatcher.match(mediaId, chunk, durationSec, refs);
         if (found.isEmpty()) {
             return;
         }
@@ -1220,16 +1231,6 @@ public class Media3PlaybackService extends MediaLibraryService {
         }
         Log.d(TAG, "stream chunk " + chunk.segmentStartMs + "ms: " + found.size() + " segment(s)");
         EventBus.getDefault().post(new AdScanEvent(feedId, found.size()));
-    }
-
-    private static void saveStreamedFingerprint(long mediaId, StreamingAdScanner.Chunk chunk) {
-        AdChunkFingerprintRow row = new AdChunkFingerprintRow();
-        row.setMediaId(mediaId);
-        row.setStartFrame(chunk.mediaFrame());
-        row.setFrames(chunk.frames);
-        row.setStride(AD_FINGERPRINT_STRIDE);
-        row.setBlob(FingerprintCodec.encode(chunk.hashes, AD_FINGERPRINT_STRIDE, Fingerprinter.SAMPLE_RATE));
-        DBWriter.saveAdChunkFingerprint(row);
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)

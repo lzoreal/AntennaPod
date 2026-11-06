@@ -1,6 +1,7 @@
 package de.danoeh.antennapod.ad;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /** Groups per-episode detections that describe the same interval. */
@@ -10,12 +11,18 @@ public final class SegmentMerger {
         public final double endSec;
         public final double matchRatio;
         public final int support;
+        public final int[] sourceEpisodes;
 
         MergedSegment(double startSec, double endSec, double matchRatio, int support) {
+            this(startSec, endSec, matchRatio, support, new int[0]);
+        }
+
+        MergedSegment(double startSec, double endSec, double matchRatio, int support, int[] sourceEpisodes) {
             this.startSec = startSec;
             this.endSec = endSec;
             this.matchRatio = matchRatio;
             this.support = support;
+            this.sourceEpisodes = sourceEpisodes;
         }
     }
 
@@ -59,7 +66,7 @@ public final class SegmentMerger {
                     eps[support++] = d.episode;
                 }
             }
-            out.add(new MergedSegment(start, end, ratio, support));
+            out.add(new MergedSegment(start, end, ratio, support, Arrays.copyOf(eps, support)));
         }
         return out;
     }

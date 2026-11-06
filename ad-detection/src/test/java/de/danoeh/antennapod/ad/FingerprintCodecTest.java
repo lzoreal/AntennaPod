@@ -3,6 +3,7 @@ package de.danoeh.antennapod.ad;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.util.Arrays;
 
 import static org.junit.Assert.assertEquals;
 
@@ -29,6 +30,13 @@ public class FingerprintCodecTest {
     @Test(expected = IOException.class)
     public void rejectsGarbage() throws IOException {
         FingerprintCodec.decode(new byte[]{1, 2, 3});
+    }
+
+    @Test(expected = IOException.class)
+    public void rejectsTruncatedBlob() throws IOException {
+        byte[] blob = FingerprintCodec.encode(
+                Fingerprinter.fingerprint(Synth.speechLike(20, 5)), 4, 8000);
+        FingerprintCodec.decode(Arrays.copyOf(blob, blob.length / 2));
     }
 
     @Test

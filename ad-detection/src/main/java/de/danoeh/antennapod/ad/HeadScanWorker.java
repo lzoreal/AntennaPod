@@ -53,7 +53,7 @@ public class HeadScanWorker extends Worker {
 
     private static OneTimeWorkRequest createRequest(long mediaId, boolean prefetch) {
         Constraints constraints = new Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.UNMETERED)
+                .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build();
         return new OneTimeWorkRequest.Builder(HeadScanWorker.class)
                 .setConstraints(constraints)
@@ -68,6 +68,18 @@ public class HeadScanWorker extends Worker {
     @Override
     @NonNull
     public Result doWork() {
+        if (!AdScanGate.acquire()) {
+            return Result.retry();
+        }
+        try {
+            return scan();
+        } finally {
+            AdScanGate.release();
+        }
+    }
+
+    @NonNull
+    private Result scan() {
         long mediaId = getInputData().getLong(KEY_MEDIA_ID, -1);
         FeedMedia media = DBReader.getFeedMedia(mediaId);
         if (media == null || media.getItem() == null || media.getItem().getFeed() == null) {
@@ -75,7 +87,8 @@ public class HeadScanWorker extends Worker {
         }
         Feed feed = media.getItem().getFeed();
         AdFeedSettings settings = DBReader.getAdFeedSettings(feed.getId());
-        if (!settings.isEnabled() || media.getLocalFileUrl() != null || media.getDownloadUrl() == null) {
+        if (!settings.isEnabled()
+                || (media.getLocalFileUrl() == null && media.getDownloadUrl() == null)) {
             return Result.success();
         }
         boolean prefetch = getInputData().getBoolean(KEY_PREFETCH, false);
@@ -85,17 +98,19 @@ public class HeadScanWorker extends Worker {
             }
             return Result.success();
         }
-        List<AdFingerprintRow> references =
+        List<AdFingerprintRow> rows =
                 DBReader.getAdFingerprints(feed.getId(), settings.getWindowSize());
-        if (references.isEmpty()) {
+        if (rows.isEmpty()) {
             return Result.success();
         }
-        // Short prefix first so the first skip does not wait for the full head scan.
-        if (!scanAndStore(media, references, FIRST_SECONDS)) {
+        HeadScanEngine.ReferenceSet references = HeadScanEngine.ReferenceSet.load(rows);
+        File local = media.getLocalFileUrl() == null ? null : new File(media.getLocalFileUrl());
+        if (local != null && local.exists()) {
+            if (!scanAndStore(media, references, local, HEAD_SECONDS)) {
+                return Result.retry();
+            }
+        } else if (!scanStreaming(media, references)) {
             return Result.retry();
-        }
-        if (media.getDuration() > FIRST_SECONDS * 1000L) {
-            scanAndStore(media, references, HEAD_SECONDS);
         }
         if (prefetch) {
             AdScanScheduler.prefetchUpcoming(getApplicationContext(), media);
@@ -103,27 +118,49 @@ public class HeadScanWorker extends Worker {
         return Result.success();
     }
 
-    /**
-     * Downloads and scans the first {@code seconds} of the episode; false if that failed.
-     */
-    private boolean scanAndStore(FeedMedia media, List<AdFingerprintRow> references, int seconds) {
-        long started = SystemClock.elapsedRealtime();
+    private boolean scanStreaming(FeedMedia media, HeadScanEngine.ReferenceSet references) {
         File head;
+        String name = AdScanWorker.fileName(media.getId(), media.getDownloadUrl());
         try {
-            head = SeedDownloader.downloadHead(media.getDownloadUrl(), cacheDir(),
-                    AdScanWorker.fileName(media.getId(), media.getDownloadUrl()) + "." + seconds + ".head",
-                    SeedDownloader.headBytes(media.getSize(), media.getDuration(), seconds));
+            head = SeedDownloader.downloadHead(media.getDownloadUrl(), cacheDir(), name + ".head",
+                    SeedDownloader.headBytes(media.getSize(), media.getDuration(), FIRST_SECONDS));
         } catch (IOException e) {
             Log.w(TAG, "Head download failed for " + media.getId() + ": " + e);
             return false;
         }
         try {
-            long downloaded = SystemClock.elapsedRealtime();
+            // Short prefix first so the first skip does not wait for the full head scan.
+            if (!scanAndStore(media, references, head, FIRST_SECONDS)) {
+                return false;
+            }
+            if (media.getDuration() > FIRST_SECONDS * 1000L) {
+                try {
+                    head = SeedDownloader.appendHead(media.getDownloadUrl(), head,
+                            SeedDownloader.headBytes(media.getSize(), media.getDuration(), HEAD_SECONDS));
+                } catch (IOException e) {
+                    Log.w(TAG, "Head append failed for " + media.getId() + ": " + e);
+                    return true;
+                }
+                scanAndStore(media, references, head, HEAD_SECONDS);
+            }
+            return true;
+        } finally {
+            //noinspection ResultOfMethodCallIgnored
+            head.delete();
+        }
+    }
+
+    /**
+     * Fingerprints at most {@code seconds} of {@code head} and stores the matches.
+     */
+    private boolean scanAndStore(FeedMedia media, HeadScanEngine.ReferenceSet references,
+                                 File head, int seconds) {
+        long started = SystemClock.elapsedRealtime();
+        try {
             double durationSec = media.getDuration() > 0
                     ? media.getDuration() / 1000.0 : HEAD_SECONDS * 2.0;
             List<AdScanEngine.Segment> found =
-                    HeadScanEngine.scan(fingerprint(head), durationSec, references);
-            long matched = SystemClock.elapsedRealtime();
+                    HeadScanEngine.scan(fingerprint(head, seconds), durationSec, references, media.getId());
             List<AdSegment> segments = new ArrayList<>();
             for (AdScanEngine.Segment s : found) {
                 AdSegment segment = new AdSegment();
@@ -134,26 +171,21 @@ public class HeadScanWorker extends Worker {
                 segment.setTier(s.tier);
                 segment.setMatchRatio((float) s.matchRatio);
                 segment.setSupport(s.support);
+                segment.setSourceMediaIds(s.sourceMediaIds);
                 segments.add(segment);
             }
             DBWriter.replaceAdSegments(media.getId(), segments).get();
             Log.d(TAG, "scan media " + media.getId() + " " + seconds + "s: " + segments.size()
-                    + " segment(s) in " + (SystemClock.elapsedRealtime() - started) + "ms"
-                    + " (download " + (downloaded - started) + "ms, fingerprint "
-                    + (matched - downloaded) + "ms, match " + (SystemClock.elapsedRealtime() - matched)
-                    + "ms)");
+                    + " segment(s) in " + (SystemClock.elapsedRealtime() - started) + "ms");
             EventBus.getDefault().post(new AdScanEvent(media.getItem().getFeed().getId(), segments.size()));
             return true;
         } catch (Exception e) {
             Log.w(TAG, "Head scan failed for " + media.getId() + ": " + e);
             return false;
-        } finally {
-            //noinspection ResultOfMethodCallIgnored
-            head.delete();
         }
     }
 
-    private static Fingerprinter.Hashes fingerprint(File file) {
+    private static Fingerprinter.Hashes fingerprint(File file, int seconds) {
         ChunkedFingerprinter fingerprinter = new ChunkedFingerprinter();
         Resampler.Stream[] stream = new Resampler.Stream[1];
         try {
@@ -163,7 +195,7 @@ public class HeadScanWorker extends Worker {
                 }
                 float[] pcm8k = stream[0].process(mono, 0, samples);
                 fingerprinter.add(pcm8k, 0, pcm8k.length);
-            });
+            }, seconds);
         } catch (Exception e) {
             // A truncated head usually ends in a decoder error; keep what was decoded.
             Log.w(TAG, "Head decode stopped: " + e);

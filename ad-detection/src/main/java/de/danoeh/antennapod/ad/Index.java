@@ -5,6 +5,9 @@ import java.util.List;
 
 /** Sparse sorted inverted index: packed (hash, episode, frame). */
 public final class Index {
+    static final int MAX_EPISODES = 256;
+    static final int MAX_FRAMES = 0xFFFFF;
+
     private final long[] entries;
 
     private Index(long[] entries) {
@@ -12,6 +15,14 @@ public final class Index {
     }
 
     public static Index build(List<Fingerprinter.Hashes> episodes, int stride) {
+        if (episodes.size() > MAX_EPISODES) {
+            throw new IllegalArgumentException("too many episodes: " + episodes.size());
+        }
+        for (Fingerprinter.Hashes h : episodes) {
+            if (h.frames > MAX_FRAMES) {
+                throw new IllegalArgumentException("episode too long: " + h.frames + " frames");
+            }
+        }
         int count = 0;
         for (Fingerprinter.Hashes h : episodes) {
             for (int f : h.frame) {
@@ -26,7 +37,7 @@ public final class Index {
             Fingerprinter.Hashes h = episodes.get(e);
             for (int i = 0; i < h.hash.length; i++) {
                 if (h.frame[i] % stride == 0) {
-                    a[k++] = ((long) h.hash[i] << 32) | ((long) e << 20) | h.frame[i];
+                    a[k++] = ((long) h.hash[i] << 40) | ((long) e << 20) | h.frame[i];
                 }
             }
         }
@@ -43,7 +54,7 @@ public final class Index {
         int hi = entries.length;
         while (lo < hi) {
             int mid = (lo + hi) >>> 1;
-            if ((int) (entries[mid] >>> 32) < hash) {
+            if ((int) (entries[mid] >>> 40) < hash) {
                 lo = mid + 1;
             } else {
                 hi = mid;
@@ -57,11 +68,11 @@ public final class Index {
     }
 
     public static int hashOf(long entry) {
-        return (int) (entry >>> 32);
+        return (int) (entry >>> 40);
     }
 
     public static int episodeOf(long entry) {
-        return (int) ((entry >>> 20) & 0xF);
+        return (int) ((entry >>> 20) & 0xFF);
     }
 
     public static int frameOf(long entry) {

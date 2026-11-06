@@ -5,7 +5,7 @@ import java.util.List;
 
 /** Pure skip state machine: entry detection, user-seek bypass, per-segment disable. */
 public final class SkipEngine {
-    private static final long TAIL_MS = 250;
+    private static final long TAIL_MS = 100;
 
     private final List<long[]> segments = new ArrayList<>();
     private final List<Long> bypass = new ArrayList<>();
@@ -37,6 +37,11 @@ public final class SkipEngine {
             }
         }
         return null;
+    }
+
+    /** Seeks we issued ourselves; keeps the cursor aligned without bypassing segments. */
+    public void onProgrammaticSeek(long positionMs) {
+        lastPosition = positionMs;
     }
 
     public void onUserSeek(long positionMs) {

@@ -51,7 +51,7 @@ public final class AdSkipController {
         if (segment.getTier() == AdSegment.TIER_AUTO) {
             return true;
         }
-        return aggressive && segment.getKind() != AdSegment.KIND_OUTRO;
+        return aggressive;
     }
 
     private boolean isAggressive() {
@@ -79,6 +79,10 @@ public final class AdSkipController {
 
     public void onUserSeek(long positionMs) {
         engine.onUserSeek(positionMs);
+    }
+
+    public void onProgrammaticSeek(long positionMs) {
+        engine.onProgrammaticSeek(positionMs);
     }
 
     public AdSegment lastSkipped() {

@@ -17,10 +17,10 @@ public class SegmentClassifierTest {
     }
 
     @Test
-    public void outroIsMarkedOnly() {
+    public void outroWithSupportIsAuto() {
         SegmentClassifier.Classified c = SegmentClassifier.classify(seg(3980, 3999, 0.4, 2), 4000);
         assertEquals(SegmentClassifier.KIND_OUTRO, c.kind);
-        assertEquals(SegmentClassifier.TIER_MARKED, c.tier);
+        assertEquals(SegmentClassifier.TIER_AUTO, c.tier);
     }
 
     @Test

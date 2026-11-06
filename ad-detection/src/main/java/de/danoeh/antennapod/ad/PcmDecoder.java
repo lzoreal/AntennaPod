@@ -41,6 +41,10 @@ public final class PcmDecoder {
     }
 
     public static int decodeStreaming(File file, Sink sink) throws IOException {
+        return decodeStreaming(file, sink, Double.MAX_VALUE);
+    }
+
+    public static int decodeStreaming(File file, Sink sink, double maxSeconds) throws IOException {
         MediaExtractor extractor = new MediaExtractor();
         MediaCodec codec = null;
         try {
@@ -70,6 +74,7 @@ public final class PcmDecoder {
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             boolean inputDone = false;
             boolean outputDone = false;
+            long produced = 0;
             while (!outputDone) {
                 if (!inputDone) {
                     int in = codec.dequeueInputBuffer(10000);
@@ -96,15 +101,24 @@ public final class PcmDecoder {
                             buf.order(ByteOrder.nativeOrder());
                             ShortBuffer shorts = buf.asShortBuffer();
                             int frames = info.size / (2 * channels);
-                            float[] mono = new float[frames];
-                            for (int i = 0; i < frames; i++) {
-                                int sum = 0;
-                                for (int c = 0; c < channels; c++) {
-                                    sum += shorts.get(i * channels + c);
+                            long limit = maxSeconds == Double.MAX_VALUE
+                                    ? Long.MAX_VALUE : (long) (maxSeconds * sampleRate);
+                            int take = (int) Math.min(frames, Math.max(0, limit - produced));
+                            if (take > 0) {
+                                float[] mono = new float[take];
+                                for (int i = 0; i < take; i++) {
+                                    int sum = 0;
+                                    for (int c = 0; c < channels; c++) {
+                                        sum += shorts.get(i * channels + c);
+                                    }
+                                    mono[i] = sum / (float) (channels * 32768);
                                 }
-                                mono[i] = sum / (float) (channels * 32768);
+                                produced += take;
+                                sink.onSamples(mono, take, sampleRate);
                             }
-                            sink.onSamples(mono, frames, sampleRate);
+                            if (produced >= limit) {
+                                outputDone = true;
+                            }
                         }
                     }
                     codec.releaseOutputBuffer(index, false);

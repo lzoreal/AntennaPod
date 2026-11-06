@@ -23,7 +23,7 @@ public class AdScanSchedulerTest {
                 .getBoolean(HeadScanWorker.KEY_PREFETCH, false));
         assertFalse(HeadScanWorker.createPrefetchRequest(42).getWorkSpec().input
                 .getBoolean(HeadScanWorker.KEY_PREFETCH, true));
-        assertEquals(NetworkType.UNMETERED,
+        assertEquals(NetworkType.CONNECTED,
                 HeadScanWorker.createPrefetchRequest(42).getWorkSpec().constraints.getRequiredNetworkType());
     }
 }

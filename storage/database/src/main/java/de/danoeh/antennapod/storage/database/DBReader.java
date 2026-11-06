@@ -862,6 +862,8 @@ public final class DBReader {
                 segment.setMatchRatio(cursor.getFloat(cursor.getColumnIndexOrThrow("match_ratio")));
                 segment.setSupport(cursor.getInt(cursor.getColumnIndexOrThrow("support")));
                 segment.setState(cursor.getInt(cursor.getColumnIndexOrThrow("state")));
+                segment.setSourceMediaIds(AdSegment.parseSources(
+                        cursor.getString(cursor.getColumnIndexOrThrow("sources"))));
                 out.add(segment);
             }
         } finally {

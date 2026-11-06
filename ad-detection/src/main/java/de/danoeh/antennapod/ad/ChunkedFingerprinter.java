@@ -3,7 +3,7 @@ package de.danoeh.antennapod.ad;
 /** Fingerprints long 8 kHz PCM in frame-aligned chunks so heap use stays bounded. */
 public final class ChunkedFingerprinter {
     // Multiple of the 6-frame peak bucket so chunk boundaries keep bucket alignment.
-    static final int DEFAULT_CHUNK_FRAMES = 18750; // 5 minutes
+    static final int DEFAULT_CHUNK_FRAMES = 3750; // 1 minute
 
     private final int chunkSamples;
     private final float[] chunk;

@@ -28,6 +28,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -1055,7 +1056,7 @@ public class DBWriter {
             try {
                 db.delete(PodDBAdapter.TABLE_NAME_AD_SEGMENTS,
                         "media_id = ? AND state = 0", new String[]{String.valueOf(mediaId)});
-                for (AdSegment segment : segments) {
+                for (AdSegment segment : mergeNearby(segments)) {
                     ContentValues values = new ContentValues();
                     values.put("media_id", mediaId);
                     values.put("start_ms", segment.getStartMs());
@@ -1066,6 +1067,7 @@ public class DBWriter {
                     values.put("support", segment.getSupport());
                     values.put("state", AdSegment.STATE_ACTIVE);
                     values.put("created_at", System.currentTimeMillis());
+                    values.put("sources", AdSegment.formatSources(segment.getSourceMediaIds()));
                     db.insert(PodDBAdapter.TABLE_NAME_AD_SEGMENTS, null, values);
                 }
                 db.setTransactionSuccessful();
@@ -1095,11 +1097,21 @@ public class DBWriter {
                         match.setEndMs(Math.max(match.getEndMs(), segment.getEndMs()));
                         match.setMatchRatio(Math.max(match.getMatchRatio(), segment.getMatchRatio()));
                         match.setSupport(Math.max(match.getSupport(), segment.getSupport()));
+                        match.setSourceMediaIds(
+                                mergeSources(match.getSourceMediaIds(), segment.getSourceMediaIds()));
                         ContentValues values = new ContentValues();
                         values.put("start_ms", match.getStartMs());
                         values.put("end_ms", match.getEndMs());
                         values.put("match_ratio", match.getMatchRatio());
                         values.put("support", match.getSupport());
+                        values.put("sources", AdSegment.formatSources(match.getSourceMediaIds()));
+                        db.update(PodDBAdapter.TABLE_NAME_AD_SEGMENTS, values,
+                                "id = ?", new String[]{String.valueOf(match.getId())});
+                    } else {
+                        match.setSourceMediaIds(
+                                mergeSources(match.getSourceMediaIds(), segment.getSourceMediaIds()));
+                        ContentValues values = new ContentValues();
+                        values.put("sources", AdSegment.formatSources(match.getSourceMediaIds()));
                         db.update(PodDBAdapter.TABLE_NAME_AD_SEGMENTS, values,
                                 "id = ?", new String[]{String.valueOf(match.getId())});
                     }
@@ -1123,6 +1135,7 @@ public class DBWriter {
         values.put("support", segment.getSupport());
         values.put("state", AdSegment.STATE_ACTIVE);
         values.put("created_at", System.currentTimeMillis());
+        values.put("sources", AdSegment.formatSources(segment.getSourceMediaIds()));
         db.insert(PodDBAdapter.TABLE_NAME_AD_SEGMENTS, null, values);
     }
 
@@ -1142,8 +1155,53 @@ public class DBWriter {
                 segment.setMatchRatio(cursor.getFloat(cursor.getColumnIndexOrThrow("match_ratio")));
                 segment.setSupport(cursor.getInt(cursor.getColumnIndexOrThrow("support")));
                 segment.setState(cursor.getInt(cursor.getColumnIndexOrThrow("state")));
+                segment.setSourceMediaIds(AdSegment.parseSources(
+                        cursor.getString(cursor.getColumnIndexOrThrow("sources"))));
                 out.add(segment);
             }
+        }
+        return out;
+    }
+
+    private static final long MERGE_GAP_MS = 1000;
+
+    private static List<AdSegment> mergeNearby(List<AdSegment> segments) {
+        List<AdSegment> sorted = new ArrayList<>(segments);
+        Collections.sort(sorted, (a, b) -> Integer.compare(a.getStartMs(), b.getStartMs()));
+        List<AdSegment> out = new ArrayList<>();
+        for (AdSegment segment : sorted) {
+            AdSegment last = out.isEmpty() ? null : out.get(out.size() - 1);
+            if (last != null && last.getKind() == segment.getKind()
+                    && segment.getStartMs() - last.getEndMs() <= MERGE_GAP_MS) {
+                last.setEndMs(Math.max(last.getEndMs(), segment.getEndMs()));
+                last.setMatchRatio(Math.max(last.getMatchRatio(), segment.getMatchRatio()));
+                last.setSupport(Math.max(last.getSupport(), segment.getSupport()));
+                last.setSourceMediaIds(mergeSources(last.getSourceMediaIds(), segment.getSourceMediaIds()));
+            } else {
+                out.add(segment);
+            }
+        }
+        return out;
+    }
+
+    private static long[] mergeSources(long[] a, long[] b) {
+        if (b.length == 0) {
+            return a;
+        }
+        if (a.length == 0) {
+            return b;
+        }
+        LinkedHashSet<Long> ids = new LinkedHashSet<>();
+        for (long id : a) {
+            ids.add(id);
+        }
+        for (long id : b) {
+            ids.add(id);
+        }
+        long[] out = new long[ids.size()];
+        int i = 0;
+        for (long id : ids) {
+            out[i++] = id;
         }
         return out;
     }
@@ -1152,12 +1210,14 @@ public class DBWriter {
         for (AdSegment segment : existing) {
             long intersection = Math.min(segment.getEndMs(), candidate.getEndMs())
                     - Math.max(segment.getStartMs(), candidate.getStartMs());
-            if (intersection <= 0) {
-                continue;
-            }
             long shortest = Math.min(segment.getEndMs() - segment.getStartMs(),
                     candidate.getEndMs() - candidate.getStartMs());
-            if (intersection * 2 > shortest) {
+            if (intersection > 0 && intersection * 2 > shortest) {
+                return segment;
+            }
+            long gap = Math.max(segment.getStartMs(), candidate.getStartMs())
+                    - Math.min(segment.getEndMs(), candidate.getEndMs());
+            if (segment.getKind() == candidate.getKind() && gap <= MERGE_GAP_MS) {
                 return segment;
             }
         }

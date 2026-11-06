@@ -27,4 +27,14 @@ public class AdScanEngineTest {
         assertTrue(s1.get(0).support >= 1);
         assertEquals(1, r.segments(2).size());
     }
+
+    @Test
+    public void singleEpisodeDoesNotMatchItself() {
+        float[] ad = Synth.speechLike(15, 3);
+        float[] a = Synth.speechLike(60, 1);
+        Synth.insert(a, ad, 20);
+        List<AdScanEngine.EpisodeData> eps = List.of(
+                new AdScanEngine.EpisodeData(7, 60, Fingerprinter.fingerprint(a)));
+        assertTrue(new AdScanEngine().scan(eps).segments(7).isEmpty());
+    }
 }

@@ -41,4 +41,29 @@ public class MatcherTest {
         Index index = Index.build(List.of(ha), 8);
         assertTrue(Matcher.detect(index, 1, new int[]{ha.frames}, hb, 8).isEmpty());
     }
+
+    @Test
+    public void queryRangeStopsAtHashBoundary() {
+        int frames = 800;
+        int[] qHash = new int[frames];
+        int[] qFrame = new int[frames];
+        for (int i = 0; i < frames; i++) {
+            qHash[i] = 5000;
+            qFrame[i] = i;
+        }
+        Fingerprinter.Hashes query = new Fingerprinter.Hashes(qHash, qFrame, frames, frames);
+
+        // 5000 covers only the first frames; 7000 sorts after it and must not leak into
+        // the query range for 5000.
+        int[] dbHash = new int[frames];
+        int[] dbFrame = new int[frames];
+        for (int i = 0; i < frames; i++) {
+            dbHash[i] = i < 100 ? 5000 : 7000;
+            dbFrame[i] = i;
+        }
+        Fingerprinter.Hashes reference = new Fingerprinter.Hashes(dbHash, dbFrame, frames, frames);
+        Index index = Index.build(List.of(reference), 4);
+
+        assertTrue(Matcher.detect(index, 1, new int[]{frames}, query, 4).isEmpty());
+    }
 }

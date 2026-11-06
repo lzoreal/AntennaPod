@@ -26,6 +26,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -172,6 +173,32 @@ public class AdSegmentDatabaseTest {
         List<AdSegment> loaded = DBReader.getAdSegments(mediaId);
         assertEquals(1, loaded.size());
         assertEquals(100_000, loaded.get(0).getEndMs());
+    }
+
+    @Test
+    public void segmentSourcesRoundTrip() throws Exception {
+        AdSegment segment = segment(0, 20_000, 0.1f);
+        segment.setSourceMediaIds(new long[]{111, 222});
+        DBWriter.replaceAdSegments(mediaId, List.of(segment)).get();
+
+        assertArrayEquals(new long[]{111, 222},
+                DBReader.getAdSegments(mediaId).get(0).getSourceMediaIds());
+    }
+
+    @Test
+    public void addAdSegmentsMergesNearbyAndSources() throws Exception {
+        AdSegment first = segment(0, 20_000, 0.1f);
+        first.setSourceMediaIds(new long[]{111});
+        AdSegment second = segment(20_500, 30_000, 0.1f);
+        second.setSourceMediaIds(new long[]{222});
+
+        DBWriter.addAdSegments(mediaId, List.of(first)).get();
+        DBWriter.addAdSegments(mediaId, List.of(second)).get();
+
+        List<AdSegment> loaded = DBReader.getAdSegments(mediaId);
+        assertEquals(1, loaded.size());
+        assertEquals(30_000, loaded.get(0).getEndMs());
+        assertArrayEquals(new long[]{111, 222}, loaded.get(0).getSourceMediaIds());
     }
 
     @Test
