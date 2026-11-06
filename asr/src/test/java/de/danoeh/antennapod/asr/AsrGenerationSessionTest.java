@@ -105,8 +105,34 @@ public class AsrGenerationSessionTest {
         assertTrue(recognizer.closed);
     }
 
+    @Test
+    public void stopDuringRetryBackoffFlushesAndDoesNotReportAnError() throws Exception {
+        FakeDecoder decoder = new FakeDecoder(60000);
+        decoder.retryableFailures = 1;
+        PreReadPcmPipeline pipeline = new PreReadPcmPipeline(decoder, 1000, 200);
+        pipeline.open(source);
+        FakeRecognizer recognizer = new FakeRecognizer(false);
+        RecordingListener listener = new RecordingListener();
+        AsrGenerationSession session = new AsrGenerationSession(pipeline, recognizer,
+                () -> 0, listener, 5);
+
+        Thread thread = new Thread(session::run);
+        thread.start();
+        assertTrue(decoder.retryStarted.await(2, TimeUnit.SECONDS));
+        session.stop();
+        thread.join(2000);
+
+        assertFalse(thread.isAlive());
+        assertNull(listener.error);
+        assertFalse(listener.completed);
+        assertTrue(recognizer.flushed);
+        assertTrue(recognizer.closed);
+        assertTrue(decoder.closed);
+    }
+
     private static final class FakeDecoder implements PcmDecoder {
         private final long durationMs;
+        private final CountDownLatch retryStarted = new CountDownLatch(1);
         private long position;
         private int reads;
         private int failAtRead = -1;
@@ -135,6 +161,7 @@ public class AsrGenerationSessionTest {
             }
             if (retryableFailures > 0) {
                 retryableFailures--;
+                retryStarted.countDown();
                 throw new AsrRetryableException("cache still filling");
             }
             if (position >= durationMs) {

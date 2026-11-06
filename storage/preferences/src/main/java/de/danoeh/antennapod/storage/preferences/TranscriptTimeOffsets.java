@@ -112,6 +112,12 @@ public final class TranscriptTimeOffsets {
         if (governing + 1 < anchors.size()) {
             cueTime = Math.min(cueTime, anchors.get(governing + 1).cueTimeMs() - 1);
         }
+        if (governing > 0 && governing + 1 < anchors.size()
+                && cueTime < anchors.get(governing - 1).cueTimeMs()) {
+            // Equal cue times on both sides leave no reachable value: changing the anchor
+            // would make normalize() drop a neighbouring segment.
+            return;
+        }
         anchors.set(governing, new Anchor(anchor.mediaPositionMs, anchor.mediaPositionMs - cueTime));
         normalize();
     }

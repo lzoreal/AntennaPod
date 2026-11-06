@@ -12,6 +12,7 @@ import androidx.media3.common.util.UnstableApi;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
@@ -72,6 +73,8 @@ public final class AsrGenerationController {
     private final List<AsrSegment> segments = new ArrayList<>();
     private int pendingJournalSegments;
     private long lastCompactionMs;
+    private long lastPersistedWordEndMs = -1;
+    private List<MediaRange> existingScanned = Collections.emptyList();
 
     private volatile boolean running;
     private volatile boolean stopRequested;
@@ -177,6 +180,10 @@ public final class AsrGenerationController {
                         segments.clear();
                     } else {
                         coverage = checkpoint.toCoverage();
+                        existingScanned = checkpoint.getScanned();
+                        for (MediaRange range : checkpoint.getScanned()) {
+                            coverage.add(range);
+                        }
                     }
                 } catch (IOException e) {
                     for (MediaRange range : AsrTranscriptStore.coverageOf(segments)) {
@@ -216,14 +223,6 @@ public final class AsrGenerationController {
             pipeline.close();
             releaseLease();
             return;
-        }
-        if (finalizeToEnd) {
-            // Resume at the end of the checkpoint; starting inside covered ranges leaves the
-            // lookahead window fully covered and the session stalls without new callbacks.
-            long coveredEnd = pipeline.coverageEndMs();
-            if (coveredEnd > 0) {
-                finalizePlayhead.set(coveredEnd);
-            }
         }
 
         final LongSupplier sessionPlayhead = finalizeToEnd ? finalizePlayhead::get : playheadMs;
@@ -286,7 +285,10 @@ public final class AsrGenerationController {
                     + " coverage=" + pipeline.coverageRanges());
             synchronized (segments) {
                 segments.add(segment);
-                appendOrCompact(segment);
+                if (appendOrCompact(segment) && !segment.getWords().isEmpty()) {
+                    lastPersistedWordEndMs = Math.max(lastPersistedWordEndMs,
+                            segment.getWords().get(segment.getWords().size() - 1).getEndTime());
+                }
             }
             listener.onSegment(segment);
         }
@@ -312,7 +314,11 @@ public final class AsrGenerationController {
 
         @Override
         public void onCompleted() {
-            save();
+            if (!save(true)) {
+                running = false;
+                listener.onError(new IOException("unable to persist generated transcript"));
+                return;
+            }
             running = false;
             listener.onCompleted();
         }
@@ -329,25 +335,43 @@ public final class AsrGenerationController {
      * journal grows large or old. Audio that was decoded but never finalized is never marked as
      * covered, so a process death cannot skip it.
      */
-    private void appendOrCompact(AsrSegment segment) {
+    private boolean appendOrCompact(AsrSegment segment) {
+        if (hasOfficialTranscript()) {
+            // The published transcript replaced the generated one; late ASR segments must not
+            // be appended to its sidecar.
+            return false;
+        }
         try {
             transcriptStore.append(segment);
             pendingJournalSegments++;
         } catch (IOException e) {
             Log.w(TAG, "Unable to append generated segment; falling back to a snapshot", e);
             save();
-            return;
+            return false;
         }
         long now = SystemClock.elapsedRealtime();
         if (pendingJournalSegments >= COMPACT_SEGMENT_COUNT
                 || now - lastCompactionMs >= COMPACT_INTERVAL_MS) {
             save();
         }
+        return true;
     }
 
     private void save() {
+        save(false);
+    }
+
+    /**
+     * @return false when the snapshot could not be written; callers must not report success.
+     */
+    private boolean save(boolean complete) {
         if (transcriptStore == null || pipeline == null) {
-            return;
+            return true;
+        }
+        if (hasOfficialTranscript()) {
+            // Not an error: the published transcript is the source of truth now.
+            Log.i(TAG, "Official transcript available; skipping generated snapshot");
+            return true;
         }
         List<MediaRange> coverage;
         synchronized (segments) {
@@ -355,14 +379,44 @@ public final class AsrGenerationController {
         }
         try {
             transcriptStore.save(segments, durationMs, coverage, modelId,
-                    audioBytes, audioFingerprint);
+                    audioBytes, audioFingerprint, scannedRanges(complete));
             pendingJournalSegments = 0;
             lastCompactionMs = SystemClock.elapsedRealtime();
             Log.i(TAG, "saved segments=" + segments.size()
                     + " coverage=" + coverage);
+            return true;
         } catch (IOException e) {
             Log.e(TAG, "Unable to save generated transcript", e);
+            return false;
         }
+    }
+
+    /**
+     * Ranges decoded so far. Silence has no words, so the word coverage alone can never show
+     * that the finalizer already visited it. Only ranges up to the last persisted word are
+     * marked, so a crash cannot skip speech that was decoded but never written.
+     */
+    private List<MediaRange> scannedRanges(boolean complete) {
+        TranscriptCoverage scanned = new TranscriptCoverage();
+        for (MediaRange range : existingScanned) {
+            scanned.add(range);
+        }
+        long frontier = complete
+                ? Math.max(lastPersistedWordEndMs, pipeline.decodedEndMs())
+                : lastPersistedWordEndMs;
+        if (frontier > 0) {
+            for (MediaRange range : pipeline.coverageRanges()) {
+                if (range.startMs() >= frontier) {
+                    continue;
+                }
+                scanned.add(new MediaRange(range.startMs(), Math.min(range.endMs(), frontier)));
+            }
+        }
+        return scanned.ranges();
+    }
+
+    private boolean hasOfficialTranscript() {
+        return media.getItem() != null && media.getItem().getTranscriptUrl() != null;
     }
 
     private long resolveDuration(File localFile) {

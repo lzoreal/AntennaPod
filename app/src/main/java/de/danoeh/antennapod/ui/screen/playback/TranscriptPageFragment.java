@@ -131,6 +131,8 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
 
     private long lastPositionMs = 0;
     private volatile long lastRawPlayerPosition = -1;
+    private boolean acceptNextBackstep;
+    private long initialPositionWindowStartMs;
     private long lastSyncLogMs;
     private int lastSyncLogSegment = -2;
     private boolean controlsBarVisibleBeforeImmersive = false;
@@ -427,8 +429,15 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
      */
     private long smoothPlayingPosition(long position) {
         long previous = lastRawPlayerPosition;
-        if (position < 0 || previous < 0 || position >= previous
-                || previous - position > POSITION_BACKSTEP_TOLERANCE_MS) {
+        if (position < 0 || previous < 0 || position >= previous) {
+            return position;
+        }
+        if (acceptNextBackstep) {
+            // An intentional loop seek is often shorter than the interpolation tolerance.
+            acceptNextBackstep = false;
+            return position;
+        }
+        if (previous - position > POSITION_BACKSTEP_TOLERANCE_MS) {
             return position;
         }
         long now = SystemClock.elapsedRealtime();
@@ -446,7 +455,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
      */
     private boolean isTransientZeroPosition(long playerPosition) {
         boolean transientZero = playerPosition == 0
-                && lastPositionMs > POSITION_BACKSTEP_TOLERANCE_MS;
+                && lastPositionMs > POSITION_BACKSTEP_TOLERANCE_MS
+                && initialPositionWindowStartMs > 0
+                && SystemClock.elapsedRealtime() - initialPositionWindowStartMs < 2000;
         if (transientZero) {
             Log.d("AsrJitter", "ignore transient zero, last=" + lastPositionMs
                     + " rawLast=" + lastRawPlayerPosition);
@@ -692,6 +703,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             }
             try {
                 mediaController = future.get();
+                initialPositionWindowStartMs = SystemClock.elapsedRealtime();
                 Log.d("AsrJitter", "controller connected hash=" + hashCode());
             } catch (ExecutionException | InterruptedException e) {
                 Log.e(TAG, "Error getting media controller", e);
@@ -781,7 +793,9 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         long currentMediaId = PlaybackPreferences.getCurrentlyPlayingFeedMediaId();
         if (!forceReload && viewBinding != null && currentMedia != null
                 && currentMedia.getId() == currentMediaId
-                && adapter != null && adapter.getItemCount() > 0) {
+                && adapter != null && adapter.getItemCount() > 0
+                && (currentMedia.getTranscript() == null
+                    || !currentMedia.getTranscript().isGenerated())) {
             Log.d("AsrJitter", "loadTranscript early return media=" + currentMediaId
                     + " last=" + lastPositionMs + " userScrolling=" + userScrolling);
             viewBinding.progLoading.setVisibility(View.GONE);
@@ -797,7 +811,10 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
 
-        if (viewBinding != null && !forceReload) {
+        boolean hasRows = adapter != null && adapter.getItemCount() > 0;
+        boolean keepRows = hasRows && currentMedia != null
+                && currentMedia.getId() == currentMediaId;
+        if (viewBinding != null && !keepRows) {
             viewBinding.progLoading.setVisibility(View.VISIBLE);
             viewBinding.emptyState.setVisibility(View.GONE);
             viewBinding.recyclerView.setVisibility(View.GONE);
@@ -841,6 +858,11 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
     private void onMediaLoaded(FeedMedia media) {
         if (viewBinding == null) {
             return;
+        }
+        if (currentMedia == null || currentMedia.getId() != media.getId()) {
+            initialPositionWindowStartMs = SystemClock.elapsedRealtime();
+            lastRawPlayerPosition = -1;
+            acceptNextBackstep = false;
         }
         asrCoordinator.onMediaChanged(currentMedia, media);
         if (currentMedia != null && currentMedia.getId() == media.getId()
@@ -1052,6 +1074,11 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
         FeedItem updatedItem = event.items.get(index);
         boolean sourceChanged = !Objects.equals(updatedItem.getTranscriptUrl(), loadedTranscriptUrl)
                 || !Objects.equals(updatedItem.getTranscriptType(), loadedTranscriptType);
+        if (sourceChanged) {
+            // A published transcript wins over an in-flight generation, including a model
+            // download that is still running.
+            asrCoordinator.cancelGeneration();
+        }
         if (currentMedia.getTranscript() == null || sourceChanged) {
             loadTranscript(true);
         }
@@ -1336,6 +1363,7 @@ public class TranscriptPageFragment extends Fragment implements TranscriptAdapte
             return;
         }
         if (position >= endTime) {
+            acceptNextBackstep = true;
             PlaybackController.bindToMedia3Service(getContext(), controller ->
                     controller.seekTo((int) positionSource.toPlayerTime(startTime)));
         }

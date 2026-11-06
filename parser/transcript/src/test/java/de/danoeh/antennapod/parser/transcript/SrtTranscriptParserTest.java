@@ -95,6 +95,21 @@ public class SrtTranscriptParserTest {
     }
 
     @Test
+    public void testInvertedCueDoesNotSwallowThePreviousCue() {
+        String srt = "1\n"
+                + "00:00:00,000 --> 00:00:02,000\n"
+                + "Good\n\n"
+                + "2\n"
+                + "00:00:10,000 --> 00:00:00,000\n"
+                + "Bad\n";
+        Transcript result = SrtTranscriptParser.parse(srt);
+
+        assertEquals(1, result.getSegmentCount());
+        assertEquals("Good", result.getSegmentAt(0).getWords());
+        assertEquals(2000L, result.getSegmentAt(0).getEndTime());
+    }
+
+    @Test
     public void testParse() {
         String type = "application/srr";
         Transcript result;

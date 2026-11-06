@@ -61,6 +61,44 @@ public class TranscriptSyncTest {
     }
 
     @Test
+    public void undoKeepsAnchorsThatWereConfiguredAfterTheAd() {
+        UserPreferences.setTranscriptTimeOffset(MEDIA_ID, 0, 0);
+        UserPreferences.setTranscriptTimeOffset(MEDIA_ID, 90_000, 20_000);
+        TranscriptSync.Shift shift = TranscriptSync.alignAfterSkip(
+                MEDIA_ID, segment(AdSegment.TIER_AUTO, 50_000, 80_000), 50_000);
+        assertNotNull(shift);
+        assertEquals(30_000, UserPreferences.getTranscriptTimeOffset(MEDIA_ID, 80_000));
+
+        TranscriptSync.undo(shift);
+
+        assertEquals(20_000, UserPreferences.getTranscriptTimeOffset(MEDIA_ID, 90_000));
+    }
+
+    @Test
+    public void undoKeepsAnAlignmentMadeAfterTheSkip() {
+        UserPreferences.setTranscriptTimeOffset(MEDIA_ID, 0, 90_000);
+        TranscriptSync.Shift shift = TranscriptSync.alignAfterSkip(
+                MEDIA_ID, segment(AdSegment.TIER_AUTO, 600_000, 660_000), 600_000);
+        UserPreferences.setTranscriptTimeOffset(MEDIA_ID, 660_000, 120_000);
+
+        TranscriptSync.undo(shift);
+
+        assertEquals(120_000, UserPreferences.getTranscriptTimeOffset(MEDIA_ID, 660_000));
+    }
+
+    @Test
+    public void undoKeepsAnEditMadeAfterTheAd() {
+        UserPreferences.setTranscriptTimeOffset(MEDIA_ID, 0, 90_000);
+        TranscriptSync.Shift shift = TranscriptSync.alignAfterSkip(
+                MEDIA_ID, segment(AdSegment.TIER_AUTO, 600_000, 660_000), 600_000);
+        UserPreferences.setTranscriptTimeOffset(MEDIA_ID, 900_000, 120_000);
+
+        TranscriptSync.undo(shift);
+
+        assertEquals(120_000, UserPreferences.getTranscriptTimeOffset(MEDIA_ID, 900_000));
+    }
+
+    @Test
     public void headAdAlreadyCoveredByTheOffsetIsNotShiftedAgain() {
         UserPreferences.setTranscriptTimeOffset(MEDIA_ID, 0, 99_600);
 

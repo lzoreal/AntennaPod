@@ -83,4 +83,17 @@ public class TranscriptTimeOffsetsTest {
         assertEquals(1_000, offsets.offsetAtMediaTime(10_500));
         assertEquals(2_500, offsets.offsetAtMediaTime(11_500));
     }
+
+    @Test
+    public void testSegmentOffsetBetweenEqualCueNeighboursKeepsAnchors() {
+        TranscriptTimeOffsets offsets = new TranscriptTimeOffsets();
+        offsets.setAnchor(10_000, 5_000);
+        offsets.setAnchor(20_000, 15_000);
+        offsets.setAnchor(30_000, 25_000);
+
+        offsets.setOffsetForSegment(25_000, 14_500);
+
+        assertEquals(3, offsets.getAnchors().size());
+        assertEquals(15_000, offsets.offsetAtMediaTime(25_000));
+    }
 }

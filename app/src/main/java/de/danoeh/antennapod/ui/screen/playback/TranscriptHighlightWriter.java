@@ -89,6 +89,7 @@ final class TranscriptHighlightWriter {
         private final MutableColorSpan[] colors;
         private final MutableBoldSpan[] bolds;
         private int activeWord = Integer.MIN_VALUE;
+        private boolean wordActive;
         private boolean beforeRow;
         private boolean highlighted;
 
@@ -121,13 +122,16 @@ final class TranscriptHighlightWriter {
                        int position, boolean highlighted, long positionMs, int highlightPosition,
                        int currentColor, int strongColor, int mutedColor, boolean force) {
             int activeWord = highlighted ? segment.getWordIndexAt(positionMs) : -1;
+            long[] wordEnds = info.wordEndTimes;
+            long activeWordEnd = activeWord >= 0 && activeWord < wordEnds.length
+                    ? wordEnds[activeWord] : Long.MAX_VALUE;
+            boolean wordActive = highlighted && activeWord >= 0 && positionMs < activeWordEnd;
             boolean beforeRow = position < highlightPosition;
-            if (!force && this.activeWord == activeWord && this.beforeRow == beforeRow
-                    && this.highlighted == highlighted) {
+            if (!force && this.activeWord == activeWord && this.wordActive == wordActive
+                    && this.beforeRow == beforeRow && this.highlighted == highlighted) {
                 return false;
             }
             boolean changed = false;
-            long[] wordEnds = info.wordEndTimes;
             for (int i = 0; i < colors.length; i++) {
                 MutableColorSpan colorSpan = colors[i];
                 if (colorSpan == null) {
@@ -148,6 +152,7 @@ final class TranscriptHighlightWriter {
                 }
             }
             this.activeWord = activeWord;
+            this.wordActive = wordActive;
             this.beforeRow = beforeRow;
             this.highlighted = highlighted;
             return changed;

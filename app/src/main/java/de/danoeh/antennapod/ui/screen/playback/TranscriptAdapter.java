@@ -195,6 +195,7 @@ public class TranscriptAdapter extends RecyclerView.Adapter<TranscriptViewholder
         this.sentencePerLine = split;
         UserPreferences.setTranscriptSentencePerLine(split);
         renderVersion++;
+        searchTexts = null;
         displayInfoBuilder.clear();
         rebuildSearchHits();
         notifyDataSetChanged();

@@ -4,6 +4,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.util.Collections;
 import java.util.List;
 
 /** Serializes recognized segments into the word-JSON format parsed by JsonTranscriptParser. */
@@ -23,6 +24,13 @@ public final class AsrTranscriptWriter {
     public static String write(List<AsrSegment> segments, long audioDurationMs,
                                String modelId, List<MediaRange> coverage,
                                long audioBytes, String fingerprint) {
+        return write(segments, audioDurationMs, modelId, coverage, audioBytes, fingerprint,
+                Collections.emptyList());
+    }
+
+    public static String write(List<AsrSegment> segments, long audioDurationMs,
+                               String modelId, List<MediaRange> coverage,
+                               long audioBytes, String fingerprint, List<MediaRange> scanned) {
         try {
             JSONObject root = new JSONObject();
             JSONArray segmentArray = new JSONArray();
@@ -52,6 +60,16 @@ public final class AsrTranscriptWriter {
                     }
                 }
                 root.put("coverage", ranges);
+                JSONArray scannedRanges = new JSONArray();
+                if (scanned != null) {
+                    for (MediaRange range : scanned) {
+                        JSONArray pair = new JSONArray();
+                        pair.put(range.startMs());
+                        pair.put(range.endMs());
+                        scannedRanges.put(pair);
+                    }
+                }
+                root.put("scanned", scannedRanges);
             }
             return root.toString();
         } catch (JSONException e) {

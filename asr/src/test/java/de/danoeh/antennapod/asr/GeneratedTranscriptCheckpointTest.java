@@ -62,6 +62,21 @@ public class GeneratedTranscriptCheckpointTest {
     }
 
     @Test
+    public void scannedRangesRoundTrip() {
+        GeneratedTranscriptCheckpoint checkpoint = new GeneratedTranscriptCheckpoint(
+                "zh-14m", 12500,
+                Collections.singletonList(new MediaRange(0, 1000)),
+                Arrays.asList(new MediaRange(0, 800), new MediaRange(1000, 2000)),
+                0, null);
+
+        GeneratedTranscriptCheckpoint restored =
+                GeneratedTranscriptCheckpoint.fromJson(checkpoint.toJson());
+
+        assertEquals(Arrays.asList(new MediaRange(0, 800), new MediaRange(1000, 2000)),
+                restored.getScanned());
+    }
+
+    @Test
     public void legacyCheckpointWithoutIdentityStillMatches() {
         GeneratedTranscriptCheckpoint checkpoint = new GeneratedTranscriptCheckpoint(
                 "zh-14m", 12500, Collections.emptyList());

@@ -30,6 +30,8 @@ import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
 
+import java.io.File;
+
 import de.danoeh.antennapod.event.FeedListUpdateEvent;
 import de.danoeh.antennapod.event.PlayerStatusEvent;
 import de.danoeh.antennapod.event.playback.PlaybackPositionEvent;
@@ -53,6 +55,7 @@ public class TranscriptFloatingWindowService extends Service {
     /** The playback service only posts a position event once per second; poll in between so the
      *  floating window keeps up with the transcript page, which refreshes every 100-250 ms. */
     private static final long POSITION_TICK_INTERVAL_MS = 100;
+    private static final long GENERATED_RELOAD_INTERVAL_MS = 5000;
 
     private WindowManager windowManager;
     private View floatingView;
@@ -70,6 +73,9 @@ public class TranscriptFloatingWindowService extends Service {
     private int screenHeight;
     private long lastSentenceSegmentStart = -1;
     private int lastSentenceIndex = -1;
+    private String transcriptFilePath;
+    private long transcriptFileStamp;
+    private long lastGeneratedCheckMs;
     private TranscriptSegment sentenceCacheSegment;
     private String sentenceCacheWords;
     private int sentenceCacheSplit = -1;
@@ -406,6 +412,10 @@ public class TranscriptFloatingWindowService extends Service {
         } catch (IllegalArgumentException e) {
             Log.e(TAG, "Unable to update floating window", e);
         }
+        // The scroll animation captured the old window width; rebuild it for the new one.
+        if (!windowHidden) {
+            updateTranscript(true);
+        }
     }
 
     private void loadTranscript(long mediaId) {
@@ -458,6 +468,8 @@ public class TranscriptFloatingWindowService extends Service {
                         return;
                     }
                     this.transcript = loaded;
+                    transcriptFilePath = media.getGeneratedTranscriptFileUrl();
+                    transcriptFileStamp = generatedFileStamp(transcriptFilePath);
                     session = new TranscriptSession(mediaId, loaded);
                     session.setDuration(media.getDuration());
                     updateTranscript(true);
@@ -549,6 +561,17 @@ public class TranscriptFloatingWindowService extends Service {
                 || transcript.getSegmentCount() == 0 || tvTranscript == null) {
             return;
         }
+        if (transcript.isGenerated() && transcriptFilePath != null) {
+            long now = SystemClock.elapsedRealtime();
+            if (now - lastGeneratedCheckMs >= GENERATED_RELOAD_INTERVAL_MS) {
+                lastGeneratedCheckMs = now;
+                if (generatedFileStamp(transcriptFilePath) != transcriptFileStamp) {
+                    // Generation appends to the file while this window stays open.
+                    loadTranscript(currentMediaId, true);
+                    return;
+                }
+            }
+        }
         TranscriptSession current = session;
         if (current == null) {
             hideTranscript();
@@ -592,7 +615,7 @@ public class TranscriptFloatingWindowService extends Service {
         }
 
         int sentenceIndex = TranscriptTextUtils.sentenceIndexAt(sentenceStarts,
-                TranscriptTextUtils.progressAt(segment, position), primaryLength);
+                TranscriptTextUtils.wordProgressAt(segment, position), primaryLength);
         boolean isNewSentence = segment.getStartTime() != lastSentenceSegmentStart
                 || sentenceIndex != lastSentenceIndex;
         if (!forceUpdate && !isNewSentence) {
@@ -686,7 +709,8 @@ public class TranscriptFloatingWindowService extends Service {
 
     private void startAutoScrollIfPlaying(ScrollTextView view, long remainingMs) {
         if (playing) {
-            view.startAutoScroll(remainingMs, windowWidth);
+            long wallMs = (long) (remainingMs / Math.max(0.5f, playbackSpeed));
+            view.startAutoScroll(wallMs, windowWidth);
         } else {
             // Keep the reading position while paused; resuming continues from there.
             view.stopScrollAnimation();
@@ -711,7 +735,19 @@ public class TranscriptFloatingWindowService extends Service {
         }
         TranscriptScrollTimeline timeline = TranscriptScrollTimeline.of(segment.getWordTimings(),
                 displayStart, text.length(), position, position + remainingMs);
-        tvTranscript.startTimedScroll(timeline, position, windowWidth);
+        tvTranscript.startTimedScroll(timeline, position, windowWidth, playbackSpeed);
+    }
+
+    private static long generatedFileStamp(String path) {
+        if (path == null) {
+            return 0;
+        }
+        File file = new File(path);
+        long stamp = file.isFile() ? file.lastModified() * 31 + file.length() : 0;
+        File journal = new File(path + ".journal");
+        stamp = stamp * 31 + (journal.isFile()
+                ? journal.lastModified() * 31 + journal.length() : 0);
+        return stamp;
     }
 
     private void hideTranscript() {

@@ -94,6 +94,36 @@ public class JsonTranscriptParserTest {
     }
 
     @Test
+    public void testShortSegmentsAcrossALongGapKeepTheirTimes() {
+        String json = "{\"segments\":["
+                + "{\"startTime\":0,\"endTime\":1,\"body\":\"First\"},"
+                + "{\"startTime\":60,\"endTime\":61,\"body\":\"Second\"}]}";
+        Transcript result = JsonTranscriptParser.parse(json);
+
+        assertNotNull(result);
+        assertEquals(2, result.getSegmentCount());
+        assertEquals(0L, result.getSegmentAt(0).getStartTime());
+        assertEquals(1000L, result.getSegmentAt(0).getEndTime());
+        assertEquals(60000L, result.getSegmentAt(1).getStartTime());
+        assertEquals(61000L, result.getSegmentAt(1).getEndTime());
+    }
+
+    @Test
+    public void testShortOutOfOrderSegmentsKeepTheirOwnTimes() {
+        String json = "{\"segments\":["
+                + "{\"startTime\":5,\"endTime\":6,\"body\":\"Later\"},"
+                + "{\"startTime\":0,\"endTime\":1,\"body\":\"Earlier\"}]}";
+        Transcript result = JsonTranscriptParser.parse(json);
+
+        assertNotNull(result);
+        assertEquals(2, result.getSegmentCount());
+        assertEquals(0L, result.getSegmentAt(0).getStartTime());
+        assertEquals(1000L, result.getSegmentAt(0).getEndTime());
+        assertEquals(5000L, result.getSegmentAt(1).getStartTime());
+        assertEquals(6000L, result.getSegmentAt(1).getEndTime());
+    }
+
+    @Test
     public void testInvalidSegmentDoesNotBreakNextSpeakerChange() {
         String json = "{\"segments\":["
                 + "{\"speaker\":\"Alice\",\"startTime\":0,\"endTime\":2,\"body\":\"First.\"},"
@@ -105,6 +135,20 @@ public class JsonTranscriptParserTest {
         assertNotNull(result);
         assertEquals(0L, result.getSegmentAt(0).getStartTime());
         assertEquals(2000L, result.getSegmentAt(0).getEndTime());
+    }
+
+    @Test
+    public void testRepeatedShortWordDoesNotEatTheNextWordPrefix() {
+        String json = "{\"segments\":[{\"start\":0,\"end\":1000,"
+                + "\"text\":\"the theatre.\","
+                + "\"words\":[[\"the\",0,100],[\"the\",100,100],[\"theatre.\",200,100]]}]}";
+        Transcript result = JsonTranscriptParser.parse(json);
+
+        assertNotNull(result);
+        TranscriptSegment segment = result.getSegmentAt(0);
+        assertEquals(2, segment.getWordTimings().size());
+        assertEquals(0, segment.getWordTimings().get(0).getStartChar());
+        assertEquals(4, segment.getWordTimings().get(1).getStartChar());
     }
 
     @Test

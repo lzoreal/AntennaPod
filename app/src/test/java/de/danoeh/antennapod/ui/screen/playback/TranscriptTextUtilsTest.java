@@ -4,9 +4,12 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 
 import de.danoeh.antennapod.model.feed.TranscriptSegment;
+import de.danoeh.antennapod.model.feed.TranscriptWord;
 import de.danoeh.antennapod.ui.transcript.TranscriptTextUtils;
 
 import org.junit.Test;
+
+import java.util.Arrays;
 
 public class TranscriptTextUtilsTest {
 
@@ -32,6 +35,19 @@ public class TranscriptTextUtilsTest {
         assertEquals(0.5f, TranscriptTextUtils.progressAt(segment, 1500), 0.0001f);
         assertEquals(1f, TranscriptTextUtils.progressAt(segment, 5000), 0.0001f);
         assertEquals(0f, TranscriptTextUtils.progressAt(segment(1000, 1000, "Text."), 1000), 0.0001f);
+    }
+
+    @Test
+    public void testWordProgressAtFollowsWordTimings() {
+        TranscriptSegment segment = new TranscriptSegment(0, 10000, "Hello. World.", "",
+                Arrays.asList(
+                        new TranscriptWord(0, 6, 0, 500),
+                        new TranscriptWord(7, 13, 9000, 10000)));
+
+        assertEquals(0f, TranscriptTextUtils.wordProgressAt(segment, 0), 0.001f);
+        assertEquals(3f / 13f, TranscriptTextUtils.wordProgressAt(segment, 250), 0.001f);
+        assertEquals(6f / 13f, TranscriptTextUtils.wordProgressAt(segment, 5000), 0.001f);
+        assertEquals(10f / 13f, TranscriptTextUtils.wordProgressAt(segment, 9500), 0.001f);
     }
 
     @Test

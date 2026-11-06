@@ -24,6 +24,7 @@ import de.danoeh.antennapod.asr.AsrTranscriptStore;
 import de.danoeh.antennapod.asr.AudioFingerprint;
 import de.danoeh.antennapod.asr.GeneratedTranscriptCheckpoint;
 import de.danoeh.antennapod.asr.MediaRange;
+import de.danoeh.antennapod.asr.TranscriptCoverage;
 import de.danoeh.antennapod.model.feed.FeedMedia;
 import de.danoeh.antennapod.storage.database.DBReader;
 import de.danoeh.antennapod.ui.notifications.NotificationUtils;
@@ -154,11 +155,21 @@ public class AsrFinalizeWorker extends Worker {
                 return false;
             }
             List<MediaRange> ranges = checkpoint.getCoverage();
-            if (ranges.isEmpty() || durationMs <= 0) {
+            if (durationMs <= 0) {
                 return false;
             }
-            long end = ranges.get(ranges.size() - 1).endMs();
-            return end >= durationMs - COMPLETE_MARGIN_MS;
+            // Words alone cannot prove that silence was already visited, so count the scanned
+            // ranges too. A transcript generated from the middle of an episode has an unscanned
+            // prefix and must not be reported as complete.
+            TranscriptCoverage visited = new TranscriptCoverage();
+            for (MediaRange range : ranges) {
+                visited.add(range);
+            }
+            for (MediaRange range : checkpoint.getScanned()) {
+                visited.add(range);
+            }
+            long target = durationMs - COMPLETE_MARGIN_MS;
+            return target <= 0 || visited.covers(0, target);
         } catch (IOException e) {
             return false;
         }

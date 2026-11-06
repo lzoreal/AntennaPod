@@ -235,6 +235,10 @@ public class DBWriter {
                     if (item.getMedia().isDownloaded()) {
                         deleteFeedMediaSynchronous(context, item.getMedia());
                         deleted.add(item);
+                    } else {
+                        // Streaming generated transcripts live in app-private storage;
+                        // removing the DB row alone would leave them behind.
+                        item.getMedia().deleteTranscriptFiles();
                     }
                 }
             }

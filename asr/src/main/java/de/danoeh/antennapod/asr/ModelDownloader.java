@@ -83,6 +83,9 @@ public final class ModelDownloader {
                     ? expected + 16L * 1024 * 1024 : 0, listener);
             extract(archive, tempDir, descriptor);
             verifyChecksums(tempDir, descriptor);
+            if (cancelled) {
+                throw new IOException("download cancelled");
+            }
             install(tempDir, modelDir, descriptor);
         } finally {
             deleteRecursively(tempDir);
@@ -159,8 +162,8 @@ public final class ModelDownloader {
         }
     }
 
-    private static void extract(File archive, File targetDir,
-                                AsrModelDescriptor descriptor) throws IOException {
+    private void extract(File archive, File targetDir,
+                         AsrModelDescriptor descriptor) throws IOException {
         Set<String> expected = new HashSet<>(descriptor.getExpectedFiles());
         Set<String> extracted = new HashSet<>();
         try (InputStream fileInput = new BufferedInputStream(new FileInputStream(archive));
@@ -168,6 +171,9 @@ public final class ModelDownloader {
                 TarArchiveInputStream tarInput = new TarArchiveInputStream(bzipInput)) {
             TarArchiveEntry entry;
             while ((entry = tarInput.getNextTarEntry()) != null) {
+                if (cancelled) {
+                    throw new IOException("download cancelled");
+                }
                 if (!entry.isFile()) {
                     continue;
                 }
@@ -192,9 +198,12 @@ public final class ModelDownloader {
         }
     }
 
-    private static void verifyChecksums(File sourceDir, AsrModelDescriptor descriptor)
+    private void verifyChecksums(File sourceDir, AsrModelDescriptor descriptor)
             throws IOException {
         for (String name : descriptor.getExpectedFiles()) {
+            if (cancelled) {
+                throw new IOException("download cancelled");
+            }
             String expected = descriptor.sha256For(name);
             if (expected == null) {
                 continue;

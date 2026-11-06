@@ -239,7 +239,7 @@ final class TranscriptOffsetController {
         TranscriptTimeOffsets previous = UserPreferences.getTranscriptTimeOffsetsForMedia(mediaId);
         UserPreferences.setTranscriptTimeOffset(mediaId, position, offsetMs);
         applyChange(offsetMs, R.string.transcript_offset_sync_message, false);
-        showUndo(R.string.transcript_offset_sync_message, offsetMs, previous);
+        showUndo(R.string.transcript_offset_sync_message, offsetMs, mediaId, previous);
     }
 
     private void alignFirstSentence() {
@@ -256,7 +256,7 @@ final class TranscriptOffsetController {
         setSyncPickMode(false);
         UserPreferences.setTranscriptStartOffset(mediaId, offsetMs);
         applyChange(offsetMs, R.string.transcript_offset_sync_first_message, false);
-        showUndo(R.string.transcript_offset_sync_first_message, offsetMs, previous);
+        showUndo(R.string.transcript_offset_sync_first_message, offsetMs, mediaId, previous);
     }
 
     /** Long press replaces every anchor of the episode. Ask first when there is anything to lose. */
@@ -283,7 +283,8 @@ final class TranscriptOffsetController {
                 .show();
     }
 
-    private void showUndo(int messageRes, long offsetMs, TranscriptTimeOffsets previous) {
+    private void showUndo(int messageRes, long offsetMs, long mediaId,
+                          TranscriptTimeOffsets previous) {
         Context context = host.getContext();
         if (binding == null || context == null) {
             return;
@@ -292,13 +293,13 @@ final class TranscriptOffsetController {
                         context.getString(messageRes, format(offsetMs)),
                         Snackbar.LENGTH_LONG)
                 .setAction(R.string.undo, v -> {
+                    UserPreferences.setTranscriptTimeOffsetsForMedia(mediaId, previous);
                     FeedMedia media = host.getMedia();
-                    if (media == null) {
+                    if (media == null || media.getId() != mediaId) {
                         return;
                     }
-                    UserPreferences.setTranscriptTimeOffsetsForMedia(media.getId(), previous);
                     applyChange(UserPreferences.getTranscriptTimeOffset(
-                                    media.getId(), host.getLastPositionMs()),
+                                    mediaId, host.getLastPositionMs()),
                             R.string.transcript_offset_restored, true);
                 })
                 .show();

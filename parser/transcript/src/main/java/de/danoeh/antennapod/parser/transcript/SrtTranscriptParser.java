@@ -57,7 +57,8 @@ public class SrtTranscriptParser {
                 }
                 long parsedStartTimecode = parseTimecode(timecodes[0].trim());
                 long parsedEndTimecode = parseTimecode(timecodes[1].trim());
-                if (parsedStartTimecode == -1 || parsedEndTimecode == -1) {
+                if (parsedStartTimecode == -1 || parsedEndTimecode == -1
+                        || parsedEndTimecode <= parsedStartTimecode) {
                     continue;
                 }
                 spanEndTimecode = endTimecode;

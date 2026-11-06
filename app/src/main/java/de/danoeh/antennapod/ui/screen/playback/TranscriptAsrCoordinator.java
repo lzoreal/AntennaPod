@@ -149,17 +149,23 @@ final class TranscriptAsrCoordinator {
 
     /** Stops the previous episode's generation when the page switches media. */
     void onMediaChanged(@Nullable FeedMedia previous, @Nullable FeedMedia next) {
-        if (previous != null && (next == null || previous.getId() != next.getId())
-                && (AsrGenerationManager.isRunning(previous.getId()) || modelDownloading)) {
-            sessionToken++;
-            AsrGenerationManager.stopIfRunningFor(previous.getId());
-            if (modelDownloader != null) {
-                modelDownloader.cancel();
-                modelDownloader = null;
-            }
-            active = false;
-            modelDownloading = false;
+        boolean mediaChanged = previous == null
+                ? next != null
+                : next == null || previous.getId() != next.getId();
+        if (mediaChanged) {
+            // Completion belongs to one episode; carrying it over hides the continue action.
             completed = false;
+            if (previous != null
+                    && (AsrGenerationManager.isRunning(previous.getId()) || modelDownloading)) {
+                sessionToken++;
+                AsrGenerationManager.stopIfRunningFor(previous.getId());
+                if (modelDownloader != null) {
+                    modelDownloader.cancel();
+                    modelDownloader = null;
+                }
+                active = false;
+                modelDownloading = false;
+            }
         }
         syncRunningState();
     }
@@ -181,7 +187,9 @@ final class TranscriptAsrCoordinator {
                 updateVisibility();
                 break;
             case SEGMENT:
-                active = true;
+                // A stop flushes the last partial segment after STOPPED; appending it is fine,
+                // but it must not flip the session back to "running".
+                active = AsrGenerationManager.isRunning(event.mediaId);
                 if (event.segment != null) {
                     appendSegment(event.segment.toTranscriptSegment(null));
                 }
@@ -441,7 +449,9 @@ final class TranscriptAsrCoordinator {
                     modelDownloading = false;
                     active = false;
                     if (host.getContext() != null) {
-                        startSession();
+                        // Re-run the full checks: a published transcript may have arrived
+                        // while the model was downloading.
+                        startGeneration();
                     }
                 });
             } catch (IOException e) {
@@ -480,7 +490,13 @@ final class TranscriptAsrCoordinator {
         if (media == null) {
             return;
         }
+        sessionToken++;
         AsrGenerationManager.stopIfRunningFor(media.getId());
+        if (modelDownloader != null) {
+            modelDownloader.cancel();
+            modelDownloader = null;
+            modelDownloading = false;
+        }
         active = false;
         updateVisibility();
     }
@@ -489,14 +505,16 @@ final class TranscriptAsrCoordinator {
         Log.d("AsrJitter", "startSession currentMedia="
                 + (host.getCurrentMedia() == null ? "null" : host.getCurrentMedia().getId()));
         Context context = host.getContext();
-        if (active || host.getCurrentMedia() == null || context == null || binding == null) {
+        FeedMedia media = host.getCurrentMedia();
+        if (active || media == null || context == null || binding == null
+                || (media.getItem() != null && media.getItem().getTranscriptUrl() != null)) {
             return;
         }
         active = true;
         completed = false;
         binding.btnGenerateTranscript.setEnabled(false);
         setGenerateText(R.string.transcript_generate_running);
-        AsrGenerationManager.start(context.getApplicationContext(), host.getCurrentMedia());
+        AsrGenerationManager.start(context.getApplicationContext(), media);
     }
 
     private void appendSegment(TranscriptSegment segment) {

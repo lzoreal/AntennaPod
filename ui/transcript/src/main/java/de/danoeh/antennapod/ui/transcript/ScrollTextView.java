@@ -89,14 +89,14 @@ public class ScrollTextView extends TextView {
      * actually being read instead of a constant speed over the whole sentence.
      */
     public void startTimedScroll(TranscriptScrollTimeline timeline, long positionMs,
-                                 int availableWidth) {
+                                 int availableWidth, float speed) {
         stopScrollAnimation();
         if (timeline == null || availableWidth <= 0) {
             return;
         }
 
-        long duration = timeline.getEndTime() - positionMs;
-        if (duration <= 0) {
+        long mediaDuration = timeline.getEndTime() - positionMs;
+        if (mediaDuration <= 0) {
             return;
         }
 
@@ -127,12 +127,13 @@ public class ScrollTextView extends TextView {
         }
 
         scrollAnimator = ValueAnimator.ofFloat(0f, 1f);
-        scrollAnimator.setDuration(duration);
+        // Media time runs faster than the wall clock when the episode plays at 2x.
+        scrollAnimator.setDuration((long) (mediaDuration / Math.max(0.5f, speed)));
         scrollAnimator.setInterpolator(new LinearInterpolator());
         final float center = contentWidth / 2f;
         scrollAnimator.addUpdateListener(animation -> {
             float progress = (float) animation.getAnimatedValue();
-            float charIndex = timeline.charIndexAt(positionMs + (long) (progress * duration));
+            float charIndex = timeline.charIndexAt(positionMs + (long) (progress * mediaDuration));
             float position = Math.max(0f, Math.min(charIndex, text.length()));
             int index = (int) position;
             float prefixWidth;

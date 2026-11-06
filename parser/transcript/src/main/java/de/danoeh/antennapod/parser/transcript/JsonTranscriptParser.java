@@ -8,6 +8,7 @@ import org.jsoup.internal.StringUtil;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -20,6 +21,7 @@ public class JsonTranscriptParser {
     private static final int ESTIMATED_CHARS_PER_SECOND = 15;
     private static final long MIN_ESTIMATED_SPAN = 500L;
     private static final long MAX_ESTIMATED_SPAN = 10000L;
+    private static final long MAX_MERGE_GAP_MS = 2000L;
 
     public static Transcript parse(String jsonStr) {
         try {
@@ -54,8 +56,17 @@ public class JsonTranscriptParser {
                 return timedTranscript;
             }
 
+            List<JSONObject> ordered = new ArrayList<>();
             for (int i = 0; i < objSegments.length(); i++) {
-                JSONObject jsonObject = objSegments.getJSONObject(i);
+                JSONObject segment = objSegments.optJSONObject(i);
+                if (segment != null) {
+                    ordered.add(segment);
+                }
+            }
+            ordered.sort(Comparator.comparingLong(JsonTranscriptParser::segmentStartMs));
+
+            for (int i = 0; i < ordered.size(); i++) {
+                JSONObject jsonObject = ordered.get(i);
                 long parsedStartTime =
                         Double.valueOf(jsonObject.optDouble("startTime", -1) * 1000L).longValue();
                 long parsedEndTime =
@@ -66,6 +77,15 @@ public class JsonTranscriptParser {
                 segmentEndTime = endTime;
                 startTime = parsedStartTime;
                 endTime = parsedEndTime;
+                if (StringUtils.isNotEmpty(segmentBody)
+                        && startTime - segmentEndTime > MAX_MERGE_GAP_MS) {
+                    // A short cue before a long silence must not stretch over that silence.
+                    transcript.addSegment(new TranscriptSegment(segmentStartTime, segmentEndTime,
+                            StringUtils.trim(segmentBody), speaker));
+                    segmentBody = "";
+                    segmentStartTime = -1L;
+                    duration = 0L;
+                }
                 if (segmentStartTime == -1L) {
                     segmentStartTime = startTime;
                 }
@@ -98,8 +118,8 @@ public class JsonTranscriptParser {
 
                 if (duration >= TranscriptParser.MIN_SPAN) {
                     // Look ahead and make sure the next segment does not start with an alphanumeric character
-                    if ((i + 1) < objSegments.length()) {
-                        String nextBody = objSegments.getJSONObject(i + 1).optString("body");
+                    if ((i + 1) < ordered.size()) {
+                        String nextBody = ordered.get(i + 1).optString("body");
                         String nextSegmentFirstChar = nextBody.isEmpty() ? "" : nextBody.substring(0, 1);
                         if (!StringUtils.isAlphanumeric(nextSegmentFirstChar)
                                 && (duration < TranscriptParser.MAX_SPAN)) {
@@ -287,10 +307,30 @@ public class JsonTranscriptParser {
         if (index + token.length() > text.length()) {
             return -1;
         }
-        if (text.regionMatches(index, token, 0, token.length())
-                || text.regionMatches(true, index, token, 0, token.length())) {
-            return index;
+        if (!text.regionMatches(index, token, 0, token.length())
+                && !text.regionMatches(true, index, token, 0, token.length())) {
+            return -1;
         }
-        return -1;
+        int end = index + token.length();
+        if (end < text.length() && isAsciiWordChar(token.charAt(token.length() - 1))
+                && isAsciiWordChar(text.charAt(end))) {
+            // A shorter repeated word must not consume the prefix of the next word.
+            return -1;
+        }
+        if (index > 0 && isAsciiWordChar(token.charAt(0))
+                && isAsciiWordChar(text.charAt(index - 1))) {
+            return -1;
+        }
+        return index;
+    }
+
+    private static boolean isAsciiWordChar(char character) {
+        return character >= 'a' && character <= 'z'
+                || character >= 'A' && character <= 'Z'
+                || character >= '0' && character <= '9';
+    }
+
+    private static long segmentStartMs(JSONObject object) {
+        return Math.round(object.optDouble("startTime", -1) * 1000L);
     }
 }

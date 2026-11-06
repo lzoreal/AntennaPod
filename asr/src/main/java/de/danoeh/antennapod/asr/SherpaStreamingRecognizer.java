@@ -43,6 +43,9 @@ public final class SherpaStreamingRecognizer implements StreamingAsr {
             streamStartMs = chunk.startTimeMs();
         } else if (lastEndMs >= 0
                 && Math.abs(chunk.startTimeMs() - lastEndMs) > DISCONTINUITY_TOLERANCE_MS) {
+            // The pending audio before the jump is already marked as covered, so finalize it
+            // instead of dropping its words with the stream state.
+            enqueueResult(lastEndMs);
             recognizer.reset(stream);
             streamStartMs = chunk.startTimeMs();
         }

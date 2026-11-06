@@ -2,6 +2,10 @@ package de.danoeh.antennapod.asr;
 
 import androidx.annotation.NonNull;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -53,8 +57,16 @@ public final class AsrTranscriptStore {
     public void save(@NonNull List<AsrSegment> segments, long audioDurationMs,
                      @NonNull List<MediaRange> coverage, @NonNull String modelId,
                      long audioBytes, String fingerprint) throws IOException {
+        save(segments, audioDurationMs, coverage, modelId, audioBytes, fingerprint,
+                Collections.emptyList());
+    }
+
+    public void save(@NonNull List<AsrSegment> segments, long audioDurationMs,
+                     @NonNull List<MediaRange> coverage, @NonNull String modelId,
+                     long audioBytes, String fingerprint,
+                     @NonNull List<MediaRange> scanned) throws IOException {
         writeAtomically(transcriptFile, AsrTranscriptWriter.write(segments, audioDurationMs,
-                modelId, coverage, audioBytes, fingerprint));
+                modelId, coverage, audioBytes, fingerprint, scanned));
         File source = new File(transcriptFile.getPath() + ".source");
         if (!source.exists()) {
             writeAtomically(source, "generated");
@@ -76,7 +88,12 @@ public final class AsrTranscriptStore {
             String json = read(transcriptFile);
             transcript = JsonTranscriptParser.parse(json);
             if (transcript == null) {
-                throw new IOException("invalid generated transcript");
+                if (!isEmptySnapshot(json)) {
+                    throw new IOException("invalid generated transcript");
+                }
+                // A session without any recognized words still writes a valid empty snapshot;
+                // its journal must still be replayed.
+                transcript = new Transcript();
             }
         } else if (hasJournal()) {
             transcript = new Transcript();
@@ -85,6 +102,15 @@ public final class AsrTranscriptStore {
         }
         addJournalSegments(transcript);
         return transcript;
+    }
+
+    private static boolean isEmptySnapshot(String json) {
+        try {
+            JSONArray segments = new JSONObject(json).optJSONArray("segments");
+            return segments != null && segments.length() == 0;
+        } catch (JSONException e) {
+            return false;
+        }
     }
 
     @NonNull
@@ -96,7 +122,8 @@ public final class AsrTranscriptStore {
             throw new IOException("invalid generated checkpoint", e);
         }
         return new GeneratedTranscriptCheckpoint(stored.getModelId(), stored.getAudioDurationMs(),
-                coverageOf(loadSegments()), stored.getAudioBytes(), stored.getFingerprint());
+                coverageOf(loadSegments()), stored.getScanned(), stored.getAudioBytes(),
+                stored.getFingerprint());
     }
 
     /**

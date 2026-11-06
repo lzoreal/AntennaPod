@@ -377,6 +377,39 @@ public class TranscriptUtils {
                 parseTranscript(transcript, media.getItem().getTranscriptType()));
     }
 
+    /**
+     * Moves generated sidecars from the streaming directory next to a freshly downloaded file.
+     * Files already present at the destination (a published transcript) win.
+     */
+    public static void migrateGeneratedTranscript(String sourcePath, String targetPath) {
+        if (sourcePath == null || targetPath == null || sourcePath.equals(targetPath)) {
+            return;
+        }
+        String[] suffixes = {"", ".source", ".journal"};
+        for (String suffix : suffixes) {
+            File source = new File(sourcePath + suffix);
+            if (!source.isFile()) {
+                continue;
+            }
+            File target = new File(targetPath + suffix);
+            try {
+                if (!target.isFile()) {
+                    File parent = target.getAbsoluteFile().getParentFile();
+                    if (parent != null && !parent.isDirectory()
+                            && !parent.mkdirs() && !parent.isDirectory()) {
+                        continue;
+                    }
+                    FileUtils.copyFile(source, target);
+                }
+                if (source.delete()) {
+                    Log.d(TAG, "Migrated generated transcript" + suffix);
+                }
+            } catch (IOException e) {
+                Log.e(TAG, "Unable to migrate generated transcript" + suffix, e);
+            }
+        }
+    }
+
     /** Stores an already parsed transcript, avoiding a second full parse on the load path. */
     private static void storeTranscript(FeedMedia media, String transcript,
                                         Transcript parsedTranscript) {
@@ -397,6 +430,9 @@ public class TranscriptUtils {
             tempFile = File.createTempFile("transcript-", ".tmp", parent);
             FileUtils.writeStringToFile(tempFile, transcript, StandardCharsets.UTF_8);
             installFile(tempFile, transcriptFile);
+            // The journal only belongs to generated text; replaying it over a published
+            // transcript would append stale ASR segments.
+            TranscriptJournal.clear(transcriptFile);
             writeTranscriptMetadata(media);
         } catch (IOException e) {
             Log.e(TAG, "Unable to store transcript file", e);

@@ -72,8 +72,12 @@ public final class AsrGenerationSession {
                     consecutiveRetries = 0;
                 } catch (AsrRetryableException e) {
                     if (!retryAfterBackoff(++consecutiveRetries)) {
-                        listener.onError(e);
-                        return;
+                        if (running) {
+                            running = false;
+                            listener.onError(e);
+                        }
+                        // Cancelled stops and exhausted retries both fall through to flush().
+                        break;
                     }
                     continue;
                 } catch (IOException | RuntimeException e) {

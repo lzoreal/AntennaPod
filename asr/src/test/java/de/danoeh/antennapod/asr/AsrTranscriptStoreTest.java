@@ -111,6 +111,31 @@ public class AsrTranscriptStoreTest {
         assertEquals(2, store.loadSegments().size());
     }
 
+    @Test
+    public void emptySnapshotStillReplaysJournal() throws IOException {
+        File file = new File(folder.getRoot(), "empty.transcript");
+        AsrTranscriptStore store = new AsrTranscriptStore(file);
+        store.save(Collections.emptyList(), 5000, Collections.emptyList(), "en");
+        store.append(segment("world", 600, 900));
+
+        List<AsrSegment> segments = store.loadSegments();
+
+        assertEquals(1, segments.size());
+        assertEquals("world", segments.get(0).getText());
+    }
+
+    @Test
+    public void scannedRangesSurviveCheckpointRoundTrip() throws IOException {
+        File file = new File(folder.getRoot(), "scanned.transcript");
+        AsrTranscriptStore store = new AsrTranscriptStore(file);
+        store.save(Collections.singletonList(segment("hello", 0, 500)), 5000,
+                Collections.singletonList(new MediaRange(0, 500)), "en", 0, null,
+                Arrays.asList(new MediaRange(0, 500), new MediaRange(500, 5000)));
+
+        assertEquals(Arrays.asList(new MediaRange(0, 500), new MediaRange(500, 5000)),
+                store.loadCheckpoint().getScanned());
+    }
+
     private static AsrSegment segment(String text, long start, long end) {
         return new AsrSegment(text, Collections.singletonList(
                 new AsrWord(text, start, end, 0, text.length())));

@@ -1,6 +1,9 @@
 package de.danoeh.antennapod.ui.transcript;
 
+import java.util.List;
+
 import de.danoeh.antennapod.model.feed.TranscriptSegment;
+import de.danoeh.antennapod.model.feed.TranscriptWord;
 import de.danoeh.antennapod.parser.transcript.TranscriptSentenceUtils;
 
 public final class TranscriptTextUtils {
@@ -15,6 +18,33 @@ public final class TranscriptTextUtils {
         }
         float progress = (position - segment.getStartTime()) / (float) duration;
         return Math.max(0f, Math.min(1f, progress));
+    }
+
+    /**
+     * Progress through the row text following the word timings. Used where a sentence has to be
+     * picked from a word-level segment: the media duration says nothing about where the words are.
+     */
+    public static float wordProgressAt(TranscriptSegment segment, long position) {
+        List<TranscriptWord> words = segment.getWordTimings();
+        int textLength = segment.getWords().length();
+        if (words.isEmpty() || textLength <= 0) {
+            return progressAt(segment, position);
+        }
+        int wordIndex = segment.getWordIndexAt(position);
+        if (wordIndex < 0) {
+            return 0f;
+        }
+        if (wordIndex >= words.size()) {
+            wordIndex = words.size() - 1;
+        }
+        TranscriptWord word = words.get(wordIndex);
+        long duration = word.getEndTime() - word.getStartTime();
+        float within = duration <= 0 ? 1f
+                : Math.max(0f, Math.min(1f,
+                        (position - word.getStartTime()) / (float) duration));
+        float charIndex = word.getStartChar()
+                + within * (word.getEndChar() - word.getStartChar());
+        return Math.max(0f, Math.min(1f, charIndex / textLength));
     }
 
     public static int primaryLength(String text) {

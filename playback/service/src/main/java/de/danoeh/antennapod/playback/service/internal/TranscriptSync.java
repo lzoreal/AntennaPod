@@ -2,7 +2,10 @@ package de.danoeh.antennapod.playback.service.internal;
 
 import androidx.annotation.Nullable;
 
+import java.util.List;
+
 import de.danoeh.antennapod.model.feed.AdSegment;
+import de.danoeh.antennapod.storage.preferences.TranscriptTimeOffsets;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
 
 /**
@@ -15,15 +18,14 @@ public final class TranscriptSync {
 
     public static final class Shift {
         private final long mediaId;
-        private final int endMs;
-        private final long offsetBefore;
-        private final boolean hadOffsets;
+        private final TranscriptTimeOffsets offsetsBefore;
+        private final TranscriptTimeOffsets offsetsAfter;
 
-        private Shift(long mediaId, int endMs, long offsetBefore, boolean hadOffsets) {
+        private Shift(long mediaId,
+                      TranscriptTimeOffsets offsetsBefore, TranscriptTimeOffsets offsetsAfter) {
             this.mediaId = mediaId;
-            this.endMs = endMs;
-            this.offsetBefore = offsetBefore;
-            this.hadOffsets = hadOffsets;
+            this.offsetsBefore = offsetsBefore;
+            this.offsetsAfter = offsetsAfter;
         }
     }
 
@@ -46,20 +48,41 @@ public final class TranscriptSync {
         if (UserPreferences.getTranscriptTimeOffset(mediaId, segment.getEndMs()) != offsetBefore) {
             return null;
         }
-        boolean hadOffsets = UserPreferences.hasTranscriptTimeOffset(mediaId);
+        TranscriptTimeOffsets offsetsBefore =
+                UserPreferences.getTranscriptTimeOffsetsForMedia(mediaId);
         long offsetAfter = segment.getEndMs() - cueTime;
         UserPreferences.setTranscriptTimeOffset(mediaId, segment.getEndMs(), offsetAfter);
-        return new Shift(mediaId, segment.getEndMs(), offsetBefore, hadOffsets);
+        TranscriptTimeOffsets offsetsAfter =
+                UserPreferences.getTranscriptTimeOffsetsForMedia(mediaId);
+        return new Shift(mediaId, offsetsBefore, offsetsAfter);
     }
 
     public static void undo(@Nullable Shift shift) {
         if (shift == null) {
             return;
         }
-        if (shift.hadOffsets) {
-            UserPreferences.setTranscriptTimeOffset(shift.mediaId, shift.endMs, shift.offsetBefore);
-        } else {
-            UserPreferences.removeTranscriptTimeOffset(shift.mediaId);
+        TranscriptTimeOffsets current =
+                UserPreferences.getTranscriptTimeOffsetsForMedia(shift.mediaId);
+        if (!sameAnchors(current, shift.offsetsAfter)) {
+            // The user changed another anchor after the skip; restoring the snapshot would
+            // discard that edit.
+            return;
         }
+        UserPreferences.setTranscriptTimeOffsetsForMedia(shift.mediaId, shift.offsetsBefore);
+    }
+
+    private static boolean sameAnchors(TranscriptTimeOffsets first, TranscriptTimeOffsets second) {
+        List<TranscriptTimeOffsets.Anchor> left = first.getAnchors();
+        List<TranscriptTimeOffsets.Anchor> right = second.getAnchors();
+        if (left.size() != right.size()) {
+            return false;
+        }
+        for (int i = 0; i < left.size(); i++) {
+            if (left.get(i).mediaPositionMs != right.get(i).mediaPositionMs
+                    || left.get(i).offsetMs != right.get(i).offsetMs) {
+                return false;
+            }
+        }
+        return true;
     }
 }

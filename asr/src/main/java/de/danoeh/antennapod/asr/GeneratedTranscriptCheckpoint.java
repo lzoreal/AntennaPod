@@ -19,16 +19,24 @@ public final class GeneratedTranscriptCheckpoint {
     private final String modelId;
     private final long audioDurationMs;
     private final List<MediaRange> coverage;
+    private final List<MediaRange> scanned;
     private final long audioBytes;
     private final String fingerprint;
 
     public GeneratedTranscriptCheckpoint(@NonNull String modelId, long audioDurationMs,
                                          @NonNull List<MediaRange> coverage) {
-        this(modelId, audioDurationMs, coverage, 0, null);
+        this(modelId, audioDurationMs, coverage, Collections.emptyList(), 0, null);
     }
 
     public GeneratedTranscriptCheckpoint(@NonNull String modelId, long audioDurationMs,
                                          @NonNull List<MediaRange> coverage, long audioBytes,
+                                         @Nullable String fingerprint) {
+        this(modelId, audioDurationMs, coverage, Collections.emptyList(), audioBytes, fingerprint);
+    }
+
+    public GeneratedTranscriptCheckpoint(@NonNull String modelId, long audioDurationMs,
+                                         @NonNull List<MediaRange> coverage,
+                                         @NonNull List<MediaRange> scanned, long audioBytes,
                                          @Nullable String fingerprint) {
         if (modelId == null || modelId.trim().isEmpty()) {
             throw new IllegalArgumentException("modelId is empty");
@@ -42,9 +50,16 @@ public final class GeneratedTranscriptCheckpoint {
                 throw new IllegalArgumentException("coverage contains a null range");
             }
         }
+        List<MediaRange> scannedRanges = new ArrayList<>(scanned);
+        for (MediaRange range : scannedRanges) {
+            if (range == null) {
+                throw new IllegalArgumentException("scanned contains a null range");
+            }
+        }
         this.modelId = modelId;
         this.audioDurationMs = audioDurationMs;
         this.coverage = Collections.unmodifiableList(ranges);
+        this.scanned = Collections.unmodifiableList(scannedRanges);
         this.audioBytes = audioBytes;
         this.fingerprint = fingerprint;
     }
@@ -69,6 +84,12 @@ public final class GeneratedTranscriptCheckpoint {
     @NonNull
     public List<MediaRange> getCoverage() {
         return coverage;
+    }
+
+    /** Ranges that were already decoded, including silence without recognized words. */
+    @NonNull
+    public List<MediaRange> getScanned() {
+        return scanned;
     }
 
     /** False when the saved checkpoint describes a different copy or length of the audio. */
@@ -117,6 +138,14 @@ public final class GeneratedTranscriptCheckpoint {
                 ranges.put(pair);
             }
             object.put("coverage", ranges);
+            JSONArray scannedRanges = new JSONArray();
+            for (MediaRange range : scanned) {
+                JSONArray pair = new JSONArray();
+                pair.put(range.startMs());
+                pair.put(range.endMs());
+                scannedRanges.put(pair);
+            }
+            object.put("scanned", scannedRanges);
             return object.toString();
         } catch (JSONException e) {
             throw new IllegalStateException("Unable to serialize checkpoint", e);
@@ -147,8 +176,16 @@ public final class GeneratedTranscriptCheckpoint {
                     ranges.add(new MediaRange(pair.getLong(0), pair.getLong(1)));
                 }
             }
+            List<MediaRange> scanned = new ArrayList<>();
+            JSONArray scannedJson = object.optJSONArray("scanned");
+            if (scannedJson != null) {
+                for (int i = 0; i < scannedJson.length(); i++) {
+                    JSONArray pair = scannedJson.getJSONArray(i);
+                    scanned.add(new MediaRange(pair.getLong(0), pair.getLong(1)));
+                }
+            }
             return new GeneratedTranscriptCheckpoint(modelId, audioDurationMs, ranges,
-                    audioBytes, fingerprint);
+                    scanned, audioBytes, fingerprint);
         } catch (JSONException e) {
             throw new IllegalArgumentException("invalid checkpoint", e);
         }

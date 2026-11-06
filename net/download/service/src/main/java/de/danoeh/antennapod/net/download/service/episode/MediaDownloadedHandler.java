@@ -51,10 +51,13 @@ public class MediaDownloadedHandler implements Runnable {
         }
         // media.setDownloaded modifies played state
         boolean broadcastUnreadStateUpdate = media.getItem() != null && media.getItem().isNew();
+        final String streamingTranscript = media.getGeneratedTranscriptFileUrl();
         media.setDownloaded(true, System.currentTimeMillis());
         media.setLocalFileUrl(request.getDestination());
         media.setSize(new File(request.getDestination()).length());
         media.checkEmbeddedPicture(); // enforce check
+        TranscriptUtils.migrateGeneratedTranscript(streamingTranscript,
+                media.getGeneratedTranscriptFileUrl());
 
         try {
             // Cache chapters if file has them
